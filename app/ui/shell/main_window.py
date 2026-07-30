@@ -50,17 +50,28 @@ class MainWindow(QMainWindow):
 
         self.user_management_page = None
 
-        self.page_map = [
-            self.dashboard_page,
-            self.projects_page,
-            self.laboratory_page,
-            self.reports_page,
-        ]
+        self.page_lookup = {}
 
-        for page in self.page_map:
-            self.pages.addWidget(page)
+        self._add_page("dashboard", self.dashboard_page)
+        self._add_page("projects", self.projects_page)
+        self._add_page("laboratory", self.laboratory_page)
+        self._add_page("reports", self.reports_page)
 
-        self.sidebar.page_selected.connect(self.pages.setCurrentIndex)
+        self.sidebar.page_selected.connect(self.show_page)
+
+    # --------------------------------------------------
+
+    def _add_page(self, key, page):
+        self.page_lookup[key] = page
+        self.pages.addWidget(page)
+
+    def show_page(self, key):
+        page = self.page_lookup.get(key)
+
+        if page is not None:
+            self.pages.setCurrentWidget(page)
+
+    # --------------------------------------------------
 
     def initialize(self, user):
 
@@ -84,10 +95,18 @@ class MainWindow(QMainWindow):
             and self.user_management_page is None
         ):
             self.user_management_page = UserManagementPage()
-            self.pages.addWidget(self.user_management_page)
 
-            if hasattr(self.sidebar, "add_page"):
-                self.sidebar.add_page("👥 User Management")
+            self._add_page(
+                "users",
+                self.user_management_page,
+            )
+
+            self.sidebar.add_page(
+                "users",
+                "👥 User Management",
+            )
+
+    # --------------------------------------------------
 
     def can(self, permission):
         return Permissions.can(

@@ -1,9 +1,8 @@
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import (
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
-    QLabel,
     QPushButton,
     QTextEdit,
 )
@@ -14,13 +13,15 @@ from app.ui.widgets.card import Card
 
 
 class DashboardPage(BasePage):
-
     def __init__(self):
-
         super().__init__(
             "Dashboard",
-            "Laboratory overview"
+            "Laboratory overview",
         )
+
+        # --------------------------------------------------
+        # KPI Cards
+        # --------------------------------------------------
 
         grid = QGridLayout()
         grid.setSpacing(15)
@@ -46,21 +47,30 @@ class DashboardPage(BasePage):
 
         self.content_layout.addLayout(grid)
 
-        quick = QGroupBox("Quick Actions")
+        # --------------------------------------------------
+        # Quick Actions
+        # --------------------------------------------------
 
-        quick_layout = QHBoxLayout(quick)
+        quick_box = QGroupBox("Quick Actions")
 
-        for text in (
-            "Add Equipment",
-            "Calibration",
-            "Maintenance",
-            "Reports",
-        ):
-            quick_layout.addWidget(QPushButton(text))
+        quick_layout = QHBoxLayout(quick_box)
 
+        self.add_equipment_btn = QPushButton("Add Equipment")
+        self.calibration_btn = QPushButton("Calibration")
+        self.maintenance_btn = QPushButton("Maintenance")
+        self.reports_btn = QPushButton("Reports")
+
+        quick_layout.addWidget(self.add_equipment_btn)
+        quick_layout.addWidget(self.calibration_btn)
+        quick_layout.addWidget(self.maintenance_btn)
+        quick_layout.addWidget(self.reports_btn)
         quick_layout.addStretch()
 
-        self.content_layout.addWidget(quick)
+        self.content_layout.addWidget(quick_box)
+
+        # --------------------------------------------------
+        # Recent Activity
+        # --------------------------------------------------
 
         activity_box = QGroupBox("Recent Activity")
 
@@ -73,62 +83,104 @@ class DashboardPage(BasePage):
 
         self.content_layout.addWidget(activity_box)
 
+        # --------------------------------------------------
+        # Auto Refresh
+        # --------------------------------------------------
+
         self.refresh()
 
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.refresh)
         self.timer.start(60000)
 
-    def refresh(self):
+    # ======================================================
+    # Refresh
+    # ======================================================
 
+    def refresh(self):
         conn = get_connection()
         cur = conn.cursor()
 
         def count(sql):
             cur.execute(sql)
-            return str(cur.fetchone()[0])
+            row = cur.fetchone()
+            return str(row[0] if row else 0)
 
         self.total_equipment.setValue(
-            count("SELECT COUNT(*) FROM laboratory_equipment")
+            count(
+                "SELECT COUNT(*) FROM laboratory_equipment"
+            )
         )
 
         self.active_equipment.setValue(
-            count("SELECT COUNT(*) FROM laboratory_equipment WHERE status='Active'")
+            count(
+                """
+                SELECT COUNT(*)
+                FROM laboratory_equipment
+                WHERE status='Active'
+                """
+            )
         )
 
         self.overdue.setValue(
-            count("SELECT COUNT(*) FROM laboratory_equipment WHERE status='Overdue'")
+            count(
+                """
+                SELECT COUNT(*)
+                FROM laboratory_equipment
+                WHERE status='Overdue'
+                """
+            )
         )
 
         self.due.setValue(
-            count("SELECT COUNT(*) FROM laboratory_equipment WHERE status='Due Soon'")
+            count(
+                """
+                SELECT COUNT(*)
+                FROM laboratory_equipment
+                WHERE status='Due Soon'
+                """
+            )
         )
 
         self.maintenance.setValue(
-            count("SELECT COUNT(*) FROM maintenance_history")
+            count(
+                "SELECT COUNT(*) FROM maintenance_history"
+            )
         )
 
         self.users.setValue(
-            count("SELECT COUNT(*) FROM users WHERE is_active=1")
+            count(
+                """
+                SELECT COUNT(*)
+                FROM users
+                WHERE is_active=1
+                """
+            )
         )
 
-        cur.execute("""
-            SELECT equipment_name,status
+        cur.execute(
+            """
+            SELECT
+                equipment_name,
+                status
             FROM laboratory_equipment
             ORDER BY updated_at DESC
             LIMIT 10
-        """)
+            """
+        )
 
         rows = cur.fetchall()
 
         if rows:
             self.activity.setPlainText(
                 "\n".join(
-                    f"• {name}   [{status}]"
+                    f"• {name} [{status}]"
                     for name, status in rows
                 )
             )
         else:
-            self.activity.setPlainText("No recent activity.")
+            self.activity.setPlainText(
+                "No recent activity."
+            )
 
         conn.close()

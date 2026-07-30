@@ -8,136 +8,164 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from app.ui.theme import ThemeManager
+
 
 class Sidebar(QFrame):
-
-    page_selected = Signal(int)
+    page_selected = Signal(str)
 
     def __init__(self):
         super().__init__()
 
         self.setObjectName("Sidebar")
-        self.setFixedWidth(260)
+        self.setFixedWidth(250)
 
-        self.buttons = []
-        self.current_index = 0
+        self.buttons = {}
+        self.current_key = None
 
-        self.setStyleSheet("""
-        QFrame#Sidebar{
-            background:#1F2937;
-            border:none;
-        }
+        self._build_ui()
 
-        QLabel#Logo{
-            color:white;
-            font-size:22px;
-            font-weight:700;
-            padding:18px;
-        }
+        ThemeManager.register(self._apply_theme)
+        self._apply_theme(ThemeManager.current())
 
-        QLabel#User{
-            color:#D1D5DB;
-            padding:15px;
-            font-size:12px;
-        }
+    # ==========================================================
+    # UI
+    # ==========================================================
 
-        QLabel#Version{
-            color:#9CA3AF;
-            padding:10px;
-            font-size:11px;
-        }
-
-        QPushButton{
-            background:transparent;
-            border:none;
-            border-radius:8px;
-            color:white;
-            text-align:left;
-            padding:12px 16px;
-            font-size:14px;
-        }
-
-        QPushButton:hover{
-            background:#374151;
-        }
-
-        QPushButton:checked{
-            background:#2563EB;
-            font-weight:bold;
-        }
-        """)
-
+    def _build_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(15, 15, 15, 15)
-        layout.setSpacing(8)
+        layout.setContentsMargins(16, 18, 16, 18)
+        layout.setSpacing(10)
 
-        logo = QLabel("FlowLab Pro")
-        logo.setObjectName("Logo")
-        logo.setAlignment(Qt.AlignCenter)
-        layout.addWidget(logo)
+        self.logo = QLabel("FlowLab Pro")
+        self.logo.setObjectName("SidebarLogo")
+        self.logo.setAlignment(Qt.AlignCenter)
 
-        layout.addSpacing(10)
+        layout.addWidget(self.logo)
+        layout.addSpacing(8)
 
-        self.menu = QVBoxLayout()
-        self.menu.setSpacing(6)
+        self.menu_layout = QVBoxLayout()
+        self.menu_layout.setSpacing(6)
 
-        menu_widget = QWidget()
-        menu_widget.setLayout(self.menu)
+        menu = QWidget()
+        menu.setLayout(self.menu_layout)
 
-        layout.addWidget(menu_widget)
+        layout.addWidget(menu)
         layout.addStretch()
 
         self.user = QLabel("Not signed in")
-        self.user.setObjectName("User")
+        self.user.setObjectName("SidebarUser")
         self.user.setAlignment(Qt.AlignCenter)
 
         self.version = QLabel("v1.0")
-        self.version.setObjectName("Version")
+        self.version.setObjectName("SidebarVersion")
         self.version.setAlignment(Qt.AlignCenter)
 
         layout.addWidget(self.user)
         layout.addWidget(self.version)
 
-        for item in [
-            "🏠 Dashboard",
-            "📁 Projects",
-            "🧪 Laboratory",
-            "📊 Reports",
-            "⚙ Settings",
-        ]:
-            self.add_page(item)
+        self.add_page("dashboard", "Dashboard")
+        self.add_page("projects", "Projects")
+        self.add_page("laboratory", "Laboratory")
+        self.add_page("reports", "Reports")
+        self.add_page("settings", "Settings")
 
-    def add_page(self, title):
+        self.select("dashboard")
 
-        index = len(self.buttons)
+    # ==========================================================
+    # Theme
+    # ==========================================================
 
-        btn = QPushButton(title)
-        btn.setCheckable(True)
-        btn.setMinimumHeight(42)
-        btn.setCursor(Qt.PointingHandCursor)
-        btn.setSizePolicy(
-            QSizePolicy.Expanding,
-            QSizePolicy.Fixed,
+    def _apply_theme(self, theme):
+        c = theme.color
+
+        self.setStyleSheet(
+            f"""
+            QFrame#Sidebar {{
+                background:{c.sidebar};
+                border-right:1px solid {c.border};
+            }}
+
+            QLabel#SidebarLogo {{
+                background:transparent;
+                color:{c.text};
+                font-size:22px;
+                font-weight:700;
+                padding:14px;
+            }}
+
+            QLabel#SidebarUser {{
+                background:transparent;
+                color:{c.text_secondary};
+                font-size:12px;
+                padding:10px;
+            }}
+
+            QLabel#SidebarVersion {{
+                background:transparent;
+                color:{c.text_muted};
+                font-size:11px;
+                padding:6px;
+            }}
+
+            QPushButton {{
+                background:transparent;
+                border:none;
+                border-radius:10px;
+                color:{c.text};
+                text-align:left;
+                padding:12px 16px;
+                font-size:14px;
+                font-weight:500;
+            }}
+
+            QPushButton:hover {{
+                background:{c.surface};
+            }}
+
+            QPushButton:checked {{
+                background:{c.primary};
+                color:white;
+                font-weight:700;
+            }}
+            """
         )
 
-        btn.clicked.connect(
-            lambda _, i=index: self.select(i)
-        )
+    # ==========================================================
+    # Navigation
+    # ==========================================================
 
-        self.menu.addWidget(btn)
-        self.buttons.append(btn)
+    def add_page(self, key: str, title: str):
+        button = QPushButton(title)
+        button.setCheckable(True)
+        button.setCursor(Qt.PointingHandCursor)
+        button.setMinimumHeight(44)
+        button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
-        if len(self.buttons) == 1:
-            btn.setChecked(True)
+        button.clicked.connect(lambda _, k=key: self.select(k))
 
-    def select(self, index):
+        self.menu_layout.addWidget(button)
+        self.buttons[key] = button
 
-        self.current_index = index
+    def select(self, key: str):
+        self.current_key = key
 
-        for i, b in enumerate(self.buttons):
-            b.setChecked(i == index)
+        for page_key, button in self.buttons.items():
+            button.setChecked(page_key == key)
 
-        self.page_selected.emit(index)
+        self.page_selected.emit(key)
 
-    def set_user(self, name, role):
+    # ==========================================================
+    # User
+    # ==========================================================
+
+    def set_user(self, name: str, role: str):
         self.user.setText(f"{name}\n{role}")
+
+    # ==========================================================
+    # Cleanup
+    # ==========================================================
+
+    def closeEvent(self, event):
+        ThemeManager.unregister(self._apply_theme)
+        super().closeEvent(event)

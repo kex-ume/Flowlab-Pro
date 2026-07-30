@@ -2,51 +2,46 @@ from PySide6.QtGui import QFont
 
 
 class Fonts:
-
     FAMILY = "Segoe UI"
 
-    @staticmethod
-    def title():
-        f = QFont(Fonts.FAMILY, 24)
-        f.setBold(True)
-        return f
+    @classmethod
+    def _font(cls, size: int, bold: bool = False, family: str | None = None):
+        font = QFont(family or cls.FAMILY, size)
+        font.setBold(bold)
+        return font
 
-    @staticmethod
-    def heading():
-        f = QFont(Fonts.FAMILY, 16)
-        f.setBold(True)
-        return f
+    @classmethod
+    def title(cls):
+        return cls._font(24, bold=True)
 
-    @staticmethod
-    def subtitle():
-        return QFont(Fonts.FAMILY, 11)
+    @classmethod
+    def heading(cls):
+        return cls._font(16, bold=True)
 
-    @staticmethod
-    def body():
-        return QFont(Fonts.FAMILY, 10)
+    @classmethod
+    def subtitle(cls):
+        return cls._font(11)
 
-    @staticmethod
-    def button():
-        f = QFont(Fonts.FAMILY, 10)
-        f.setBold(True)
-        return f
+    @classmethod
+    def body(cls):
+        return cls._font(10)
 
-    @staticmethod
-    def card_title():
-        f = QFont(Fonts.FAMILY, 10)
-        f.setBold(True)
-        return f
+    @classmethod
+    def button(cls):
+        return cls._font(10, bold=True)
 
-    @staticmethod
-    def card_value():
-        f = QFont(Fonts.FAMILY, 30)
-        f.setBold(True)
-        return f
+    @classmethod
+    def card_title(cls):
+        return cls._font(10, bold=True)
 
-    @staticmethod
-    def small():
-        return QFont(Fonts.FAMILY, 9)
+    @classmethod
+    def card_value(cls):
+        return cls._font(30, bold=True)
 
-    @staticmethod
-    def mono():
-        return QFont("Consolas", 10)
+    @classmethod
+    def small(cls):
+        return cls._font(9)
+
+    @classmethod
+    def mono(cls):
+        return cls._font(10, family="Consolas")

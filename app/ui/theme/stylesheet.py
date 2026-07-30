@@ -1,113 +1,218 @@
-from .colors import Colors
+from __future__ import annotations
+
+from app.ui.theme.base import Theme
 
 
 class StyleSheet:
-
     @staticmethod
-    def build():
-
-        c = Colors
+    def build(theme: Theme) -> str:
+        c = theme.color
+        r = theme.radius
 
         return f"""
+/* ----------------------------------------------------------
+   Global
+---------------------------------------------------------- */
 
 QMainWindow {{
-    background:{c.WINDOW};
+    background: {c.window};
 }}
 
 QWidget {{
-    background:{c.WINDOW};
-    color:{c.TEXT};
-    font-family:"Segoe UI";
-    font-size:10pt;
+    background: {c.window};
+    color: {c.text};
+    font-family: "{theme.font.family}";
+    font-size: {theme.font.body}pt;
 }}
 
+/* ----------------------------------------------------------
+   Containers
+---------------------------------------------------------- */
+
 QFrame {{
-    background:{c.CARD};
-    border:1px solid {c.BORDER};
-    border-radius:12px;
+    background: {c.card};
+    border: 1px solid {c.border};
+    border-radius: {r.md}px;
 }}
 
 QGroupBox {{
-    background:{c.CARD};
-    border:1px solid {c.BORDER};
-    border-radius:12px;
-    margin-top:14px;
-    font-weight:600;
+    background: {c.card};
+    border: 1px solid {c.border};
+    border-radius: {r.md}px;
+    margin-top: 14px;
+    font-weight: 600;
 }}
 
 QGroupBox::title {{
-    left:16px;
-    padding:0 6px;
+    subcontrol-origin: margin;
+    left: 16px;
+    padding: 0 6px;
+    color: {c.text};
 }}
 
+/* ----------------------------------------------------------
+   Buttons
+---------------------------------------------------------- */
+
 QPushButton {{
-    background:{c.PRIMARY};
-    color:white;
-    border:none;
-    border-radius:8px;
-    padding:10px 18px;
-    min-height:18px;
+    background: {c.primary};
+    color: white;
+    border: none;
+    border-radius: {r.sm}px;
+    padding: 10px 18px;
+    min-height: 18px;
 }}
 
 QPushButton:hover {{
-    background:{c.PRIMARY_HOVER};
+    background: {c.primary_hover};
 }}
 
 QPushButton:pressed {{
-    background:{c.PRIMARY_PRESSED};
+    background: {c.primary_pressed};
 }}
+
+QPushButton:disabled {{
+    background: {c.border};
+    color: {c.text_secondary};
+}}
+
+/* ----------------------------------------------------------
+   Inputs
+---------------------------------------------------------- */
 
 QLineEdit,
 QComboBox,
 QDateEdit,
 QTextEdit,
+QPlainTextEdit,
 QSpinBox,
 QDoubleSpinBox {{
-    background:white;
-    border:1px solid {c.INPUT_BORDER};
-    border-radius:8px;
-    padding:8px;
+    background: {c.input};
+    color: {c.text};
+    border: 1px solid {c.input_border};
+    border-radius: {r.sm}px;
+    padding: 8px;
 }}
 
 QLineEdit:focus,
 QComboBox:focus,
 QDateEdit:focus,
-QTextEdit:focus {{
-    border:2px solid {c.INPUT_FOCUS};
+QTextEdit:focus,
+QPlainTextEdit:focus,
+QSpinBox:focus,
+QDoubleSpinBox:focus {{
+    border: 2px solid {c.input_focus};
 }}
 
-QTableWidget {{
-    background:white;
-    border:1px solid {c.BORDER};
-    gridline-color:{c.TABLE_GRID};
-    alternate-background-color:#F9FAFB;
-    selection-background-color:{c.PRIMARY};
+/* ----------------------------------------------------------
+   Tables / Lists
+---------------------------------------------------------- */
+
+QTableWidget,
+QTableView,
+QTreeView,
+QListView {{
+    background: {c.surface};
+    color: {c.text};
+    border: 1px solid {c.border};
+    gridline-color: {c.table_grid};
+    alternate-background-color: {c.card};
+    selection-background-color: {c.primary};
+    selection-color: white;
 }}
 
 QHeaderView::section {{
-    background:{c.TABLE_HEADER};
-    border:none;
-    border-bottom:1px solid {c.BORDER};
-    padding:10px;
-    font-weight:600;
+    background: {c.table_header};
+    color: {c.text};
+    border: none;
+    border-bottom: 1px solid {c.border};
+    padding: 10px;
+    font-weight: 600;
 }}
+
+QTableWidget::item:hover,
+QTableView::item:hover {{
+    background: {c.divider};
+}}
+
+/* ----------------------------------------------------------
+   Scroll Bars
+---------------------------------------------------------- */
 
 QScrollArea {{
-    border:none;
-    background:transparent;
+    background: transparent;
+    border: none;
 }}
 
-QStatusBar {{
-    background:white;
+QScrollBar:vertical {{
+    background: transparent;
+    width: 10px;
 }}
+
+QScrollBar::handle:vertical {{
+    background: {c.border};
+    border-radius: 5px;
+    min-height: 30px;
+}}
+
+QScrollBar:horizontal {{
+    background: transparent;
+    height: 10px;
+}}
+
+QScrollBar::handle:horizontal {{
+    background: {c.border};
+    border-radius: 5px;
+    min-width: 30px;
+}}
+
+/* ----------------------------------------------------------
+   Tabs
+---------------------------------------------------------- */
+
+QTabWidget::pane {{
+    border: 1px solid {c.border};
+}}
+
+QTabBar::tab {{
+    background: {c.surface};
+    color: {c.text};
+    border: 1px solid {c.border};
+    padding: 8px 16px;
+}}
+
+QTabBar::tab:selected {{
+    background: {c.primary};
+    color: white;
+}}
+
+/* ----------------------------------------------------------
+   Menus
+---------------------------------------------------------- */
 
 QMenu {{
-    background:white;
+    background: {c.surface};
+    color: {c.text};
+    border: 1px solid {c.border};
+}}
+
+QMenu::item:selected {{
+    background: {c.primary};
+    color: white;
 }}
 
 QToolTip {{
-    background:#111827;
-    color:white;
-    border:none;
+    background: {c.sidebar};
+    color: {c.text_light};
+    border: 1px solid {c.border};
+}}
+
+/* ----------------------------------------------------------
+   Status Bar
+---------------------------------------------------------- */
+
+QStatusBar {{
+    background: {c.surface};
+    border-top: 1px solid {c.border};
 }}
 """
