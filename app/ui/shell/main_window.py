@@ -3,10 +3,12 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QStackedWidget,
+    QVBoxLayout,
     QWidget,
 )
 
 from app.ui.shell.sidebar import Sidebar
+from app.ui.shell.topbar import TopBar
 
 from app.ui.pages.home.dashboard_page import DashboardPage
 from app.ui.pages.projects.projects_page import ProjectsPage
@@ -30,18 +32,45 @@ class MainWindow(QMainWindow):
 
         self.statusBar().showMessage("Ready")
 
+        # ======================================================
+        # Central Widget
+        # ======================================================
+
         central = QWidget()
         self.setCentralWidget(central)
 
-        layout = QHBoxLayout(central)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
+        root_layout = QHBoxLayout(central)
+        root_layout.setContentsMargins(0, 0, 0, 0)
+        root_layout.setSpacing(0)
+
+        # ======================================================
+        # Sidebar
+        # ======================================================
 
         self.sidebar = Sidebar()
-        layout.addWidget(self.sidebar)
+        root_layout.addWidget(self.sidebar)
+
+        # ======================================================
+        # Right Panel
+        # ======================================================
+
+        right_panel = QWidget()
+
+        right_layout = QVBoxLayout(right_panel)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.setSpacing(0)
+
+        self.topbar = TopBar()
+        right_layout.addWidget(self.topbar)
 
         self.pages = QStackedWidget()
-        layout.addWidget(self.pages, 1)
+        right_layout.addWidget(self.pages, 1)
+
+        root_layout.addWidget(right_panel, 1)
+
+        # ======================================================
+        # Pages
+        # ======================================================
 
         self.dashboard_page = DashboardPage()
         self.projects_page = ProjectsPage()
@@ -59,19 +88,20 @@ class MainWindow(QMainWindow):
 
         self.sidebar.page_selected.connect(self.show_page)
 
-    # --------------------------------------------------
+    # ======================================================
 
     def _add_page(self, key, page):
         self.page_lookup[key] = page
         self.pages.addWidget(page)
 
     def show_page(self, key):
+
         page = self.page_lookup.get(key)
 
         if page is not None:
             self.pages.setCurrentWidget(page)
 
-    # --------------------------------------------------
+    # ======================================================
 
     def initialize(self, user):
 
@@ -90,10 +120,14 @@ class MainWindow(QMainWindow):
             user.role_name,
         )
 
+        self.topbar.title.setText("Dashboard")
+        self.topbar.set_user(user.full_name)
+
         if (
             Permissions.can(user.role_name, "user_management")
             and self.user_management_page is None
         ):
+
             self.user_management_page = UserManagementPage()
 
             self._add_page(
@@ -103,12 +137,15 @@ class MainWindow(QMainWindow):
 
             self.sidebar.add_page(
                 "users",
-                "👥 User Management",
+                "User Management",
+                ":/icons/user.svg",
+                True,
             )
 
-    # --------------------------------------------------
+    # ======================================================
 
     def can(self, permission):
+
         return Permissions.can(
             self.current_user.role_name,
             permission,

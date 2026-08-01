@@ -1,0 +1,17 @@
+<RCC>
+    <qresource prefix="/">
+        <file>icons/dashboard.svg</file>
+        <file>icons/analytics.svg</file>
+        <file>icons/shield.svg</file>
+        <file>icons/projects.svg</file>
+        <file>icons/laboratory.svg</file>
+        <file>icons/calculator.svg</file>
+        <file>icons/documents.svg</file>
+        <file>icons/database.svg</file>
+        <file>icons/settings.svg</file>
+        <file>icons/notification.svg</file>
+        <file>icons/search.svg</file>
+        <file>icons/user.svg</file>
+        <file>icons/flowlab_logo.svg</file>
+    </qresource>
+</RCC>

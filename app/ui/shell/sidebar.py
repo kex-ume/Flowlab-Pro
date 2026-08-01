@@ -1,26 +1,31 @@
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QFrame,
     QLabel,
-    QPushButton,
     QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
 
 from app.ui.theme import ThemeManager
+from app.ui.widgets.navigation_item import NavigationItem
 
+import app.ui.resources.resources_rc
 
 class Sidebar(QFrame):
+
     page_selected = Signal(str)
+
+    SIDEBAR_WIDTH = 260
 
     def __init__(self):
         super().__init__()
 
         self.setObjectName("Sidebar")
-        self.setFixedWidth(250)
+        self.setFixedWidth(self.SIDEBAR_WIDTH)
 
-        self.buttons = {}
+        self.items = {}
         self.current_key = None
 
         self._build_ui()
@@ -28,144 +33,303 @@ class Sidebar(QFrame):
         ThemeManager.register(self._apply_theme)
         self._apply_theme(ThemeManager.current())
 
-    # ==========================================================
-    # UI
-    # ==========================================================
+    # =====================================================
+       #SELECT
+    # =====================================================
+    def select(self, key: str):
 
+        if key not in self.items:
+            return
+
+        self.current_key = key
+
+        for page_key, item in self.items.items():
+            item.set_active(page_key == key)
+
+        self.page_selected.emit(key)
+
+    def set_user(
+            self,
+            name: str,
+            role: str,
+        ):
+
+            self.user.setText(
+                f"{name}\n{role}"
+    )
+
+    def closeEvent(self, event):
+
+        ThemeManager.unregister(self._apply_theme)
+
+        super().closeEvent(event)
+   # =====================================================
+        #ADD PAGE
+    # =====================================================
+    def add_page(
+        self,
+        key: str,
+        title: str,
+        icon: str,
+        enabled: bool = True,
+    ):
+
+        item = NavigationItem(
+            key,
+            title,
+            icon,
+        )
+
+        item.setEnabled(enabled)
+
+        if enabled:
+            item.clicked.connect(self.select)
+
+        self.menu_layout.addWidget(item)
+
+        self.items[key] = item
+
+
+    # =====================================================
     def _build_ui(self):
+
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 18, 16, 18)
-        layout.setSpacing(10)
+        layout.setContentsMargins(18, 20, 18, 20)
+        layout.setSpacing(8)
+
+    
+
+    # ======================================================
+    # Brand
+    # ======================================================
+
+        self.logo_icon = QLabel()
+        self.logo_icon.setPixmap(
+            QIcon(":/icons/flowlab_logo.svg").pixmap(34, 34)
+    )
+        self.logo_icon.setAlignment(Qt.AlignCenter)
 
         self.logo = QLabel("FlowLab Pro")
         self.logo.setObjectName("SidebarLogo")
         self.logo.setAlignment(Qt.AlignCenter)
 
+        self.subtitle = QLabel("ISO/IEC 17025 Calibration")
+        self.subtitle.setObjectName("SidebarSubtitle")
+        self.subtitle.setAlignment(Qt.AlignCenter)
+
+        layout.addWidget(self.logo_icon)
         layout.addWidget(self.logo)
-        layout.addSpacing(8)
+        layout.addWidget(self.subtitle)
+
+        layout.addSpacing(18)
+
+    # ======================================================
+    # Menu
+    # ======================================================
 
         self.menu_layout = QVBoxLayout()
-        self.menu_layout.setSpacing(6)
+        self.menu_layout.setSpacing(5)
 
         menu = QWidget()
         menu.setLayout(self.menu_layout)
 
         layout.addWidget(menu)
+
+    # ------------------------------------------------------
+
+        self.main_section = QLabel("MAIN")
+        self.main_section.setObjectName("SidebarSection")
+        self.menu_layout.addWidget(self.main_section)
+
+        self.add_page(
+            "dashboard",
+            "Dashboard",
+            ":/icons/dashboard.svg",
+        )
+
+        self.add_page(
+            "analytics",
+            "Analytics",
+            ":/icons/analytics.svg",
+            enabled=False,
+        )
+
+        self.add_page(
+            "iso17025",
+            "ISO 17025",
+            ":/icons/shield.svg",
+            enabled=False,
+        )
+
+        self.add_page(
+            "projects",
+            "Projects",
+            ":/icons/projects.svg",
+        )
+
+        self.menu_layout.addSpacing(12)
+
+        # ------------------------------------------------------
+
+        self.operations_section = QLabel("OPERATIONS")
+        self.operations_section.setObjectName("SidebarSection")
+        self.menu_layout.addWidget(self.operations_section)
+
+        self.add_page(
+            "laboratory",
+            "Laboratory",
+            ":/icons/laboratory.svg",
+        )
+
+        self.add_page(
+            "tools",
+            "Tools & Calculators",
+            ":/icons/calculator.svg",
+            enabled=False,
+        )
+
+        self.add_page(
+            "standards",
+            "Standards & Procedures",
+            ":/icons/documents.svg",
+            enabled=False,
+        )
+
+        self.add_page(
+            "database",
+            "Database & Records",
+            ":/icons/database.svg",
+            enabled=False,
+        )
+
+        self.menu_layout.addSpacing(12)
+
+        # ------------------------------------------------------
+
+        self.system_section = QLabel("SYSTEM")
+        self.system_section.setObjectName("SidebarSection")
+        self.menu_layout.addWidget(self.system_section)
+
+        self.add_page(
+            "settings",
+            "Settings",
+            ":/icons/settings.svg",
+            enabled=False,
+        )
+
         layout.addStretch()
+
+        # ======================================================
+        # Accreditation Card
+        # ======================================================
+
+        self.iso_card = QLabel(
+            "ISO/IEC 17025:2017\n"
+            "Accredited • Flow Calibration"
+        )
+        self.iso_card.setObjectName("IsoCard")
+        self.iso_card.setAlignment(Qt.AlignCenter)
+
+        layout.addWidget(self.iso_card)
+
+        # ======================================================
+        # User
+        # ======================================================
 
         self.user = QLabel("Not signed in")
         self.user.setObjectName("SidebarUser")
-        self.user.setAlignment(Qt.AlignCenter)
-
-        self.version = QLabel("v1.0")
-        self.version.setObjectName("SidebarVersion")
-        self.version.setAlignment(Qt.AlignCenter)
 
         layout.addWidget(self.user)
-        layout.addWidget(self.version)
 
-        self.add_page("dashboard", "Dashboard")
-        self.add_page("projects", "Projects")
-        self.add_page("laboratory", "Laboratory")
-        self.add_page("reports", "Reports")
-        self.add_page("settings", "Settings")
+        # ======================================================
+        # Organisation
+        # ======================================================
+
+        self.org = QLabel("EATL")
+        self.org.setObjectName("SidebarVersion")
+
+        layout.addWidget(self.org)
 
         self.select("dashboard")
-
-    # ==========================================================
-    # Theme
-    # ==========================================================
+        # =====================================================
 
     def _apply_theme(self, theme):
+
         c = theme.color
 
-        self.setStyleSheet(
-            f"""
-            QFrame#Sidebar {{
-                background:{c.sidebar};
-                border-right:1px solid {c.border};
-            }}
+        self.setStyleSheet(f"""
 
-            QLabel#SidebarLogo {{
-                background:transparent;
-                color:{c.text};
-                font-size:22px;
-                font-weight:700;
-                padding:14px;
-            }}
+QFrame#Sidebar {{
+    background:qlineargradient(
+        x1:0,y1:0,
+        x2:0,y2:1,
+        stop:0 #173A59,
+        stop:1 #0F2847
+    );
+    border:none;
+}}
 
-            QLabel#SidebarUser {{
-                background:transparent;
-                color:{c.text_secondary};
-                font-size:12px;
-                padding:10px;
-            }}
+QLabel#SidebarLogo {{
+    background:transparent;
+    color:white;
+    font-size:24px;
+    font-weight:700;
+}}
 
-            QLabel#SidebarVersion {{
-                background:transparent;
-                color:{c.text_muted};
-                font-size:11px;
-                padding:6px;
-            }}
+QLabel#SidebarSubtitle {{
+    background:transparent;
+    color:#B7C7D7;
+    font-size:11px;
+}}
 
-            QPushButton {{
-                background:transparent;
-                border:none;
-                border-radius:10px;
-                color:{c.text};
-                text-align:left;
-                padding:12px 16px;
-                font-size:14px;
-                font-weight:500;
-            }}
+QLabel#SidebarSection {{
+    background:transparent;
+    color:#7E93AA;
+    font-size:10px;
+    font-weight:700;
+    letter-spacing:1px;
+    padding-top:12px;
+    padding-bottom:6px;
+}}
 
-            QPushButton:hover {{
-                background:{c.surface};
-            }}
+QLabel#IsoCard {{
+    background:rgba(255,255,255,0.05);
+    border:1px solid rgba(255,255,255,0.08);
+    border-radius:12px;
+    color:white;
+    padding:14px;
+    font-size:11px;
+    font-weight:600;
+}}
 
-            QPushButton:checked {{
-                background:{c.primary};
-                color:white;
-                font-weight:700;
-            }}
-            """
-        )
+QLabel#SidebarUser {{
+    background:transparent;
+    color:white;
+    font-size:13px;
+    font-weight:700;
+    padding-top:12px;
+}}
 
-    # ==========================================================
-    # Navigation
-    # ==========================================================
+QLabel#SidebarVersion {{
+    background:transparent;
+    color:#8EA7C0;
+    font-size:11px;
+}}
 
-    def add_page(self, key: str, title: str):
-        button = QPushButton(title)
-        button.setCheckable(True)
-        button.setCursor(Qt.PointingHandCursor)
-        button.setMinimumHeight(44)
-        button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+NavigationItem {{
+    background:transparent;
+}}
 
-        button.clicked.connect(lambda _, k=key: self.select(k))
+NavigationItem:hover {{
+    background:rgba(255,255,255,0.08);
+    border-radius:10px;
+}}
 
-        self.menu_layout.addWidget(button)
-        self.buttons[key] = button
-
-    def select(self, key: str):
-        self.current_key = key
-
-        for page_key, button in self.buttons.items():
-            button.setChecked(page_key == key)
-
-        self.page_selected.emit(key)
-
-    # ==========================================================
-    # User
-    # ==========================================================
-
-    def set_user(self, name: str, role: str):
-        self.user.setText(f"{name}\n{role}")
-
-    # ==========================================================
-    # Cleanup
-    # ==========================================================
+""")
+    # =====================================================
 
     def closeEvent(self, event):
+
         ThemeManager.unregister(self._apply_theme)
+
         super().closeEvent(event)

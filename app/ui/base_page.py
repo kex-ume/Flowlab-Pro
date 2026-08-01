@@ -1,3 +1,5 @@
+from turtle import title
+
 from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
@@ -18,7 +20,11 @@ class BasePage(QWidget):
         self.main_layout.setSpacing(20)
 
         self.header = PageHeader(title, subtitle)
-        self.main_layout.addWidget(self.header)
+
+        if title.strip() or subtitle.strip():
+            self.main_layout.addWidget(self.header)
+        else:
+            self.header.hide()
 
         self.toolbar = ToolBar()
         self.main_layout.addWidget(self.toolbar)

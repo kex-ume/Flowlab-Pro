@@ -15,8 +15,8 @@ from app.ui.widgets.card import Card
 class DashboardPage(BasePage):
     def __init__(self):
         super().__init__(
-            "Dashboard",
-            "Laboratory overview",
+             "",
+             ""
         )
 
         # --------------------------------------------------

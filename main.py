@@ -1,4 +1,5 @@
 import sys
+import app.ui.resources.resources_rc
 
 from PySide6.QtWidgets import QApplication
 
