@@ -19,6 +19,12 @@ class ColorPalette:
     surface: str
     card: str
     sidebar: str
+    sidebar_text: str
+    sidebar_text_secondary: str
+    sidebar_active: str
+    sidebar_hover: str
+    sidebar_card: str
+    sidebar_card_border: str
 
     # Borders
     border: str

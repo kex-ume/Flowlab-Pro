@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QFormLayout,
     QHBoxLayout,
+    QCheckBox,
     QLabel,
     QLineEdit,
     QTextEdit,
@@ -32,10 +33,20 @@ class EquipmentDialog(QDialog):
 
         self.asset_number = QLineEdit()
         self.equipment_name = QLineEdit()
+        self.equipment_type = QLineEdit()
         self.manufacturer = QLineEdit()
         self.model = QLineEdit()
         self.serial_number = QLineEdit()
         self.location = QLineEdit()
+        self.primary_equipment = QCheckBox(
+            "Primary equipment / reference standard"
+        )
+        self.include_in_calibration_programme = QCheckBox(
+            "Include in Calibration Programme"
+        )
+        self.primary_equipment.setToolTip(
+            "Primary equipment requires a controlled calibration certificate."
+        )
 
         self.next_due_date = QDateEdit()
         self.next_due_date.setCalendarPopup(True)
@@ -54,10 +65,13 @@ class EquipmentDialog(QDialog):
 
         form.addRow("Asset No:", self.asset_number)
         form.addRow("Equipment:", self.equipment_name)
+        form.addRow("Equipment type:", self.equipment_type)
         form.addRow("Manufacturer:", self.manufacturer)
         form.addRow("Model:", self.model)
         form.addRow("Serial No:", self.serial_number)
         form.addRow("Location:", self.location)
+        form.addRow("Control level:", self.primary_equipment)
+        form.addRow("Calibration programme:", self.include_in_calibration_programme)
         form.addRow("Next Due:", self.next_due_date)
         form.addRow("Certificate:", upload_layout)
         form.addRow("Notes:", self.notes)
@@ -100,10 +114,13 @@ class EquipmentDialog(QDialog):
 
         self.asset_number.setText(row[1])
         self.equipment_name.setText(row[2])
+        self.equipment_type.setText(row[3] or "")
         self.manufacturer.setText(row[4])
         self.model.setText(row[5])
         self.serial_number.setText(row[6])
         self.location.setText(row[7])
+        self.primary_equipment.setChecked(bool(row[14]))
+        self.include_in_calibration_programme.setChecked(bool(row[-1]) if len(row) > 19 else False)
 
         if row[11]:
             self.next_due_date.setDate(

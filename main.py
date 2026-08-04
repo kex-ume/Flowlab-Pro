@@ -8,7 +8,6 @@ from app.modules.auth.login_dialog import LoginDialog
 from app.modules.auth.service import AuthService
 from app.ui.shell.main_window import MainWindow
 from app.ui.theme import (
-    DarkTheme,
     StyleSheet,
     ThemeManager,
 )
@@ -32,7 +31,7 @@ def main():
     # Theme
     # --------------------------------------------------
 
-    ThemeManager.set_theme(DarkTheme)
+    ThemeManager.restore_preference()
     app.setStyleSheet(
         StyleSheet.build(ThemeManager.current())
     )

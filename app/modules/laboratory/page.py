@@ -35,12 +35,14 @@ class LaboratoryPage(QWidget):
         self.add_button = QPushButton("Add Equipment")
         self.edit_button = QPushButton("Edit")
         self.delete_button = QPushButton("Delete")
+        self.primary_button = QPushButton("Toggle Primary")
         self.calibration_button = QPushButton("Calibration")
         self.maintenance_button = QPushButton("Maintenance")
 
         toolbar.addWidget(self.add_button)
         toolbar.addWidget(self.edit_button)
         toolbar.addWidget(self.delete_button)
+        toolbar.addWidget(self.primary_button)
         toolbar.addStretch()
         toolbar.addWidget(self.calibration_button)
         toolbar.addWidget(self.maintenance_button)
@@ -53,6 +55,7 @@ class LaboratoryPage(QWidget):
         self.add_button.clicked.connect(self.add_equipment)
         self.edit_button.clicked.connect(self.edit_equipment)
         self.delete_button.clicked.connect(self.delete_equipment)
+        self.primary_button.clicked.connect(self.toggle_primary_equipment)
         self.calibration_button.clicked.connect(self.open_calibration)
         self.maintenance_button.clicked.connect(self.open_maintenance)
 
@@ -86,6 +89,7 @@ class LaboratoryPage(QWidget):
             asset = LaboratoryAsset(
                 asset_number=dialog.asset_number.text(),
                 equipment_name=dialog.equipment_name.text(),
+                equipment_type=dialog.equipment_type.text(),
                 manufacturer=dialog.manufacturer.text(),
                 model=dialog.model.text(),
                 serial_number=dialog.serial_number.text(),
@@ -93,6 +97,8 @@ class LaboratoryPage(QWidget):
                 next_calibration_date=next_due,
                 status=LaboratoryService.determine_status(next_due),
                 certificate_path=dialog.certificate_path,
+                is_reference_standard=dialog.primary_equipment.isChecked(),
+                include_in_calibration_programme=dialog.include_in_calibration_programme.isChecked(),
                 notes=dialog.notes.toPlainText(),
             )
 
@@ -129,6 +135,33 @@ class LaboratoryPage(QWidget):
 
             self.repository.delete_equipment(equipment_id)
             self.load_data()
+
+    def toggle_primary_equipment(self):
+        """Promote or demote the selected inventory item as primary equipment."""
+        row = self.table.currentRow()
+        if row < 0:
+            QMessageBox.information(
+                self,
+                "Primary equipment",
+                "Select an equipment item first.",
+            )
+            return
+
+        equipment_id = self.table.item(row, 0).data(Qt.UserRole)
+        control_level = self.table.item(row, 8).text()
+        is_primary = control_level != "Primary"
+        action = "Mark" if is_primary else "Remove"
+
+        if QMessageBox.question(
+            self,
+            "Primary equipment",
+            f"{action} this item as primary equipment?",
+            QMessageBox.Yes | QMessageBox.No,
+        ) != QMessageBox.Yes:
+            return
+
+        self.repository.set_primary_equipment(equipment_id, is_primary)
+        self.load_data()
 
     def open_calibration(self):
 

@@ -111,7 +111,11 @@ class CalibrationPage(QWidget):
                 remarks=dialog.remarks.toPlainText(),
             )
 
-            self.repository.add_record(record)
+            try:
+                self.repository.add_record(record)
+            except ValueError as error:
+                QMessageBox.warning(self, "Calibration certificate", str(error))
+                return
             self.load_data()
 
     def edit_record(self):
@@ -145,7 +149,11 @@ class CalibrationPage(QWidget):
                 remarks=dialog.remarks.toPlainText(),
             )
 
-            self.repository.update_record(updated)
+            try:
+                self.repository.update_record(updated)
+            except ValueError as error:
+                QMessageBox.warning(self, "Calibration certificate", str(error))
+                return
             self.load_data()
 
     def delete_record(self):

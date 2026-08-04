@@ -28,10 +28,11 @@ class LaboratoryRepository:
                 status,
                 certificate_path,
                 is_reference_standard,
+                include_in_calibration_programme,
                 is_active,
                 notes
             )
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
             (
                 asset.asset_number,
@@ -48,6 +49,7 @@ class LaboratoryRepository:
                 asset.status,
                 asset.certificate_path,
                 asset.is_reference_standard,
+                asset.include_in_calibration_programme,
                 asset.is_active,
                 asset.notes,
             ),
@@ -127,3 +129,26 @@ class LaboratoryRepository:
         )
 
         self.conn.commit()
+
+    def set_primary_equipment(self, equipment_id: int, is_primary: bool):
+        """Set the ISO 17025 control level for an existing inventory item."""
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """
+            UPDATE laboratory_equipment
+            SET
+                is_reference_standard=?,
+                updated_at=CURRENT_TIMESTAMP
+            WHERE id=?
+            """,
+            (int(is_primary), equipment_id),
+        )
+        self.conn.commit()
+
+    def calibration_programme(self):
+        cursor = self.conn.cursor()
+        return cursor.execute("""SELECT id, asset_number, equipment_name, equipment_type,
+            calibration_interval_months, last_calibration_date, next_calibration_date,
+            status, certificate_path, is_reference_standard
+            FROM laboratory_equipment WHERE include_in_calibration_programme=1
+            ORDER BY next_calibration_date, equipment_name""").fetchall()

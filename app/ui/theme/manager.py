@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Callable
 
+from PySide6.QtCore import QSettings
+
 from app.ui.theme.base import Theme
 from app.ui.theme.dark import DarkTheme
 from app.ui.theme.light import LightTheme
@@ -14,6 +16,8 @@ class ThemeManager:
 
     _theme: Theme = DarkTheme
     _listeners: list[Callable[[Theme], None]] = []
+    _settings_group = "appearance"
+    _theme_key = "theme"
 
     # ---------------------------------------------------------
     # Current Theme
@@ -33,6 +37,8 @@ class ThemeManager:
 
     @classmethod
     def set_theme(cls, theme: Theme):
+        cls._save_preference(theme)
+
         if cls._theme is theme:
             return
 
@@ -58,6 +64,23 @@ class ThemeManager:
             cls.set_light()
         else:
             cls.set_dark()
+
+    @classmethod
+    def restore_preference(cls):
+        """Apply the saved theme, using light mode for new installations."""
+        settings = QSettings()
+        settings.beginGroup(cls._settings_group)
+        preference = settings.value(cls._theme_key, "light", type=str)
+        settings.endGroup()
+
+        cls.set_theme(DarkTheme if preference == "dark" else LightTheme)
+
+    @classmethod
+    def _save_preference(cls, theme: Theme):
+        settings = QSettings()
+        settings.beginGroup(cls._settings_group)
+        settings.setValue(cls._theme_key, theme.name)
+        settings.endGroup()
 
     @classmethod
     def is_dark(cls) -> bool:

@@ -6,6 +6,22 @@ from app.modules.laboratory.calibration.models import CalibrationRecord
 
 class CalibrationRepository:
 
+    @staticmethod
+    def _requires_certificate(cursor, equipment_id: int) -> bool:
+        cursor.execute(
+            "SELECT is_reference_standard FROM laboratory_equipment WHERE id=?",
+            (equipment_id,),
+        )
+        row = cursor.fetchone()
+        return bool(row and row[0])
+
+    @classmethod
+    def _validate_certificate_requirement(cls, cursor, record: CalibrationRecord):
+        if cls._requires_certificate(cursor, record.equipment_id) and not record.certificate_path.strip():
+            raise ValueError(
+                "Primary equipment requires an uploaded calibration certificate."
+            )
+
     def _calculate_status(self, next_due_date: str):
 
         due = datetime.strptime(next_due_date, "%Y-%m-%d").date()
@@ -23,6 +39,8 @@ class CalibrationRepository:
 
         conn = get_connection()
         cursor = conn.cursor()
+
+        self._validate_certificate_requirement(cursor, record)
 
         cursor.execute("""
             INSERT INTO calibration_history(
@@ -67,6 +85,8 @@ class CalibrationRepository:
 
         conn = get_connection()
         cursor = conn.cursor()
+
+        self._validate_certificate_requirement(cursor, record)
 
         cursor.execute("""
             UPDATE calibration_history

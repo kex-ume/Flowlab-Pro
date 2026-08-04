@@ -30,6 +30,7 @@ class LaboratoryAsset:
     certificate_path: str = ""
 
     is_reference_standard: bool = False
+    include_in_calibration_programme: bool = False
     is_active: bool = True
 
     notes: str = ""
