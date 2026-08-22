@@ -275,12 +275,17 @@ class GUMEngine:
 
     @staticmethod
     def coriolis_run(master_indication: float, master_correction: float | None,
-                     mut_indication: float) -> dict:
+                     mut_indication: float, correction_basis: str | None = None) -> dict:
         if master_correction is None:
             raise ValueError("Master-meter correction is required and cannot be assumed to be zero.")
-        reference = float(master_indication) * (1 + float(master_correction))
-        if reference == 0:
-            raise ValueError("Corrected master-meter reference must not be zero.")
+        basis = (correction_basis or "fraction").strip().lower()
+        correction = float(master_correction)
+        if basis in {"factor", "k-factor"}:
+            reference = float(master_indication) * correction
+        else:
+            reference = float(master_indication) * (1 + correction)
+        if reference <= 0:
+            raise ValueError("Corrected master-meter reference must be greater than zero.")
         error = (float(mut_indication) - reference) / reference * 100.0
         return {"reference_flow": reference, "error_percent": error}
 

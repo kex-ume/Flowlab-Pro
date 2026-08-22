@@ -270,7 +270,8 @@ def calculate_payload(connection, payload):
                 correction = _number(run.get("correction"), f"Run {run_index} master correction")
                 evaluated = GUMEngine.coriolis_run(
                     _number(run.get("master"), f"Run {run_index} master indication"),
-                    correction, _number(run.get("mut"), f"Run {run_index} MUT indication"))
+                    correction, _number(run.get("mut"), f"Run {run_index} MUT indication"),
+                    run.get("correctionBasis"))
             observations.append(run | evaluated)
             errors.append(evaluated["error_percent"])
         if len(errors) < 2:

@@ -39,6 +39,9 @@ class GUMEngineTests(unittest.TestCase):
     def test_master_meter_correction_and_missing_correction(self):
         result = GUMEngine.coriolis_run(100, 0.01, 102)
         self.assertAlmostEqual(result["reference_flow"], 101)
+        factor_result = GUMEngine.coriolis_run(26241, 1, 26240, "factor")
+        self.assertAlmostEqual(factor_result["reference_flow"], 26241)
+        self.assertAlmostEqual(factor_result["error_percent"], -1 / 26241 * 100)
         with self.assertRaisesRegex(ValueError, "correction is required"):
             GUMEngine.coriolis_run(100, None, 102)
 
