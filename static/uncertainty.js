@@ -123,10 +123,10 @@
     renderTypeAStats();
   }
   function renderTypeAStats() {
-    const preview=currentPoint().backendResult||currentPoint().observationPreview||{},stats=preview.statistics;
-    const items=stats?[['Observations',stats.n],['Mean error',`${format(stats.mean)} %`],['Sample s',`${format(stats.standard_deviation)} %`],['Type A u',`${format(stats.standard_uncertainty)} %`],['Degrees of freedom',stats.n-1],['Evaluation','Complete']]:[['Observations',currentPoint().runs.length],['Mean error','—'],['Sample s','—'],['Type A u','—'],['Degrees of freedom','—'],['Evaluation',currentPoint().runs.length>=2?'Ready to calculate':'Need ≥ 2']];
-    const diagnostics=preview.repeatabilityDiagnostics||[],rows=diagnostics.map(item=>`<tr><td><b>${esc(item.quantity)}</b></td><td>${format(item.mean)} ${esc(item.unit)}</td><td>${format(item.standard_deviation)} ${esc(item.unit)}</td><td>${format(item.standard_uncertainty)} ${esc(item.unit)}</td><td>${format(item.relative_standard_uncertainty)}%</td><td>${esc(item.treatment)}</td></tr>`).join('');
-    $('#typeAStats').innerHTML=items.map(item=>`<article><small>${item[0]}</small><b>${item[1]}</b></article>`).join('')+(rows?`<div class="type-a-diagnostics"><div class="type-a-diagnostics-head"><b>Live repeatability diagnostics</b><span>Only calibration-error repeatability enters the uncertainty budget.</span></div><div class="gum-table"><table><thead><tr><th>Observed quantity</th><th>Mean</th><th>Sample s</th><th>u = s/√n</th><th>Relative u</th><th>Treatment</th></tr></thead><tbody>${rows}</tbody></table></div></div>`:'');
+    const stats=(currentPoint().backendResult||currentPoint().observationPreview||{}).statistics;
+    const validObservations=currentPoint().runs.map(evaluateRun).filter(Boolean).length;
+    const items=stats?[['Valid observations',stats.n],['Mean',`${format(stats.mean)} %`],['Sample s',`${format(stats.standard_deviation)} %`],['Calibration repeatability uA',`${format(stats.standard_uncertainty)} %`],['Degrees of freedom',stats.n-1],['Evaluation','Calculated']]:[['Valid observations',validObservations],['Mean','— %'],['Sample s','— %'],['Calibration repeatability uA','— %'],['Degrees of freedom','—'],['Evaluation',validObservations>=2?'Ready to calculate':'Need ≥ 2']];
+    $('#typeAStats').innerHTML=items.map(item=>`<article><small>${item[0]}</small><b>${item[1]}</b></article>`).join('');
   }
   function evaluateRun(run) {
     const valid=value=>value!==''&&value!=null&&Number.isFinite(Number(value));

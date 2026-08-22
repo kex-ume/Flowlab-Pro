@@ -1,0 +1,54 @@
+#typeAStats {
+  gap: 0;
+  overflow: hidden;
+  border: 1px solid #d5e0e7;
+  border-radius: 10px;
+  background: #fff;
+}
+
+#typeAStats article {
+  min-width: 0;
+  padding: 14px 16px;
+  border: 0;
+  border-right: 1px solid #d5e0e7;
+  border-radius: 0;
+  background: #fff;
+}
+
+#typeAStats article:last-child {
+  border-right: 0;
+}
+
+#typeAStats b {
+  min-height: 19px;
+  font-size: 14px;
+}
+
+@media (max-width: 760px) {
+  #typeAStats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  #typeAStats article:nth-child(2n) {
+    border-right: 0;
+  }
+
+  #typeAStats article:nth-child(-n + 4) {
+    border-bottom: 1px solid #d5e0e7;
+  }
+}
+
+@media (max-width: 480px) {
+  #typeAStats {
+    grid-template-columns: 1fr;
+  }
+
+  #typeAStats article {
+    border-right: 0;
+    border-bottom: 1px solid #d5e0e7;
+  }
+
+  #typeAStats article:last-child {
+    border-bottom: 0;
+  }
+}
