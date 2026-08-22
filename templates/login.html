@@ -1,1 +1,44 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Sign In · FlowLab Pro</title><link rel="stylesheet" href="{{url_for('static',filename='app.css')}}"><link rel="stylesheet" href="{{url_for('static',filename='responsive.css')}}"></head><body><main class="login-shell"><section class="panel login-panel"><div class="brand-name">FlowLab Pro</div>{% with messages=get_flashed_messages(with_categories=true) %}{% for category,message in messages %}<div class="flash {{category}}">{{message}}</div>{% endfor %}{% endwith %}<form method="post" class="login-form"><label>Username *<input name="username" autocomplete="username" required></label><label>Password *<input type="password" name="password" autocomplete="current-password" required></label><button>Sign In</button></form>{% if needs_setup %}<a class="panel-link" href="{{url_for('setup')}}">Create initial administrator</a>{% endif %}</section></main></body></html>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Sign In · FlowLab Pro</title>
+  <link rel="stylesheet" href="{{url_for('static',filename='app.css')}}">
+  <link rel="stylesheet" href="{{url_for('static',filename='responsive.css')}}">
+</head>
+<body>
+  <main class="login-shell">
+    <section class="login-visual" aria-label="Flow calibration laboratory">
+      <div class="login-visual-copy">
+        <span class="login-kicker">Flow calibration laboratory</span>
+        <div class="login-brand-line">
+          <span class="login-brand-mark" aria-hidden="true"><i></i></span>
+          <h1>FlowLab Pro</h1>
+        </div>
+        <p>Calibration operations, equipment control and measurement uncertainty in one traceable workspace.</p>
+        <div class="login-standards"><span>ISO/IEC 17025</span><span>Controlled workflows</span></div>
+      </div>
+    </section>
+    <section class="login-access">
+      <div class="login-panel">
+        <div class="login-form-head">
+          <span class="eyebrow">Secure workspace</span>
+          <h2>Welcome back</h2>
+          <p>Sign in to continue to FlowLab Pro.</p>
+        </div>
+        {% with messages=get_flashed_messages(with_categories=true) %}
+          {% for category,message in messages %}<div class="flash {{category}}">{{message}}</div>{% endfor %}
+        {% endwith %}
+        <form method="post" class="login-form">
+          <label>Username<input name="username" autocomplete="username" required></label>
+          <label>Password<input type="password" name="password" autocomplete="current-password" required></label>
+          <button>Sign In</button>
+        </form>
+        {% if needs_setup %}<a class="panel-link" href="{{url_for('setup')}}">Create initial administrator</a>{% endif %}
+        <div class="login-security"><span aria-hidden="true">✓</span> Role-controlled laboratory access</div>
+      </div>
+    </section>
+  </main>
+</body>
+</html>
