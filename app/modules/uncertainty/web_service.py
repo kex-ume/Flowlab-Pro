@@ -276,7 +276,31 @@ def calculate_payload(connection, payload):
         if len(errors) < 2:
             raise ValueError(f"Flow point {index}: enter at least two repeated observations.")
         type_a, statistics = TypeAProcessor.from_observations(
-            "Repeatability", errors, "%", nominal, "Retained observations")
+            "Repeatability of calibration result", errors, "%", nominal,
+            "Retained error observations; component repeatability diagnostics are not added separately")
+        diagnostic_fields = (
+            (("Collected mass", "mass", "kg"), ("Collection time", "time", "s"),
+             ("Density / specific volume", "density", point.get("densityUnit") or "kg/m³"))
+            if calculation_type in {"mutGrav", "cmcGrav"} else
+            (("Master indication", "master", unit), ("Master correction", "correction", "fraction"))
+        ) + (("Reference flow", "reference_flow", unit), ("MUT indication", "mut", unit),
+             ("Calibration error", "error_percent", "%"))
+        repeatability_diagnostics = []
+        for label, key, diagnostic_unit in diagnostic_fields:
+            values = [float(observation[key]) for observation in observations
+                if observation.get(key) not in (None, "")]
+            if not values:
+                continue
+            average = mean(values)
+            sample_deviation = stdev(values) if len(values) > 1 else None
+            standard_uncertainty = sample_deviation / sqrt(len(values)) if sample_deviation is not None else None
+            repeatability_diagnostics.append({
+                "quantity": label, "unit": diagnostic_unit, "n": len(values), "mean": average,
+                "standard_deviation": sample_deviation, "standard_uncertainty": standard_uncertainty,
+                "relative_standard_uncertainty": (abs(standard_uncertainty / average) * 100
+                    if standard_uncertainty is not None and average != 0 else None),
+                "treatment": ("Included as the Type A budget source" if key == "error_percent"
+                    else "Diagnostic only — captured in result repeatability")})
         sources = [type_a]
         for source in point.get("sources") or []:
             if source.get("included", True):
@@ -300,7 +324,8 @@ def calculate_payload(connection, payload):
         calculated_points.append({
             "index": index - 1, "label": point.get("label") or f"Point {index}",
             "nominalFlow": nominal, "flowUnit": unit, "observations": observations,
-            "statistics": statistics, "result": result.snapshot(),
+            "statistics": statistics, "repeatabilityDiagnostics": repeatability_diagnostics,
+            "result": result.snapshot(),
             "cmcExpression": point.get("cmcExpression"), "cmcA": point.get("cmcA"),
             "cmcB": point.get("cmcB"), "referenceTemperature": point.get("refTemp"),
             "referencePressure": point.get("refPressure"),
@@ -734,6 +759,9 @@ def pdf_report(payload):
         line(f"Nominal flow: {number(point.get('nominalFlow'))} {point.get('flowUnit', '')}    Reference temperature: {point.get('referenceTemperature') or ''} C    Reference pressure: {point.get('referencePressure') or ''}")
         stats = point.get("statistics", {}); outcome = point.get("result", {})
         line(f"Type A: n={stats.get('n', '')}; mean={number(stats.get('mean'))} %; s={number(stats.get('standard_deviation'))} %; uA={number(stats.get('standard_uncertainty'))} %")
+        line("Repeatability diagnostics (informational; not separately added to RSS)", 8, 13, True)
+        for diagnostic in point.get("repeatabilityDiagnostics", []):
+            line(f"{diagnostic.get('quantity','')}: mean={number(diagnostic.get('mean'))} {diagnostic.get('unit','')}; s={number(diagnostic.get('standard_deviation'))}; u={number(diagnostic.get('standard_uncertainty'))}; relative u={number(diagnostic.get('relative_standard_uncertainty'))}% - {diagnostic.get('treatment','')}", 7, 11)
         line("Run | Reference flow | MUT indication | Error (%)", 8, 13, True)
         for index, observation in enumerate(point.get("observations", []), 1):
             line(f"{index} | {number(observation.get('reference_flow'))} | {number(observation.get('mut'))} | {number(observation.get('error_percent'))}", 8, 12)

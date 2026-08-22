@@ -2256,6 +2256,12 @@ def uncertainty_csv(record_id):
             writer.writerow([]); writer.writerow(["Flow point", point.get("label"), point.get("nominalFlow"), point.get("flowUnit")])
             writer.writerow(["Type A statistics", "n", stats.get("n"), "Mean", stats.get("mean"),
                 "Standard deviation", stats.get("standard_deviation"), "Standard uncertainty", stats.get("standard_uncertainty")])
+            writer.writerow(["Repeatability diagnostics", "Informational only; component effects are captured in calibration-result repeatability and are not separately added to RSS"])
+            writer.writerow(["Observed quantity", "Mean", "Unit", "Sample s", "Standard uncertainty", "Relative u (%)", "Treatment"])
+            for diagnostic in point.get("repeatabilityDiagnostics", []):
+                writer.writerow([diagnostic.get("quantity"), diagnostic.get("mean"), diagnostic.get("unit"),
+                    diagnostic.get("standard_deviation"), diagnostic.get("standard_uncertainty"),
+                    diagnostic.get("relative_standard_uncertainty"), diagnostic.get("treatment")])
             writer.writerow(["Run", "Reference flow", "MUT indication", "Error (%)"])
             for index, observation in enumerate(point.get("observations", []), 1):
                 writer.writerow([index, observation.get("reference_flow"), observation.get("mut"), observation.get("error_percent")])

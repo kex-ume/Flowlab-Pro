@@ -4,7 +4,7 @@
   const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
   const value = id => $(id).value;
   const number = raw => raw === '' || raw == null ? null : Number(raw);
-  const format = raw => Number.isFinite(Number(raw)) ? Number(raw).toPrecision(6).replace(/\.?0+$/, '') : '—';
+  const format = raw => {if(!Number.isFinite(Number(raw)))return '—';const text=Number(raw).toPrecision(6);return /e/i.test(text)?text:text.replace(/\.?0+$/,'');};
   const clone = object => JSON.parse(JSON.stringify(object));
   const config = window.FLOWLAB_GUM || {sourceTemplates:{},cmcRecords:[]};
 
@@ -123,9 +123,10 @@
     renderTypeAStats();
   }
   function renderTypeAStats() {
-    const stats=currentPoint().backendResult?.statistics||currentPoint().observationPreview?.statistics;
+    const preview=currentPoint().backendResult||currentPoint().observationPreview||{},stats=preview.statistics;
     const items=stats?[['Observations',stats.n],['Mean error',`${format(stats.mean)} %`],['Sample s',`${format(stats.standard_deviation)} %`],['Type A u',`${format(stats.standard_uncertainty)} %`],['Degrees of freedom',stats.n-1],['Evaluation','Complete']]:[['Observations',currentPoint().runs.length],['Mean error','—'],['Sample s','—'],['Type A u','—'],['Degrees of freedom','—'],['Evaluation',currentPoint().runs.length>=2?'Ready to calculate':'Need ≥ 2']];
-    $('#typeAStats').innerHTML=items.map(item=>`<article><small>${item[0]}</small><b>${item[1]}</b></article>`).join('');
+    const diagnostics=preview.repeatabilityDiagnostics||[],rows=diagnostics.map(item=>`<tr><td><b>${esc(item.quantity)}</b></td><td>${format(item.mean)} ${esc(item.unit)}</td><td>${format(item.standard_deviation)} ${esc(item.unit)}</td><td>${format(item.standard_uncertainty)} ${esc(item.unit)}</td><td>${format(item.relative_standard_uncertainty)}%</td><td>${esc(item.treatment)}</td></tr>`).join('');
+    $('#typeAStats').innerHTML=items.map(item=>`<article><small>${item[0]}</small><b>${item[1]}</b></article>`).join('')+(rows?`<div class="type-a-diagnostics"><div class="type-a-diagnostics-head"><b>Live repeatability diagnostics</b><span>Only calibration-error repeatability enters the uncertainty budget.</span></div><div class="gum-table"><table><thead><tr><th>Observed quantity</th><th>Mean</th><th>Sample s</th><th>u = s/√n</th><th>Relative u</th><th>Treatment</th></tr></thead><tbody>${rows}</tbody></table></div></div>`:'');
   }
   function evaluateRun(run) {
     const valid=value=>value!==''&&value!=null&&Number.isFinite(Number(value));
@@ -155,7 +156,10 @@
     if(!observations.length||observations.some(item=>!item)){currentPoint().observationPreview=null;return;}
     const errors=observations.map(item=>item.error_percent),n=errors.length,mean=errors.reduce((sum,item)=>sum+item,0)/n;
     const standardDeviation=n>1?Math.sqrt(errors.reduce((sum,item)=>sum+(item-mean)**2,0)/(n-1)):null;
-    currentPoint().observationPreview={observations,statistics:n>1?{n,mean,standard_deviation:standardDeviation,standard_uncertainty:standardDeviation/Math.sqrt(n)}:null};
+    const diagnostic=(quantity,key,unit)=>{const values=observations.map(item=>Number(item[key])).filter(Number.isFinite);if(!values.length)return null;const average=values.reduce((sum,item)=>sum+item,0)/values.length;const sample=values.length>1?Math.sqrt(values.reduce((sum,item)=>sum+(item-average)**2,0)/(values.length-1)):null;const uncertainty=sample==null?null:sample/Math.sqrt(values.length);return {quantity,unit,n:values.length,mean:average,standard_deviation:sample,standard_uncertainty:uncertainty,relative_standard_uncertainty:uncertainty!=null&&average!==0?Math.abs(uncertainty/average)*100:null,treatment:key==='error_percent'?'Included as the Type A budget source':'Diagnostic only — captured in result repeatability'};};
+    const unit=currentPoint().flowUnit||state.rangeUnit||'',fields=state.calculationType.endsWith('Cor')?[['Master indication','master',unit],['Master correction','correction','fraction']]:[['Collected mass','mass','kg'],['Collection time','time','s'],...(effectiveQuantity()==='volume'?[['Density / specific volume','density',currentPoint().densityUnit||'kg/m³']]:[])];
+    const repeatabilityDiagnostics=[...fields,['Reference flow','reference_flow',unit],['MUT indication','mut',unit],['Calibration error','error_percent','%']].map(item=>diagnostic(...item)).filter(Boolean);
+    currentPoint().observationPreview={observations,repeatabilityDiagnostics,statistics:n>1?{n,mean,standard_deviation:standardDeviation,standard_uncertainty:standardDeviation/Math.sqrt(n)}:null};
   }
   function options(items,selected) { return items.map(([key,label])=>`<option value="${key}" ${String(key)===String(selected)?'selected':''}>${label}</option>`).join(''); }
   function blankSource(name='') { return {included:true,name,sourceType:'B',value:'',unit:'',basis:'',distribution:'',certK:'',sensitivity:'',dof:'',evidence:'',equipmentId:'',equipmentLabel:'',equipmentProperty:'calibration_uncertainty',notes:''}; }

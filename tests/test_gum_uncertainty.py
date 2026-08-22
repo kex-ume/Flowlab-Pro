@@ -201,6 +201,16 @@ class GUMWebWorkflowTests(unittest.TestCase):
         self.assertAlmostEqual(point["statistics"]["standard_uncertainty"],
             point["statistics"]["standard_deviation"] / sqrt(3))
         self.assertEqual(point["result"]["components"][0]["input"]["degrees_of_freedom"], 2)
+        self.assertEqual(point["result"]["components"][0]["input"]["source"],
+            "Repeatability of calibration result")
+        diagnostics = {item["quantity"]: item for item in point["repeatabilityDiagnostics"]}
+        self.assertIn("Collected mass", diagnostics)
+        self.assertIn("Collection time", diagnostics)
+        self.assertIn("Reference flow", diagnostics)
+        self.assertIn("MUT indication", diagnostics)
+        self.assertEqual(diagnostics["Calibration error"]["treatment"],
+            "Included as the Type A budget source")
+        self.assertIn("Diagnostic only", diagnostics["Reference flow"]["treatment"])
 
     def test_expanded_rectangular_triangular_and_resolution_conversion(self):
         sources = [
