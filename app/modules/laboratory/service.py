@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import date, timedelta
 
 from app.modules.laboratory.models import LaboratoryAsset
+from app.database.database import get_connection
 
 
 class LaboratoryService:
@@ -14,9 +15,18 @@ class LaboratoryService:
     @staticmethod
     def determine_status(next_due: date) -> str:
         if next_due < date.today():
-            return "Overdue"
+            return "Expired"
 
-        if next_due <= date.today() + timedelta(days=30):
+        connection = get_connection()
+        try:
+            row = connection.execute("""SELECT setting_value FROM system_settings
+                WHERE setting_key='equipment_due_soon_days'""").fetchone()
+            warning_days = max(0, int(row[0])) if row else 30
+        except (TypeError, ValueError):
+            warning_days = 30
+        finally:
+            connection.close()
+        if next_due <= date.today() + timedelta(days=warning_days):
             return "Due Soon"
 
         return "Active"
@@ -36,5 +46,5 @@ class LaboratoryService:
         if not asset.equipment_name.strip():
             raise ValueError("Equipment name is required.")
 
-        if asset.calibration_interval_months < 1:
+        if asset.calibration_interval_months is None or asset.calibration_interval_months < 1:
             raise ValueError("Calibration interval must be greater than zero.")

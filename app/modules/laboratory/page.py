@@ -106,11 +106,28 @@ class LaboratoryPage(QWidget):
             self.load_data()
 
     def edit_equipment(self):
-        QMessageBox.information(
-            self,
-            "Edit",
-            "Edit functionality coming next."
-        )
+        row = self.table.currentRow()
+        if row < 0:
+            QMessageBox.information(self, "Edit Equipment", "Select equipment first.")
+            return
+        equipment_id = self.table.item(row, 0).data(Qt.UserRole)
+        current = self.repository.get_equipment_by_id(equipment_id)
+        dialog = EquipmentDialog(self)
+        dialog.load_equipment(current)
+        if not dialog.exec():
+            return
+        next_due = date(dialog.next_due_date.date().year(), dialog.next_due_date.date().month(), dialog.next_due_date.date().day())
+        asset = LaboratoryAsset(
+            asset_number=dialog.asset_number.text().strip(), equipment_name=dialog.equipment_name.text().strip(),
+            equipment_type=dialog.equipment_type.text().strip(), manufacturer=dialog.manufacturer.text().strip(),
+            model=dialog.model.text().strip(), serial_number=dialog.serial_number.text().strip(),
+            laboratory_location=dialog.location.text().strip(), next_calibration_date=next_due,
+            status=LaboratoryService.determine_status(next_due), certificate_path=dialog.certificate_path,
+            is_reference_standard=dialog.primary_equipment.isChecked(),
+            include_in_calibration_programme=dialog.include_in_calibration_programme.isChecked(),
+            notes=dialog.notes.toPlainText().strip())
+        self.repository.update_equipment(equipment_id, asset)
+        self.load_data()
 
     def delete_equipment(self):
 

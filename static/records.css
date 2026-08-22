@@ -1,0 +1,10 @@
+.gum-table,.programme-table,.equipment-table-wrap{width:100%;max-width:100%;overflow:auto;border:1px solid #dce5ec;border-radius:10px}
+.gum-table th,.programme-table th,.equipment-table-wrap th{position:sticky;top:0;z-index:2;background:#f1f5f7}
+.gum-table tbody tr:hover,.programme-table tbody tr:hover,.equipment-table-wrap tbody tr:hover{background:#f8fbfd}
+.gum-table td,.programme-table td,.equipment-table-wrap td{vertical-align:top}
+.gum-table .record-actions{min-width:270px;white-space:normal}
+.gum-table .record-actions button,.gum-table .record-actions a{display:inline-block;margin:0 6px 6px 0}
+.icon-only-back{display:inline-grid;place-items:center;width:34px;height:34px;border:1px solid #dce5ec;border-radius:9px;color:#5b7185;background:#fff}
+.icon-only-back:hover{color:#0e7c86;border-color:#0e7c86;background:#e4f4f4}
+.icon-only-back svg{width:19px;height:19px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+@media(max-width:720px){.programme-table table{min-width:0}.programme-table thead{display:none}.programme-table table,.programme-table tbody,.programme-table tr,.programme-table td{display:block;width:100%}.programme-table tr{padding:10px 14px;border-bottom:1px solid #dce5ec}.programme-table td{display:grid;grid-template-columns:135px minmax(0,1fr);gap:10px;padding:7px 0;border:0}.programme-table td:before{content:attr(data-label);font-size:10px;font-weight:700;text-transform:uppercase;color:#5b7185}}

@@ -1,0 +1,50 @@
+{% extends 'base.html' %}
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='jobs.css') }}">
+<nav class="job-breadcrumbs" aria-label="Breadcrumb">
+  <a href="{{ url_for('project_jobs', project=job[6]) if job[6] else url_for('project_jobs') }}">Projects &amp; Jobs</a><span aria-hidden="true">/</span><strong>{{ job[1] }}</strong>
+</nav>
+<header class="job-record-hero">
+  <div class="job-hero-copy"><span class="eyebrow">Controlled Job record</span><h1>{{ job[1] }}</h1><p>{{ job[2] }}<span aria-hidden="true">·</span>{{ job[5] }}</p></div>
+  <div class="job-hero-summary"><span class="pill {{ job[4]|lower|replace(' ', '-') }}">{{ job[4] }}</span><div><span>Assigned to</span><strong>{{ job[22] or 'Unassigned' }}</strong></div></div>
+</header>
+<div class="job-record-layout">
+  <div class="job-record-main">
+    <section class="panel job-record-card">
+      <div class="job-section-head"><div class="job-section-title"><span class="section-number">01</span><div><span class="section-kicker">Job information</span><h2>Overview</h2></div></div><span class="pill ready">{{ job[3] }}</span></div>
+      <div class="job-fact-grid overview-facts">
+        <div class="job-fact job-fact-wide"><span>Parent project</span><strong>{% if job[6] %}<a href="{{ url_for('project_jobs', project=job[6]) }}">{{ job[7] }} <small>{{ job[8] }}</small></a>{% else %}No linked project{% endif %}</strong></div>
+        <div class="job-fact"><span>Customer</span><strong>{{ job[5] or '—' }}</strong></div><div class="job-fact"><span>Calibration method</span><strong>{{ job[21] or '—' }}</strong></div><div class="job-fact"><span>Job type</span><strong>{{ job[3] or '—' }}</strong></div>
+      </div>
+      {% if job[26] %}<div class="job-note"><span>Job notes</span><p>{{ job[26] }}</p></div>{% endif %}
+    </section>
+    <section class="panel job-record-card">
+      <div class="job-section-head"><div class="job-section-title"><span class="section-number">02</span><div><span class="section-kicker">Technical details</span><h2>Meter under test</h2></div></div><span class="pill ready">MUT</span></div>
+      <div class="job-fact-grid mut-facts">{% for label, value in [('Description',job[9]),('Asset ID',job[10]),('Serial number',job[11]),('Manufacturer',job[12]),('Model',job[13]),('Meter type',job[14]),('Meter size',job[15]),('Flow range',(job[16]|string ~ '–' ~ job[17]|string ~ ' ' ~ job[18])),('Number of flow points',job[31]),('Fluid / medium',job[19]),('Calibration quantity',job[20])] %}<div class="job-fact"><span>{{ label }}</span><strong>{{ value or '—' }}</strong></div>{% endfor %}</div>
+    </section>
+    {% if approved_uncertainty %}
+    <section class="panel job-record-card approved-uncertainty">
+      <div class="job-section-head"><div class="job-section-title"><span class="section-number approved">03</span><div><span class="section-kicker">Locked controlled result</span><h2>Uncertainty report</h2></div></div><span class="pill approved">Approved</span></div>
+      <div class="approved-result-grid"><div><span>Calculation ID</span><strong>{{ approved_uncertainty[1] }}</strong></div><div><span>Method</span><strong>{{ approved_uncertainty[2] }}</strong></div><div><span>Revision</span><strong>{{ approved_uncertainty[4] }}</strong></div><div class="result-value"><span>Expanded uncertainty</span><strong>{{ approved_uncertainty[6] }} %</strong></div><div><span>Approving officer</span><strong>{{ approved_uncertainty[7] or '—' }}</strong></div><div><span>Approved date</span><strong data-local-datetime="{{ approved_uncertainty[8] or '' }}">{{ approved_uncertainty[8] or '—' }}</strong></div></div>
+      <div class="job-report-actions"><a class="job-action uncertainty" href="{{ url_for('uncertainty_report', record_id=approved_uncertainty[0]) }}">View Uncertainty Report</a><a class="job-action report" href="{{ url_for('uncertainty_csv', record_id=approved_uncertainty[0]) }}">Export CSV</a><a class="job-action report" href="{{ url_for('uncertainty_pdf', record_id=approved_uncertainty[0]) }}">Export PDF</a></div>
+    </section>
+    {% else %}
+    <section class="panel job-record-card uncertainty-empty">
+      <div class="job-section-head"><div class="job-section-title"><span class="section-number">03</span><div><span class="section-kicker">Controlled result</span><h2>Uncertainty report</h2></div></div><span class="pill draft">Not available</span></div>
+      <div class="job-empty-report"><div class="job-empty-icon" aria-hidden="true">±</div><div><strong>No approved uncertainty report</strong><p>The report will appear automatically when a calculation linked to this Job completes technical review and final approval.</p></div></div>
+    </section>
+    {% endif %}
+    <section class="panel job-record-card">
+      <div class="job-section-head"><div class="job-section-title"><span class="section-number">04</span><div><span class="section-kicker">Traceability</span><h2>Uncertainty record history</h2></div></div>{% if calculations %}<span class="record-count">{{ calculations|length }} record{{ '' if calculations|length == 1 else 's' }}</span>{% endif %}</div>
+      <div class="table-scroll job-history-table"><table><thead><tr><th>Calculation ID</th><th>Method</th><th>Status</th><th>Rev.</th><th>Expanded U</th><th>Date</th><th>Approver</th><th>Report</th></tr></thead><tbody>{% for r in calculations %}<tr><td class="mono">{{ r[1] }}</td><td>{{ r[2] }}</td><td><span class="pill {{ r[3]|lower|replace(' ', '-') }}">{{ r[3] }}</span></td><td>{{ r[4] }}</td><td>{{ r[6] }}{% if r[6] is not none %} %{% endif %}</td><td data-local-datetime="{{ r[5] or '' }}">{{ r[5] or '—' }}</td><td>{{ r[7] or '—' }}</td><td>{% if r[3] == 'Approved' %}<a class="job-action uncertainty" href="{{ url_for('uncertainty_report', record_id=r[0]) }}">View Report</a>{% else %}<span class="record-pending">Awaiting approval</span>{% endif %}</td></tr>{% else %}<tr><td colspan="8" class="empty">No uncertainty records are linked to this Job.</td></tr>{% endfor %}</tbody></table></div>
+    </section>
+  </div>
+  <aside class="job-record-side">
+    <section class="panel job-side-card"><div class="job-side-head"><span>Actions</span><h2>Job controls</h2></div><div class="job-side-actions"><a class="job-action view" href="{{ url_for('project_jobs', project=job[6]) if job[6] else url_for('project_jobs') }}">View Project Jobs</a>{% if job[30] %}<a class="job-action report" href="{{ url_for('job_report_file', job_id=job[0]) }}">View Job Report</a>{% endif %}{% if approved_uncertainty %}<a class="job-action uncertainty" href="{{ url_for('uncertainty_report', record_id=approved_uncertainty[0]) }}">View Uncertainty Report</a>{% endif %}</div></section>
+    <section class="panel job-side-card"><div class="job-side-head"><span>Planning</span><h2>Schedule &amp; commercial</h2></div><div class="side-facts"><div><span>Created</span><strong data-local-datetime="{{ job[23] or '' }}">{{ job[23] or '—' }}</strong></div><div><span>Planned start</span><strong data-local-date="{{ job[24] or '' }}">{{ job[24] or '—' }}</strong></div><div><span>Required date</span><strong data-local-date="{{ job[25] or '' }}">{{ job[25] or '—' }}</strong></div><div><span>Project PO</span><strong>{{ job[27] or 'Not provided' }}</strong></div><div><span>Effective Job PO</span><strong>{{ job[29] or 'Not provided' }}</strong>{% if job[28] %}<small class="danger">Revised for this Job</small>{% endif %}</div></div></section>
+    {% if can('job_assign') %}<section class="panel job-side-card"><div class="job-side-head"><span>Ownership</span><h2>Assignment</h2></div><form method="post" action="{{ url_for('job_assign', job_id=job[0]) }}" class="job-assignment-form"><label>Assign to<select name="assigned_user_id" required><option value="">Select user</option>{% for user in assignees %}<option value="{{ user[0] }}">{{ user[1] }} · {{ user[2] }}</option>{% endfor %}</select></label><label>Reassignment reason<input name="reason"></label><button>Assign / Reassign</button></form></section>{% endif %}
+    {% if job[4] == 'Completed' %}<section class="panel job-side-card"><div class="job-side-head"><span>Record state</span><h2>Job completed</h2></div><p>This Job is locked. Reopening requires authorization.</p><form method="post" action="{{ url_for('job_request_reopen', job_id=job[0]) }}" class="job-assignment-form"><label>Reason for reopening<input name="reason" required></label><button>Request Authorization</button></form></section>{% elif approved_uncertainty %}<form method="post" action="{{ url_for('job_complete', job_id=job[0]) }}" data-confirm-delete="Complete and lock this Job?"><button class="complete-job-button">Complete and lock Job</button></form>{% endif %}
+  </aside>
+</div>
+{% if reopen_requests %}<section class="panel job-record-card reopen-history"><div class="job-section-head"><div class="job-section-title"><span class="section-number">05</span><div><span class="section-kicker">Authorization</span><h2>Reopening history</h2></div></div></div><div class="table-scroll"><table><thead><tr><th>Reason</th><th>Status</th><th>Requested by</th><th>Requested</th><th>Authorized by</th><th>Decision</th></tr></thead><tbody>{% for r in reopen_requests %}<tr><td>{{ r[1] }}</td><td><span class="pill {{ r[2]|lower }}">{{ r[2] }}</span></td><td>{{ r[3] }}</td><td data-local-datetime="{{ r[4] or '' }}">{{ r[4] }}</td><td>{{ r[5] or '—' }}</td><td>{{ r[7] or '—' }}{% if r[2] == 'Pending' and can('job_reopen') %}<form method="post" action="{{ url_for('job_authorize_reopen', job_id=job[0]) }}" class="inline-form"><input type="hidden" name="request_id" value="{{ r[0] }}"><input name="comment" required><button>Authorize Reopening</button></form>{% endif %}</td></tr>{% endfor %}</tbody></table></div></section>{% endif %}
+{% endblock %}

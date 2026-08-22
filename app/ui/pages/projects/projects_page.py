@@ -71,7 +71,6 @@ class _ProjectDialog(QDialog):
         self.name = QLineEdit()
         self.description = QLineEdit()
         self.target_date = QLineEdit()
-        self.target_date.setPlaceholderText("YYYY-MM-DD")
         self.deliverables = QLineEdit()
         form.addRow("Customer *", self.customer)
         form.addRow("Project name *", self.name)
@@ -112,7 +111,6 @@ class ProjectsPage(BasePage):
         self.add_deliverable_button = QPushButton("Add Deliverable")
         self.refresh_button = QPushButton("Refresh")
         self.search = QLineEdit()
-        self.search.setPlaceholderText("Search project number, project or customer")
         self.search.setClearButtonEnabled(True)
 
         for button in (

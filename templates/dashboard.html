@@ -1,0 +1,24 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="meta-row"><time class="meta-pill" data-local-date="{{ today }}">{{ today }}</time></div>
+<section class="summary-grid">
+  {% for c in kpis %}<article class="summary-card"><span>{{ c.label }}</span><strong>{{ c.value }}</strong></article>{% endfor %}
+</section>
+<div class="dash-grid">
+  <div>
+    <section class="panel">
+      <div class="panel-head"><h3>Laboratory Readiness</h3><a class="panel-link" href="{{ url_for('equipment') }}">Equipment</a></div>
+      {% for i in readiness %}<div class="readiness-item"><div class="item-main"><span class="status-icon {{ 'warn' if i.warning }}">{{ '!' if i.warning else '✓' }}</span><div><div class="item-title">{{ i.name }}</div><div class="item-sub">{{ i.detail }}</div></div></div><span class="pill {{ i.status|lower }}">{{ i.status }}</span></div>{% endfor %}
+    </section>
+    <section class="panel">
+      <div class="panel-head"><h3>Calibration Programme</h3><a class="panel-link" href="{{ url_for('programme') }}">Open</a></div>
+      <div class="table-scroll"><table><thead><tr><th>Asset</th><th>Equipment</th><th>Next due</th><th>Status</th></tr></thead><tbody>
+        {% for r in upcoming %}<tr><td class="mono">{{ r[0] }}</td><td>{{ r[1] }}</td><td data-local-date="{{ r[2] or '' }}">{{ r[2] or '' }}</td><td><span class="pill {{ r[3]|lower }}">{{ r[3] }}</span></td></tr>
+        {% else %}<tr><td colspan="4"><div class="table-empty"><span>No equipment has been added to the calibration programme.</span><a href="{{ url_for('equipment') }}">Add Equipment</a></div></td></tr>{% endfor %}
+      </tbody></table></div>
+    </section>
+  </div>
+  <aside><section class="panel"><div class="panel-head"><h3>Attention</h3></div>{% for i in attention %}<div class="attention-item"><div><div class="item-title">{{ i.title }}</div><div class="item-sub">{{ i.detail }}</div></div><span class="pill {{ i.tone }}">{{ i.label }}</span></div>{% endfor %}</section></aside>
+</div>
+<section class="quick-grid"><a class="quick-card" href="{{ url_for('equipment') }}"><i>+</i><span><b>Add Equipment</b></span></a><a class="quick-card" href="{{ url_for('project_jobs') }}"><i>+</i><span><b>Create Job</b></span></a><a class="quick-card" href="{{ url_for('uncertainty') }}"><i>Σ</i><span><b>Uncertainty</b></span></a><a class="quick-card" href="{{ url_for('documents') }}"><i>≡</i><span><b>Upload Document</b></span></a></section>
+{% endblock %}

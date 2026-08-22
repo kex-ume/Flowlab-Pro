@@ -1,7 +1,5 @@
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QLabel
-
 from app.ui.base_page import BasePage
+from app.modules.laboratory.page import LaboratoryPage
 
 
 class EquipmentPage(BasePage):
@@ -11,10 +9,4 @@ class EquipmentPage(BasePage):
             "Manage laboratory equipment"
         )
 
-        placeholder = QLabel(
-            "Equipment module is under development."
-        )
-        placeholder.setAlignment(Qt.AlignCenter)
-
-        self.content_layout.addWidget(placeholder)
-        self.content_layout.addStretch()
+        self.content_layout.addWidget(LaboratoryPage(self), 1)

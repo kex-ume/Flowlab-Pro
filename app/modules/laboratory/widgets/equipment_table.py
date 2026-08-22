@@ -58,7 +58,7 @@ class EquipmentTable(QTableWidget):
                     self._apply_status_style(item, value)
                 self.setItem(row_index, column, item)
 
-            certificate_button = QPushButton("Open" if row[13] else "No File")
+            certificate_button = QPushButton("Open" if row[13] else "No report uploaded")
             if row[13]:
                 certificate_button.clicked.connect(
                     lambda _, path=row[13]: open_callback(path)
@@ -72,7 +72,7 @@ class EquipmentTable(QTableWidget):
         status_colors = {
             "Active": "#2ECC71",
             "Due Soon": "#F39C12",
-            "Overdue": "#E74C3C",
+            "Expired": "#E74C3C",
         }
         color = status_colors.get(status)
         if color:

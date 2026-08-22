@@ -1,0 +1,21 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="equipment-page">
+  <link rel="stylesheet" href="{{url_for('static',filename='records.css')}}"><div class="equipment-record-head"><div><a class="icon-only-back" href="{{url_for('equipment')}}" aria-label="Back to Equipment" title="Back to Equipment"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18 9 12l6-6"/></svg></a><strong>Edit {{item[1]}}</strong><span class="mono">{{item[2]}}</span></div></div>
+  <section class="panel"><form method="post" class="form-grid">
+    <label>Equipment *<input name="equipment_name" value="{{item[1]}}" required></label>
+    <label>Equipment ID<input value="{{item[2]}}" readonly></label>
+    <label>Serial No.<input name="serial_number" value="{{item[3]}}"></label>
+    <label>Manufacturer<input name="manufacturer" value="{{item[4]}}"></label>
+    <label>Model<input name="model" value="{{item[5]}}"></label>
+    <label>Equipment type<input name="equipment_type" value="{{item[6]}}"></label>
+    <label>Validity value *<input type="number" min="1" name="validity_value" value="{{item[7] or ''}}" required></label>
+    <label>Validity unit *<select name="validity_unit" required>{% for unit in ['Days','Months','Years'] %}<option {{'selected' if item[8]==unit}}>{{unit}}</option>{% endfor %}</select></label>
+    <label class="check"><input type="checkbox" name="is_primary" {{'checked' if item[9]}}> Primary / reference</label>
+    <label class="check"><input type="checkbox" name="include_programme" {{'checked' if item[10]}}> Include in Calibration Programme</label>
+    {% if item[11]=='Approved' %}<label class="wide">Reason for editing approved equipment *<textarea name="reason" rows="2" required></textarea></label>{% endif %}
+    <label class="wide">Notes<textarea name="notes" rows="3">{{item[12]}}</textarea></label>
+    <div class="form-actions"><button>Save Equipment</button><a class="button secondary" href="{{url_for('equipment')}}">Cancel</a></div>
+  </form></section>
+</div>
+{% endblock %}

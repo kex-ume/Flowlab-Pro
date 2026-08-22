@@ -207,7 +207,6 @@ class QualityPage(_TablePage):
         self.new_button = QPushButton("New Quality Record")
         self.close_button = QPushButton("Close Selected")
         self.search = QLineEdit()
-        self.search.setPlaceholderText("Search quality records")
         self.refresh_button = QPushButton("Refresh")
         for button in (self.new_button, self.close_button):
             button.setObjectName("ControlledAction")
@@ -308,7 +307,6 @@ class KnowledgeBasePage(_TablePage):
         self.category = QComboBox()
         self.category.addItems(self.CATEGORIES)
         self.search = QLineEdit()
-        self.search.setPlaceholderText("Search controlled entries")
         self.refresh_button = QPushButton("Refresh")
         self.add_toolbar_widget(self.new_button)
         self.add_toolbar_stretch()

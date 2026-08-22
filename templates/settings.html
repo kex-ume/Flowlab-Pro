@@ -1,0 +1,9 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="panel compact-panel">
+  <form method="post" class="form-grid single-record-form">
+    <label>Equipment due-soon warning period (days) *<input type="number" name="equipment_due_soon_days" min="0" max="365" step="1" value="{{ due_soon_days }}" required></label>
+    <button>Save</button>
+  </form>
+</section>
+{% endblock %}

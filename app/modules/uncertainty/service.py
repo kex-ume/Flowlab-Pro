@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from math import sqrt
-from statistics import stdev
+from app.modules.uncertainty.engine import RSSEngine, TypeAProcessor, UncertaintyInput
 
 from app.modules.uncertainty.repository import UncertaintyRepository
 
@@ -30,15 +29,18 @@ class UncertaintyService:
         components += [(name, value, factor, sensitivity, "Approved uncertainty profile") for name, value, factor, sensitivity in self.repository.active_profile_uncertainties(equipment_ids)]
         method_type = "Mass" if "mass" in method_name.lower() else "Volumetric" if "volum" in method_name.lower() else "Both"
         components += self.repository.active_components(method_type)
-        rows, squares = [], []
+        engine_inputs = []
         for name, value, divisor, sensitivity, source in components:
             if not divisor:
                 raise ValueError(f"Approved component '{name}' has a zero divisor.")
-            contribution = (float(value) / float(divisor)) * float(sensitivity)
-            rows.append((name, contribution, source or "Controlled library"))
-            squares.append(contribution ** 2)
-        combined = sqrt(sum(squares))
-        expanded = combined * coverage_factor
+            engine_inputs.append(UncertaintyInput(name, "A" if name.startswith("Type A") else "B",
+                source or "Controlled library", float(value), "", "Standard Uncertainty",
+                "Controlled", float(divisor), float(sensitivity)))
+        result = RSSEngine.calculate(engine_inputs, coverage_factor)
+        rows = [(row.input.source, row.contribution, row.input.source_origin)
+                for row in result.components]
+        combined = result.combined_standard_uncertainty
+        expanded = result.expanded_uncertainty
         session_id = self.repository.save_measurement_session(
             meter_type, method_name, flow_range, report_path, observations,
             report_temperature, combined, expanded, actor,
@@ -49,7 +51,5 @@ class UncertaintyService:
     @staticmethod
     def type_a_from_observations(values):
         """Return the standard uncertainty of the mean from report observations."""
-        values = [float(value) for value in values]
-        if len(values) < 2:
-            raise ValueError("The uploaded report needs at least two numeric observations for Type A uncertainty.")
-        return stdev(values) / sqrt(len(values))
+        component, _ = TypeAProcessor.from_observations("Type A repeatability", values, "")
+        return component.input_value

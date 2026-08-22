@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.temporary_demo/
+data/*.db
+data/documents/
+server*.log
+FlowLab.Web/bin/
+FlowLab.Web/obj/

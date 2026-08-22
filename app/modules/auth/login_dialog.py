@@ -36,10 +36,8 @@ class LoginDialog(QDialog):
         form.setSpacing(12)
 
         self.username = QLineEdit()
-        self.username.setPlaceholderText("Username")
 
         self.password = QLineEdit()
-        self.password.setPlaceholderText("Password")
         self.password.setEchoMode(QLineEdit.Password)
 
         form.addRow("Username", self.username)

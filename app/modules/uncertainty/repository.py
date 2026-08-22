@@ -1,9 +1,32 @@
 import json
 
 from app.database.database import managed_connection
+from app.modules.uncertainty.engine import Budget2Rule
+from app.modules.uncertainty.matrix import MatrixBand
 
 
 class UncertaintyRepository:
+    def approved_budget2_rules(self):
+        with managed_connection() as conn:
+            rows = conn.execute("""SELECT name, distribution, divisor,
+                requires_coverage_factor, version FROM budget2_input_types
+                WHERE status='Approved' ORDER BY name""").fetchall()
+        return tuple(Budget2Rule(row[0], row[1], row[2], bool(row[3]), row[4]) for row in rows)
+
+    def active_matrix(self):
+        with managed_connection() as conn:
+            version = conn.execute("""SELECT id, name, version, source_files
+                FROM flow_matrix_versions WHERE is_active=1 AND status='Approved'
+                ORDER BY id DESC LIMIT 1""").fetchone()
+            if version is None:
+                return None, ()
+            rows = conn.execute("""SELECT flow_min_lpm, flow_max_lpm, pump,
+                tank, diverter, weighing_system, reference_meter,
+                temperature_instrument, pressure_instrument, procedure
+                FROM flow_matrix_rows WHERE version_id=? ORDER BY flow_min_lpm""",
+                (version[0],)).fetchall()
+        return version, tuple(MatrixBand(*row) for row in rows)
+
     def profiles(self):
         with managed_connection() as conn:
             return conn.execute("""SELECT p.id, e.asset_number, e.equipment_name, e.equipment_type,
@@ -74,7 +97,7 @@ class UncertaintyRepository:
         placeholders = ",".join("?" for _ in equipment_ids)
         with managed_connection() as conn:
             return conn.execute(f"""SELECT e.asset_number || ' profile', p.standard_uncertainty,
-                p.coverage_factor, p.sensitivity FROM uncertainty_profiles p
+                1.0, p.sensitivity FROM uncertainty_profiles p
                 JOIN laboratory_equipment e ON e.id=p.equipment_id
                 WHERE p.is_active=1 AND p.equipment_id IN ({placeholders})
                   AND p.standard_uncertainty IS NOT NULL""", list(equipment_ids)).fetchall()

@@ -1,0 +1,43 @@
+{% extends 'base.html' %}
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='users.css') }}">
+<div class="users-page">
+  <section class="users-summary">
+    <div><span class="eyebrow">Access governance</span><h1>User Management</h1><p>Create accounts, assign functional roles and control access to FlowLab Pro.</p></div>
+    <div class="users-count"><strong>{{ users|length }}</strong><span>Accounts</span></div>
+  </section>
+  <section class="panel user-create-card">
+    <div class="panel-head"><div><h3>Add user</h3><small>New accounts are active immediately and every change is audited.</small></div></div>
+    <form method="post" class="user-create-form">
+      <input type="hidden" name="action" value="create">
+      <label>Username *<input name="username" autocomplete="off" required></label>
+      <label>Full name *<input name="full_name" required></label>
+      <label>Email<input name="email" type="email"></label>
+      <label>Role *<select name="role_id" required><option value="">Select role</option>{% for role in roles %}<option value="{{ role[0] }}">{{ role[1] }}</option>{% endfor %}</select></label>
+      <label>Temporary password *<input name="password" type="password" minlength="10" autocomplete="new-password" required></label>
+      <button type="submit">Create user</button>
+    </form>
+  </section>
+  <section class="panel user-register">
+    <div class="panel-head"><div><h3>User register</h3><small>Chief Meteorologist and Administrator access only.</small></div><span class="pill ready">Controlled</span></div>
+    <div class="table-scroll"><table><thead><tr><th>User</th><th>Contact</th><th>Role</th><th>Status</th><th>Last sign-in</th><th>Account actions</th></tr></thead><tbody>
+      {% for user in users %}
+      <tr>
+        <td><strong>{{ user[2] }}</strong><small class="user-name">{{ user[1] }}</small></td>
+        <td>{{ user[3] or '—' }}</td>
+        <td><span class="role-chip">{{ user[4] }}</span></td>
+        <td><span class="pill {{ 'ready' if user[6] else 'expired' }}">{{ 'Active' if user[6] else 'Inactive' }}</span></td>
+        <td data-local-datetime="{{ user[7] or '' }}">{{ user[7] or 'Never' }}</td>
+        <td class="user-actions">
+          {% if user[4] != 'Administrator' %}
+          <details><summary>Edit</summary><form method="post" class="user-inline-form"><input type="hidden" name="action" value="update"><input type="hidden" name="user_id" value="{{ user[0] }}"><label>Full name<input name="full_name" value="{{ user[2] }}" required></label><label>Email<input name="email" type="email" value="{{ user[3] }}"></label><label>Role<select name="role_id" required>{% for role in roles %}<option value="{{ role[0] }}" {% if role[0] == user[5] %}selected{% endif %}>{{ role[1] }}</option>{% endfor %}</select></label><button>Save changes</button></form></details>
+          {% endif %}
+          <details><summary>Reset password</summary><form method="post" class="user-inline-form password-form"><input type="hidden" name="action" value="reset_password"><input type="hidden" name="user_id" value="{{ user[0] }}"><label>New password<input name="password" type="password" minlength="10" autocomplete="new-password" required></label><button>Reset password</button></form></details>
+          <form method="post" data-confirm-delete="{{ 'Deactivate' if user[6] else 'Activate' }} {{ user[1] }}?"><input type="hidden" name="action" value="toggle_active"><input type="hidden" name="user_id" value="{{ user[0] }}"><button class="status-button {{ 'deactivate' if user[6] else 'activate' }}">{{ 'Deactivate' if user[6] else 'Activate' }}</button></form>
+        </td>
+      </tr>
+      {% else %}<tr><td colspan="6" class="empty">No user accounts are available.</td></tr>{% endfor %}
+    </tbody></table></div>
+  </section>
+</div>
+{% endblock %}

@@ -20,7 +20,7 @@ class LaboratoryAsset:
     laboratory_location: str = ""
     department: str = ""
 
-    calibration_interval_months: int = 12
+    calibration_interval_months: Optional[int] = None
 
     last_calibration_date: Optional[date] = None
     next_calibration_date: Optional[date] = None

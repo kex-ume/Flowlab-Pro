@@ -1,0 +1,32 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="equipment-page">
+  <div class="equipment-actions">
+    <button type="button" class="button secondary" data-toggle-equipment>+ Add equipment</button>
+    <button type="button" class="button secondary" data-toggle-equipment-upload>Upload equipment list</button>
+    <a class="button secondary" href="{{url_for('programme')}}">Calibration Programme</a>
+    <a class="button" href="{{url_for('equipment_export')}}">Export CSV</a>
+  </div>
+  <section class="panel equipment-create" data-equipment-upload hidden><form method="post" enctype="multipart/form-data" class="equipment-upload-form"><input type="hidden" name="action" value="upload"><label>Equipment list<input type="file" name="equipment_list" accept=".csv,.xlsx" required></label><button>Upload</button></form></section>
+  <section class="panel equipment-create" data-equipment-form hidden><form method="post" class="form-grid">
+    <label>Equipment<input name="equipment_name" required></label><label>Equipment ID<input name="asset_number" required></label><label>Serial No.<input name="serial_number"></label><label>Manufacturer<input name="manufacturer"></label><label>Model<input name="model"></label><label>Equipment type<input name="equipment_type"></label>
+    <label>Validity value *<input type="number" min="1" name="validity_value" required></label><label>Validity unit *<select name="validity_unit" required><option>Days</option><option selected>Months</option><option>Years</option></select></label><label class="check"><input type="checkbox" name="is_primary"> Primary / reference</label><label class="check"><input type="checkbox" name="include_programme"> Include in Calibration Programme</label><label class="wide">Notes (optional)<textarea name="notes" rows="3"></textarea></label><button>Add equipment</button>
+  </form></section>
+  <div class="equipment-stats">{% for label,value in stats.items() %}<a href="{{url_for('equipment',status='' if label=='All' else label)}}" class="equipment-stat {{'selected' if (label=='All' and not status_filter) or status_filter==label}}"><span>{{label}}</span><strong>{{value}}</strong></a>{% endfor %}</div>
+  <section class="panel equipment-register">
+    <form method="get" class="equipment-toolbar"><input type="search" name="q" value="{{search_term}}" aria-label="Search equipment"><select name="status" aria-label="Status"><option value="">All statuses</option>{% for value in ['Active','Due Soon','Expired'] %}<option {{'selected' if status_filter==value}}>{{value}}</option>{% endfor %}</select><button>Filter</button><a href="{{url_for('equipment')}}">Clear</a></form>
+    <div class="equipment-table-wrap"><table><thead><tr><th>Equipment</th><th>Equipment ID</th><th>Serial No.</th><th>Model</th><th>Validity</th><th>Cal Date</th><th>Due Date</th><th>Status</th><th>Approval</th><th>Report</th><th aria-label="Actions"></th></tr></thead><tbody>
+    {% for r in rows %}<tr>
+      <td><a class="equipment-name" href="{{url_for('equipment_detail',equipment_id=r[0])}}">{{r[1]}}</a>{% if r[9] %}<small>{{r[9]}}</small>{% endif %}</td><td class="mono">{{r[2]}}</td><td>{{r[3]}}</td><td>{{r[4]}}</td><td>{{r[13] or ''}} {{r[14]}}</td><td data-local-date="{{r[5] or ''}}">{{r[5] or ''}}</td><td data-local-date="{{r[6] or ''}}">{{r[6] or ''}}</td><td><span class="pill {{r[7]|lower|replace(' ','-')}}">{{r[7]}}</span></td><td><span class="pill {{r[15]|lower|replace(' ','-')}}">{{r[15]}}</span></td><td>{% if r[8] %}<a href="{{url_for('equipment_detail',equipment_id=r[0],tab='files')}}">View</a>{% else %}<span class="empty-inline">None</span>{% endif %}</td>
+      <td><div class="equipment-row-actions">
+        {% if r[15] in ('Draft','Reverted') %}<form method="post" action="{{url_for('equipment_workflow',equipment_id=r[0])}}"><input type="hidden" name="action" value="submit"><button class="record-add" aria-label="Submit equipment for review" title="Submit for review">↑</button></form>{% endif %}
+        {% if r[15]=='Submitted for Review' and can('record_approve') %}<form method="post" action="{{url_for('equipment_workflow',equipment_id=r[0])}}"><input type="hidden" name="action" value="approve"><button class="record-add" aria-label="Approve equipment" title="Approve">✓</button></form>{% endif %}
+        {% if r[15]=='Submitted for Review' and can('record_review') %}<form method="post" action="{{url_for('equipment_workflow',equipment_id=r[0])}}" data-require-reason="Review comment"><input type="hidden" name="action" value="revert"><input type="hidden" name="comment"><button class="record-add" aria-label="Revert equipment" title="Revert">↶</button></form>{% endif %}
+        <a class="record-add" aria-label="Add calibration or maintenance record" title="Add record" href="{{url_for('equipment_detail',equipment_id=r[0],tab='calibration',add=1)}}">+</a>{% if can('equipment_edit') %}<a class="edit-icon" aria-label="Edit equipment" title="Edit" href="{{url_for('equipment_edit',equipment_id=r[0])}}">✎</a>{% endif %}
+        {% if can('equipment_delete') %}<form method="post" action="{{url_for('equipment_delete',equipment_id=r[0])}}" data-confirm-delete="Remove this equipment from the active register?" {% if r[15]=='Approved' %}data-require-reason="Reason for removing approved equipment"{% endif %}><input type="hidden" name="reason"><button class="delete-icon" aria-label="Delete equipment" title="Delete"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3m-9 0 1 14h10l1-14M10 11v6m4-6v6"/></svg></button></form>{% endif %}
+      </div></td>
+    </tr>{% else %}<tr><td colspan="11"><div class="table-empty"><span>No equipment has been added.</span><button type="button" data-toggle-equipment>Add Equipment</button></div></td></tr>{% endfor %}
+    </tbody></table></div>
+  </section>
+</div>
+{% endblock %}

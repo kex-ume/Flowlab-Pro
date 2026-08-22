@@ -9,7 +9,6 @@ class AuthService:
 
     def __init__(self):
         self.repository = AuthRepository()
-        self.ensure_default_admin()
 
     # ------------------------------------------------------------------
     # Password Hashing
@@ -20,63 +19,6 @@ class AuthService:
         return hashlib.sha256(
             password.encode("utf-8")
         ).hexdigest()
-
-    # ------------------------------------------------------------------
-    # Default Administrator
-    # ------------------------------------------------------------------
-
-    def ensure_default_admin(self):
-
-        conn = get_connection()
-        cursor = conn.cursor()
-
-        cursor.execute("""
-            SELECT id
-            FROM users
-            WHERE username='admin'
-        """)
-
-        exists = cursor.fetchone()
-
-        if exists:
-            conn.close()
-            return
-
-        cursor.execute("""
-            SELECT id
-            FROM roles
-            WHERE name='Administrator'
-        """)
-
-        role = cursor.fetchone()
-
-        if role is None:
-            conn.close()
-            return
-
-        role_id = role[0]
-
-        cursor.execute("""
-            INSERT INTO users(
-                username,
-                password_hash,
-                full_name,
-                email,
-                role_id,
-                is_active
-            )
-            VALUES(?,?,?,?,?,?)
-        """, (
-            "admin",
-            self.hash_password("admin123"),
-            "System Administrator",
-            "",
-            role_id,
-            1,
-        ))
-
-        conn.commit()
-        conn.close()
 
     # ------------------------------------------------------------------
     # Login

@@ -120,7 +120,7 @@ class EquipmentDialog(QDialog):
         self.serial_number.setText(row[6])
         self.location.setText(row[7])
         self.primary_equipment.setChecked(bool(row[14]))
-        self.include_in_calibration_programme.setChecked(bool(row[-1]) if len(row) > 19 else False)
+        self.include_in_calibration_programme.setChecked(bool(row[19]) if len(row) > 19 else False)
 
         if row[11]:
             self.next_due_date.setDate(

@@ -46,7 +46,6 @@ class TopBar(QFrame):
 
         self.search = QLineEdit()
         self.search.setObjectName("SearchBox")
-        self.search.setPlaceholderText("Search jobs, equipment, certificates…")
         self.search.setClearButtonEnabled(True)
         self.search.setFixedWidth(300)
         self.search.addAction(QIcon(":/icons/search.svg"), QLineEdit.LeadingPosition)

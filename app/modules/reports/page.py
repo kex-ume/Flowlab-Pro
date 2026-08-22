@@ -45,18 +45,15 @@ class ReportsPage(QWidget):
         toolbar.addWidget(QLabel("Search"))
 
         self.search = QLineEdit()
-        self.search.setPlaceholderText("Search...")
         toolbar.addWidget(self.search)
 
         self.refresh_btn = QPushButton("Refresh")
         self.pdf_btn = QPushButton("Export PDF")
         self.excel_btn = QPushButton("Export Excel")
-        self.print_btn = QPushButton("Print")
 
         toolbar.addWidget(self.refresh_btn)
         toolbar.addWidget(self.pdf_btn)
         toolbar.addWidget(self.excel_btn)
-        toolbar.addWidget(self.print_btn)
         toolbar.addStretch()
 
         layout.addLayout(toolbar)
@@ -69,7 +66,6 @@ class ReportsPage(QWidget):
         self.search.textChanged.connect(self.filter_table)
         self.pdf_btn.clicked.connect(self.export_pdf)
         self.excel_btn.clicked.connect(self.export_excel)
-        self.print_btn.clicked.connect(self.print_report)
 
         self.current_data = []
 
@@ -199,12 +195,4 @@ class ReportsPage(QWidget):
             self,
             "Reports",
             "Excel exported successfully."
-        )
-
-    def print_report(self):
-
-        QMessageBox.information(
-            self,
-            "Reports",
-            "Print support coming next."
         )
