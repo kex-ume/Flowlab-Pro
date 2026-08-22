@@ -6,7 +6,7 @@ Then open: http://127.0.0.1:5000
 
 import csv
 import calendar
-from datetime import date
+from datetime import date, timedelta
 import io
 import json
 from pathlib import Path
@@ -41,6 +41,29 @@ def permission_context():
         Permissions.can(session.get("role_name", ""), permission)}
 
 
+@app.context_processor
+def notification_context():
+    user_id = session.get("user_id")
+    if not user_id:
+        return {"notification_count": 0}
+    connection = get_connection()
+    try:
+        personal = connection.execute("""SELECT COUNT(*) FROM notifications
+            WHERE user_id=? AND is_read=0""", (user_id,)).fetchone()[0]
+        equipment_due = connection.execute("""SELECT COUNT(*) FROM laboratory_equipment
+            WHERE is_active=1 AND include_in_calibration_programme=1
+            AND next_calibration_date IS NOT NULL
+            AND next_calibration_date<=date('now','+30 days')""").fetchone()[0]
+        jobs_due = connection.execute("""SELECT COUNT(*) FROM calibration_jobs
+            WHERE is_deleted=0 AND status NOT IN ('Completed','Cancelled')
+            AND COALESCE(NULLIF(required_date,''),NULLIF(planned_start_date,'')) IS NOT NULL
+            AND COALESCE(NULLIF(required_date,''),NULLIF(planned_start_date,''))<=date('now','+14 days')
+            AND (assigned_user_id=? OR assigned_user_id IS NULL)""", (user_id,)).fetchone()[0]
+        return {"notification_count": personal + equipment_due + jobs_due}
+    finally:
+        connection.close()
+
+
 def query(sql, params=()):
     connection = get_connection()
     try:
@@ -51,6 +74,31 @@ def query(sql, params=()):
 
 def current_actor():
     return session.get("full_name") or session.get("username") or "Unauthenticated local session"
+
+
+def add_notification(connection, user_id, title, message, link=None,
+        entity_type=None, entity_id=None, notification_type="Workflow"):
+    if not user_id:
+        return
+    connection.execute("""INSERT INTO notifications
+        (user_id,notification_type,title,message,link,entity_type,entity_id,created_by)
+        VALUES (?,?,?,?,?,?,?,?)""", (user_id, notification_type, title, message, link,
+        entity_type, entity_id, current_actor()))
+
+
+def user_id_for_actor(connection, actor):
+    row = connection.execute("""SELECT id FROM users
+        WHERE full_name=? OR username=? ORDER BY CASE WHEN full_name=? THEN 0 ELSE 1 END LIMIT 1""",
+        (actor, actor, actor)).fetchone()
+    return row[0] if row else None
+
+
+def active_reviewers(connection):
+    return connection.execute("""SELECT u.id,u.full_name,r.name FROM users u
+        JOIN roles r ON r.id=u.role_id WHERE u.is_active=1
+        AND r.name IN ('Chief Meteorologist','Supervisor','Engineer','Administrator','HOD')
+        AND u.id<>? ORDER BY CASE r.name WHEN 'Chief Meteorologist' THEN 1 WHEN 'Supervisor' THEN 2
+        WHEN 'Engineer' THEN 3 ELSE 4 END,u.full_name""", (session.get("user_id") or -1,)).fetchall()
 
 
 def require_permission(permission):
@@ -232,7 +280,8 @@ def dashboard():
         AND next_calibration_date <= date('now', ?)""", (f"+{due_soon_days} days",))[0][0]
     review_tasks = query("""SELECT entity_type, entity_id, submitted_by,
         submitted_at, priority FROM workflow_tasks
-        WHERE status='Pending' ORDER BY submitted_at LIMIT 5""")
+        WHERE status='Pending' AND (assigned_user_id=? OR assigned_to=?)
+        ORDER BY submitted_at LIMIT 5""", (session.get("user_id"), current_actor()))
     standards = query("SELECT COUNT(*) FROM laboratory_equipment WHERE is_reference_standard=1 AND is_active=1")[0][0]
     kpis = (
         {"value": counts["equipment"], "label": "Equipment Assets"},
@@ -256,8 +305,65 @@ def dashboard():
         "label": task[4] or "Normal", "tone": "due"} for task in review_tasks]
     return render_template("dashboard.html", counts=counts, kpis=kpis,
         readiness=readiness, upcoming=upcoming, attention=attention,
-        today=date.today().isoformat(), page_title="Dashboard",
+        today=date.today().isoformat(), page_title=f"Welcome back, {current_actor()}",
         page_subtitle="Today's calibration and compliance picture", active_nav="dashboard")
+
+
+@app.get("/reminders")
+def reminders():
+    user_id = session.get("user_id")
+    connection = get_connection()
+    try:
+        notifications = connection.execute("""SELECT id,notification_type,title,message,link,
+            entity_type,entity_id,is_read,created_at FROM notifications
+            WHERE user_id=? ORDER BY is_read,created_at DESC LIMIT 100""", (user_id,)).fetchall()
+        equipment_reminders = connection.execute("""SELECT id,asset_number,equipment_name,
+            next_calibration_date,CASE WHEN next_calibration_date<date('now') THEN 'Expired'
+            WHEN next_calibration_date=date('now') THEN 'Due Today' ELSE 'Due Soon' END
+            FROM laboratory_equipment WHERE is_active=1 AND include_in_calibration_programme=1
+            AND next_calibration_date IS NOT NULL AND next_calibration_date<=date('now','+30 days')
+            ORDER BY next_calibration_date""").fetchall()
+        job_reminders = connection.execute("""SELECT j.id,j.job_number,COALESCE(j.job_title,''),
+            COALESCE(j.planned_start_date,''),COALESCE(j.required_date,''),j.status,
+            COALESCE(u.full_name,'Unassigned') FROM calibration_jobs j
+            LEFT JOIN users u ON u.id=j.assigned_user_id WHERE j.is_deleted=0
+            AND j.status NOT IN ('Completed','Cancelled')
+            AND COALESCE(NULLIF(j.required_date,''),NULLIF(j.planned_start_date,'')) IS NOT NULL
+            AND COALESCE(NULLIF(j.required_date,''),NULLIF(j.planned_start_date,''))<=date('now','+14 days')
+            AND (j.assigned_user_id=? OR j.assigned_user_id IS NULL OR ? IN ('Chief Meteorologist','Supervisor','Administrator'))
+            ORDER BY COALESCE(NULLIF(j.required_date,''),NULLIF(j.planned_start_date,''))""",
+            (user_id, session.get("role_name", ""))).fetchall()
+        connection.execute("UPDATE notifications SET is_read=1,read_at=CURRENT_TIMESTAMP WHERE user_id=? AND is_read=0",
+            (user_id,))
+        connection.commit()
+        return render_template("reminders.html", notifications=notifications,
+            equipment_reminders=equipment_reminders, job_reminders=job_reminders,
+            page_title="Notifications & Reminders", page_subtitle="Assigned reviews, due equipment and scheduled Jobs")
+    finally:
+        connection.close()
+
+
+@app.route("/api/drafts/<path:draft_key>", methods=["GET", "POST", "DELETE"])
+def user_draft(draft_key):
+    user_id = session.get("user_id")
+    connection = get_connection()
+    try:
+        if request.method == "GET":
+            row = connection.execute("SELECT payload_json,updated_at FROM user_drafts WHERE user_id=? AND draft_key=?",
+                (user_id,draft_key)).fetchone()
+            return jsonify(ok=True, draft=json.loads(row[0]) if row else None,
+                updatedAt=row[1] if row else None)
+        if request.method == "DELETE":
+            connection.execute("DELETE FROM user_drafts WHERE user_id=? AND draft_key=?", (user_id,draft_key))
+            connection.commit(); return jsonify(ok=True)
+        payload = request.get_json(silent=True) or {}
+        connection.execute("""INSERT INTO user_drafts(user_id,draft_key,payload_json)
+            VALUES (?,?,?) ON CONFLICT(user_id,draft_key) DO UPDATE SET
+            payload_json=excluded.payload_json,updated_at=CURRENT_TIMESTAMP""",
+            (user_id,draft_key,json.dumps(payload)))
+        connection.commit(); return jsonify(ok=True)
+    finally:
+        connection.close()
 
 
 WORKSPACES = {
@@ -1385,20 +1491,36 @@ def equipment_detail(equipment_id):
                 status = controlled_status()
                 if status != "Approved" and request.form.get("intent") == "submit":
                     status = "Submitted for Review"
+                reviewer_id = request.form.get("reviewer_user_id", type=int) if status == "Submitted for Review" else None
+                reviewer = connection.execute("""SELECT u.full_name FROM users u JOIN roles r ON r.id=u.role_id
+                    WHERE u.id=? AND u.is_active=1 AND r.name IN
+                    ('Chief Meteorologist','Supervisor','Administrator','HOD')""",
+                    (reviewer_id,)).fetchone() if reviewer_id else None
+                if status == "Submitted for Review" and not reviewer:
+                    raise ValueError("Select the specific user who will review this calibration.")
                 cursor = connection.execute("""INSERT INTO calibration_history
                     (equipment_id,calibration_date,next_due_date,calibrated_by,certificate_path,
                      remarks,uncertainty_value,uncertainty_unit,coverage_factor,
                      calibration_range,range_unit,result,uploaded_by,notes,certificate_number,
                      uncertainty_input_type,status,submitted_by,validity_value,validity_unit,
-                     classification,source_name,sensitivity_coefficient,degrees_of_freedom)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (
+                     classification,source_name,sensitivity_coefficient,degrees_of_freedom,assigned_reviewer_id)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (
                     equipment_id, calibration_date, next_due_date,
                     calibrated_by, certificate_path, notes, uncertainty_value,
                     request.form.get("uncertainty_unit", "").strip(), coverage_factor,
                     calibration_range, request.form["range_unit"].strip(), request.form["result"],
                     current_actor(), notes,certificate_number,request.form["uncertainty_input_type"],
                     status,current_actor(),validity_value,validity_unit,classification,
-                    source_name or None,sensitivity,degrees_of_freedom))
+                    source_name or None,sensitivity,degrees_of_freedom,reviewer_id))
+                if status == "Submitted for Review":
+                    connection.execute("""INSERT INTO workflow_tasks
+                        (entity_type,entity_id,task_type,status,submitted_by,submitted_user_id,
+                         assigned_to,assigned_user_id) VALUES (?,?,'Technical Review','Pending',?,?,?,?)""",
+                        ("calibration",cursor.lastrowid,current_actor(),session.get("user_id"),reviewer[0],reviewer_id))
+                    add_notification(connection, reviewer_id, "Calibration assigned for review",
+                        f"{item[2]} · {item[1]} was submitted by {current_actor()}.",
+                        url_for("equipment_detail",equipment_id=equipment_id,tab="calibration"),
+                        "calibration",cursor.lastrowid)
                 add_note(connection, "calibration", cursor.lastrowid, notes)
                 audit_change(connection, "calibration", cursor.lastrowid, "create", after={
                     "equipment_id": equipment_id, "calibration_date": calibration_date,
@@ -1428,12 +1550,19 @@ def equipment_detail(equipment_id):
                 status = controlled_status()
                 if status != "Approved" and request.form.get("intent") == "submit":
                     status = "Submitted for Review"
+                reviewer_id = request.form.get("reviewer_user_id", type=int) if status == "Submitted for Review" else None
+                reviewer = connection.execute("""SELECT u.full_name FROM users u JOIN roles r ON r.id=u.role_id
+                    WHERE u.id=? AND u.is_active=1 AND r.name IN
+                    ('Chief Meteorologist','Supervisor','Administrator','HOD')""",
+                    (reviewer_id,)).fetchone() if reviewer_id else None
+                if status == "Submitted for Review" and not reviewer:
+                    raise ValueError("Select the specific user who will review this maintenance record.")
                 cursor = connection.execute("""INSERT INTO maintenance_history
                     (equipment_id,maintenance_date,maintenance_type,performed_by,cost,
                      document_path,remarks,next_maintenance_date,currency,supplier,
                      work_performed,findings,parts_replaced,metrological_impact,recalibration_required,
-                     uploaded_by,notes,status,submitted_by)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (
+                     uploaded_by,notes,status,submitted_by,assigned_reviewer_id)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (
                     equipment_id, maintenance_date, maintenance_type,
                     request.form.get("performed_by", ""), value,
                     document_path, notes, next_maintenance_date,
@@ -1441,7 +1570,16 @@ def equipment_detail(equipment_id):
                     request.form.get("work_performed", ""), request.form.get("findings", ""),
                     request.form.get("parts_replaced", ""), request.form.get("metrological_impact", ""),
                     int(bool(request.form.get("recalibration_required"))),
-                    current_actor() if document_path else None, notes,status,current_actor()))
+                    current_actor() if document_path else None, notes,status,current_actor(),reviewer_id))
+                if status == "Submitted for Review":
+                    connection.execute("""INSERT INTO workflow_tasks
+                        (entity_type,entity_id,task_type,status,submitted_by,submitted_user_id,
+                         assigned_to,assigned_user_id) VALUES (?,?,'Technical Review','Pending',?,?,?,?)""",
+                        ("maintenance",cursor.lastrowid,current_actor(),session.get("user_id"),reviewer[0],reviewer_id))
+                    add_notification(connection, reviewer_id, "Maintenance record assigned for review",
+                        f"{item[2]} · {item[1]} was submitted by {current_actor()}.",
+                        url_for("equipment_detail",equipment_id=equipment_id,tab="maintenance"),
+                        "maintenance",cursor.lastrowid)
                 add_note(connection, "maintenance", cursor.lastrowid, notes)
                 audit_change(connection, "maintenance", cursor.lastrowid, "create", after={
                     "equipment_id": equipment_id, "maintenance_date": maintenance_date,
@@ -1462,7 +1600,8 @@ def equipment_detail(equipment_id):
         COALESCE(certificate_path,''),COALESCE(remarks,''),uncertainty_value,
         COALESCE(uncertainty_unit,''),coverage_factor,COALESCE(calibration_range,''),
         COALESCE(range_unit,''),COALESCE(result,''),COALESCE(certificate_number,''),status,
-        validity_value,COALESCE(validity_unit,''),COALESCE(submitted_by,''),COALESCE(approved_by,'')
+        validity_value,COALESCE(validity_unit,''),COALESCE(submitted_by,''),COALESCE(approved_by,''),
+        assigned_reviewer_id,COALESCE(review_comment,'')
         FROM calibration_history
         WHERE equipment_id=? AND is_deleted=0 ORDER BY calibration_date DESC,id DESC""", (equipment_id,))
     maintenance = query("""SELECT id,maintenance_date,COALESCE(maintenance_type,''),
@@ -1470,7 +1609,8 @@ def equipment_detail(equipment_id):
         next_maintenance_date,COALESCE(currency,''),COALESCE(supplier,''),
         COALESCE(work_performed,''),COALESCE(findings,''),COALESCE(parts_replaced,''),
         COALESCE(metrological_impact,''),recalibration_required,status,
-        COALESCE(submitted_by,''),COALESCE(approved_by,'') FROM maintenance_history
+        COALESCE(submitted_by,''),COALESCE(approved_by,''),assigned_reviewer_id,
+        COALESCE(review_comment,'') FROM maintenance_history
         WHERE equipment_id=? AND is_deleted=0 ORDER BY maintenance_date DESC,id DESC""", (equipment_id,))
     profiles = query("""SELECT version,COALESCE(certificate_number,''),calibration_date,
         next_due_date,coverage_factor,expanded_uncertainty,standard_uncertainty,
@@ -1480,6 +1620,10 @@ def equipment_detail(equipment_id):
         WHERE entity_type='equipment' AND entity_id=? ORDER BY created_at DESC,id DESC""", (equipment_id,))
     return render_template("equipment_detail.html", item=item, calibrations=calibrations,
         maintenance=maintenance, profiles=profiles, notes=notes,
+        reviewers=query("""SELECT u.id,u.full_name,r.name FROM users u JOIN roles r ON r.id=u.role_id
+            WHERE u.is_active=1 AND u.id<>? AND r.name IN
+            ('Chief Meteorologist','Supervisor','Administrator','HOD') ORDER BY u.full_name""",
+            (session.get("user_id") or -1,)),
         tab=request.args.get("tab", "overview"), show_form=request.args.get("add") == "1",
         page_title="Equipment", page_subtitle="", active_nav="iso17025")
 
@@ -1498,7 +1642,8 @@ def equipment_record_workflow(equipment_id,kind,record_id):
         abort(404)
     comment = request.form.get("comment", "").strip()
     connection = get_connection()
-    row = connection.execute(f"SELECT status,submitted_by FROM {table} WHERE id=? AND equipment_id=? AND is_deleted=0",
+    row = connection.execute(f"""SELECT status,submitted_by,assigned_reviewer_id
+        FROM {table} WHERE id=? AND equipment_id=? AND is_deleted=0""",
         (record_id,equipment_id)).fetchone()
     if not row:
         connection.close(); abort(404)
@@ -1506,20 +1651,41 @@ def equipment_record_workflow(equipment_id,kind,record_id):
         if action == "submit":
             if row[0] not in {"Draft","Reverted"}:
                 raise ValueError("Only a Draft or Reverted record can be submitted.")
+            reviewer_id = request.form.get("reviewer_user_id", type=int)
+            reviewer = connection.execute("""SELECT u.full_name FROM users u JOIN roles r ON r.id=u.role_id
+                WHERE u.id=? AND u.is_active=1 AND r.name IN
+                ('Chief Meteorologist','Supervisor','Administrator','HOD')""",
+                (reviewer_id,)).fetchone() if reviewer_id else None
+            if not reviewer or reviewer_id == session.get("user_id"):
+                raise ValueError("Select a different active user to review this record.")
             status = "Submitted for Review"
-            connection.execute(f"UPDATE {table} SET status=?,submitted_by=? WHERE id=?",
-                (status,current_actor(),record_id))
+            connection.execute(f"""UPDATE {table} SET status=?,submitted_by=?,assigned_reviewer_id=?,
+                review_comment=NULL WHERE id=?""", (status,current_actor(),reviewer_id,record_id))
+            connection.execute("""INSERT INTO workflow_tasks
+                (entity_type,entity_id,task_type,status,submitted_by,submitted_user_id,assigned_to,assigned_user_id)
+                VALUES (?,?,'Technical Review','Pending',?,?,?,?)""",
+                (kind,record_id,current_actor(),session.get("user_id"),reviewer[0],reviewer_id))
+            add_notification(connection,reviewer_id,f"{kind.title()} assigned for review",
+                f"Equipment record {record_id} was submitted by {current_actor()}.",
+                url_for("equipment_detail",equipment_id=equipment_id,tab=kind),kind,record_id)
         elif action == "revert":
             if row[0] != "Submitted for Review" or not comment:
                 raise ValueError("A submitted record and a review comment are required to revert.")
+            if row[2] and row[2] != session.get("user_id"):
+                raise ValueError("This review is assigned to another user.")
             status = "Reverted"
-            connection.execute(f"""UPDATE {table} SET status=?,reviewed_by=?,reviewed_at=CURRENT_TIMESTAMP
-                WHERE id=?""",(status,current_actor(),record_id))
+            connection.execute(f"""UPDATE {table} SET status=?,reviewed_by=?,reviewed_at=CURRENT_TIMESTAMP,
+                review_comment=? WHERE id=?""",(status,current_actor(),comment,record_id))
+            sender_id = user_id_for_actor(connection,row[1])
+            add_notification(connection,sender_id,f"{kind.title()} returned with comment",
+                f"{current_actor()}: {comment}",url_for("equipment_detail",equipment_id=equipment_id,tab=kind),kind,record_id)
         elif action == "approve":
             if row[0] != "Submitted for Review":
                 raise ValueError("Only a submitted record can be approved.")
             if row[1] == current_actor():
                 raise ValueError("The submitter cannot approve their own controlled record.")
+            if row[2] and row[2] != session.get("user_id"):
+                raise ValueError("This review is assigned to another user.")
             if kind == "calibration":
                 candidate = connection.execute("SELECT calibration_date,certificate_number FROM calibration_history WHERE id=?",
                     (record_id,)).fetchone()
@@ -1536,10 +1702,17 @@ def equipment_record_workflow(equipment_id,kind,record_id):
                 connection.execute("""UPDATE maintenance_history SET status='Approved',approved_by=?,
                     approved_at=CURRENT_TIMESTAMP WHERE id=?""",(current_actor(),record_id))
             status = "Approved"
+            add_notification(connection,user_id_for_actor(connection,row[1]),f"{kind.title()} approved",
+                f"Record {record_id} was approved by {current_actor()}.",
+                url_for("equipment_detail",equipment_id=equipment_id,tab=kind),kind,record_id)
         else:
             raise ValueError("Unknown workflow action.")
         connection.execute("INSERT INTO approval_history(entity_type,entity_id,action,actor,notes) VALUES (?,?,?,?,?)",
             (kind,record_id,action,current_actor(),comment or None))
+        if action in {"approve","revert"}:
+            connection.execute("""UPDATE workflow_tasks SET status='Completed',reviewed_at=CURRENT_TIMESTAMP,
+                decision=?,comment=? WHERE entity_type=? AND entity_id=? AND status='Pending'""",
+                (status,comment or None,kind,record_id))
         audit_change(connection,kind,record_id,action,before={"status":row[0]},
             after={"status":status,"comment":comment or None})
         connection.commit(); flash(f"{kind.title()} status changed to {status}.","success")
@@ -1875,6 +2048,13 @@ def uncertainty_api_discard(record_type, record_id):
 def uncertainty_api_record(record_type, record_id):
     connection = get_connection()
     try:
+        table = "cmc_revisions" if record_type == "cmc" else "uncertainty_calculations"
+        creator = "created_by" if record_type == "cmc" else "calculated_by"
+        access = connection.execute(f"SELECT status,{creator} FROM {table} WHERE id=?", (record_id,)).fetchone()
+        if not access:
+            raise ValueError("Uncertainty record was not found.")
+        if access[0] in {"Draft","Reverted"} and access[1] != current_actor():
+            return jsonify(ok=False,error="This unfinished draft is private to its creator."), 403
         return jsonify(ok=True, record=record_payload(connection, record_id,
             "cmc" if record_type == "cmc" else "calculation"))
     except ValueError as error:
@@ -1926,16 +2106,26 @@ def uncertainty_api_workflow(record_type, record_id):
     require_permission(permission)
     connection = get_connection()
     try:
+        is_cmc = record_type == "cmc"
+        table = "cmc_revisions" if is_cmc else "uncertainty_calculations"
+        creator_column = "created_by" if is_cmc else "calculated_by"
+        entity = "cmc_revision" if is_cmc else "uncertainty_calculation"
+        record_row = connection.execute(f"""SELECT status,{creator_column},assigned_reviewer,
+            assigned_approver FROM {table} WHERE id=?""", (record_id,)).fetchone()
+        if not record_row:
+            raise ValueError("Calculation record was not found.")
         reviewer = approver = None
+        reviewer_id = approver_id = None
         if action == "submit":
+            reviewer_id = body.get("reviewerUserId"); approver_id = body.get("approverUserId")
             reviewer = connection.execute("""SELECT u.full_name FROM users u JOIN roles r ON r.id=u.role_id
                 WHERE u.id=? AND u.is_active=1 AND r.name IN
                 ('Engineer','Supervisor','Chief Meteorologist','Administrator','HOD')""",
-                (body.get("reviewerUserId"),)).fetchone()
+                (reviewer_id,)).fetchone()
             approver = connection.execute("""SELECT u.full_name FROM users u JOIN roles r ON r.id=u.role_id
                 WHERE u.id=? AND u.is_active=1 AND r.name IN
                 ('Chief Meteorologist','Supervisor','Administrator','HOD')""",
-                (body.get("approverUserId"),)).fetchone()
+                (approver_id,)).fetchone()
             if not reviewer or not approver:
                 raise ValueError("Select an active Technical Reviewer and Chief/Supervisor Approving Officer.")
             reviewer, approver = reviewer[0], approver[0]
@@ -1950,6 +2140,27 @@ def uncertainty_api_workflow(record_type, record_id):
             calculate_payload(connection, saved_payload)
         status = workflow(connection, "cmc" if record_type == "cmc" else "calculation",
             record_id, action, current_actor(), body.get("comment", ""), reviewer, approver)
+        creator_id = user_id_for_actor(connection,record_row[1])
+        link = url_for("uncertainty",record=record_id)
+        if action == "submit":
+            connection.execute("""UPDATE workflow_tasks SET submitted_user_id=?,assigned_user_id=?
+                WHERE entity_type=? AND entity_id=? AND status='Pending'""",
+                (session.get("user_id"),reviewer_id,entity,record_id))
+            add_notification(connection,reviewer_id,"Uncertainty assigned for Technical Review",
+                f"Record {record_id} was submitted by {current_actor()}.",link,entity,record_id)
+        elif action == "review":
+            approver_id = user_id_for_actor(connection,record_row[3])
+            connection.execute("""UPDATE workflow_tasks SET assigned_user_id=?
+                WHERE entity_type=? AND entity_id=? AND status='Pending'""",
+                (approver_id,entity,record_id))
+            add_notification(connection,approver_id,"Uncertainty assigned for final approval",
+                f"Technical Review was completed by {current_actor()}.",link,entity,record_id)
+        elif action == "revert":
+            add_notification(connection,creator_id,"Uncertainty returned with comment",
+                f"{current_actor()}: {body.get('comment','')}",link,entity,record_id)
+        elif action == "approve":
+            add_notification(connection,creator_id,"Uncertainty calculation approved",
+                f"Record {record_id} was approved by {current_actor()}.",link,entity,record_id)
         audit_change(connection, "cmc_revision" if record_type == "cmc" else "uncertainty_calculation",
             record_id, action, before=None, after={"status": status, "comment": body.get("comment")})
         connection.commit()
@@ -2077,8 +2288,9 @@ def uncertainty():
     try:
         if requested_job and not requested_record:
             unfinished = connection.execute("""SELECT id FROM uncertainty_calculations
-                WHERE job_id=? AND status IN ('Draft','Reverted') ORDER BY updated_at DESC,id DESC LIMIT 1""",
-                (requested_job,)).fetchone()
+                WHERE job_id=? AND status IN ('Draft','Reverted') AND calculated_by=?
+                ORDER BY updated_at DESC,id DESC LIMIT 1""",
+                (requested_job,current_actor())).fetchone()
             requested_record = unfinished[0] if unfinished else None
         jobs = connection.execute("""SELECT j.id,j.job_number,c.customer_name,
             COALESCE(j.mut_description,e.equipment_name,''),COALESCE(j.mut_serial_number,e.serial_number,''),
@@ -2109,10 +2321,12 @@ def uncertainty():
             FROM uncertainty_calculations u JOIN calibration_jobs j ON j.id=u.job_id
             LEFT JOIN customers c ON c.id=j.customer_id LEFT JOIN laboratory_equipment e ON e.id=j.equipment_id
             LEFT JOIN project_jobs pj ON pj.job_id=j.id LEFT JOIN projects p ON p.id=pj.project_id
-            ORDER BY u.id DESC""").fetchall()
+            WHERE u.status NOT IN ('Draft','Reverted') OR u.calculated_by=?
+            ORDER BY u.id DESC""", (current_actor(),)).fetchall()
         cmc_records = connection.execute("""SELECT id,method_name,revision,status,proposed_cmc,
             coverage_factor,effective_at,created_by,created_at,snapshot_json
-            FROM cmc_revisions ORDER BY id DESC""").fetchall()
+            FROM cmc_revisions WHERE status NOT IN ('Draft','Reverted') OR created_by=?
+            ORDER BY id DESC""", (current_actor(),)).fetchall()
         audit_records = connection.execute("""SELECT entity_type,entity_id,action,actor,notes,occurred_at
             FROM approval_history WHERE entity_type IN ('uncertainty_calculation','cmc_revision')
             ORDER BY id DESC LIMIT 100""").fetchall()

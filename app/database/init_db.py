@@ -1173,6 +1173,41 @@ def initialize_database():
     ensure_column("quality_records", "deleted_at", "TEXT")
     ensure_column("quality_records", "deleted_by", "TEXT")
     ensure_column("workflow_tasks", "notes", "TEXT")
+    ensure_column("workflow_tasks", "submitted_user_id", "INTEGER")
+    ensure_column("workflow_tasks", "assigned_user_id", "INTEGER")
+    ensure_column("calibration_history", "assigned_reviewer_id", "INTEGER")
+    ensure_column("calibration_history", "review_comment", "TEXT")
+    ensure_column("maintenance_history", "assigned_reviewer_id", "INTEGER")
+    ensure_column("maintenance_history", "review_comment", "TEXT")
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS notifications (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            notification_type TEXT NOT NULL DEFAULT 'Workflow',
+            title TEXT NOT NULL,
+            message TEXT NOT NULL,
+            link TEXT,
+            entity_type TEXT,
+            entity_id INTEGER,
+            created_by TEXT,
+            is_read INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            read_at TEXT,
+            FOREIGN KEY(user_id) REFERENCES users(id)
+        )
+    """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS user_drafts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            draft_key TEXT NOT NULL,
+            payload_json TEXT NOT NULL,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(user_id) REFERENCES users(id),
+            UNIQUE(user_id, draft_key)
+        )
+    """)
 
     cursor.executescript("""
         UPDATE laboratory_equipment SET validity_months=calibration_interval_months
@@ -1194,6 +1229,8 @@ def initialize_database():
         CREATE INDEX IF NOT EXISTS idx_job_reopen_requests ON job_reopen_requests(job_id,status);
         CREATE INDEX IF NOT EXISTS idx_calibration_review_status ON calibration_history(status,equipment_id);
         CREATE INDEX IF NOT EXISTS idx_maintenance_review_status ON maintenance_history(status,equipment_id);
+        CREATE INDEX IF NOT EXISTS idx_notifications_user_read ON notifications(user_id,is_read,created_at);
+        CREATE INDEX IF NOT EXISTS idx_user_drafts_owner ON user_drafts(user_id,updated_at);
     """)
 
     # ------------------------------------------------------------------

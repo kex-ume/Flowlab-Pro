@@ -365,11 +365,13 @@ def save_calculation(connection, payload, result, actor):
     hydrate_job_metadata(connection, payload)
     existing_id = payload.get("recordId")
     if existing_id:
-        existing = connection.execute("SELECT status,revision,calculation_uid FROM uncertainty_calculations WHERE id=?", (existing_id,)).fetchone()
+        existing = connection.execute("SELECT status,revision,calculation_uid,calculated_by FROM uncertainty_calculations WHERE id=?", (existing_id,)).fetchone()
         if not existing:
             raise ValueError("Calculation record was not found.")
         if existing[0] == "Approved":
             raise ValueError("Approved calculations are locked. Create a revision to make changes.")
+        if existing[0] in {"Draft","Reverted"} and existing[3] != actor:
+            raise ValueError("This unfinished uncertainty draft belongs to another user.")
         calculation_id, revision, uid = int(existing_id), existing[1], existing[2]
         connection.execute("DELETE FROM uncertainty_flow_points WHERE calculation_id=?", (calculation_id,))
         connection.execute("DELETE FROM uncertainty_sources WHERE calculation_id=?", (calculation_id,))
@@ -384,8 +386,8 @@ def save_calculation(connection, payload, result, actor):
              result["points"][-1]["result"]["expanded_uncertainty"], actor, actor, calculation_id))
     else:
         unfinished = connection.execute("""SELECT id,calculation_uid FROM uncertainty_calculations
-            WHERE job_id=? AND calculation_type=? AND status IN ('Draft','Reverted')
-            ORDER BY updated_at DESC,id DESC LIMIT 1""", (job_id, result["calculationTypeLabel"])).fetchone()
+            WHERE job_id=? AND calculation_type=? AND status IN ('Draft','Reverted') AND calculated_by=?
+            ORDER BY updated_at DESC,id DESC LIMIT 1""", (job_id, result["calculationTypeLabel"],actor)).fetchone()
         if unfinished:
             raise ValueError(f"Draft {unfinished[1]} already exists for this Job and method. Continue it from Records.")
         revision = connection.execute("SELECT COALESCE(MAX(revision),0)+1 FROM uncertainty_calculations WHERE job_id=?", (job_id,)).fetchone()[0]
@@ -418,12 +420,15 @@ def save_partial_draft(connection, payload, actor):
                 (existing_id,)).fetchone()
             if not existing or existing[0] not in {"Draft", "Reverted"}:
                 raise ValueError("Only a Draft or Reverted CMC record can be automatically saved.")
+            if existing[2] != actor:
+                raise ValueError("This unfinished CMC draft belongs to another user.")
             connection.execute("""UPDATE cmc_revisions SET snapshot_json=?,reason=?,calculated_at=CURRENT_TIMESTAMP
                 WHERE id=?""", (snapshot, payload.get("reason") or "In-progress capability calculation", existing_id))
             return {"id": existing_id, "calculationId": f"CMC-{method[:3].upper()}-{existing[1]:03d}",
                 "revision": existing[1], "status": existing[0], "createdBy": existing[2], "isCmc": True}
         unfinished = connection.execute("""SELECT id,revision,created_by,status FROM cmc_revisions
-            WHERE method_name=? AND status IN ('Draft','Reverted') ORDER BY id DESC LIMIT 1""", (method,)).fetchone()
+            WHERE method_name=? AND status IN ('Draft','Reverted') AND created_by=?
+            ORDER BY id DESC LIMIT 1""", (method,actor)).fetchone()
         if unfinished:
             return {"id": unfinished[0], "calculationId": f"CMC-{method[:3].upper()}-{unfinished[1]:03d}",
                 "revision": unfinished[1], "status": unfinished[3], "createdBy": unfinished[2],
@@ -446,6 +451,8 @@ def save_partial_draft(connection, payload, actor):
             FROM uncertainty_calculations WHERE id=? AND job_id=?""", (existing_id, job_id)).fetchone()
         if not existing or existing[0] not in {"Draft", "Reverted"}:
             raise ValueError("Only a Draft or Reverted uncertainty record can be automatically saved.")
+        if existing[3] != actor:
+            raise ValueError("This unfinished uncertainty draft belongs to another user.")
         connection.execute("""UPDATE uncertainty_calculations SET calculation_type=?,method_name=?,
             quantity=?,fluid=?,analyst=?,snapshot_json=?,last_edited_by=?,updated_at=CURRENT_TIMESTAMP
             WHERE id=?""", (calculation_type, CALCULATION_TYPES[calculation_type][1],
@@ -455,8 +462,9 @@ def save_partial_draft(connection, payload, actor):
             "status": existing[0], "createdBy": existing[3]}
     unfinished = connection.execute("""SELECT id,calculation_uid,revision,calculated_by,status
         FROM uncertainty_calculations WHERE job_id=? AND calculation_type=?
-        AND status IN ('Draft','Reverted') ORDER BY updated_at DESC,id DESC LIMIT 1""",
-        (job_id, calculation_type)).fetchone()
+        AND status IN ('Draft','Reverted') AND calculated_by=?
+        ORDER BY updated_at DESC,id DESC LIMIT 1""",
+        (job_id, calculation_type,actor)).fetchone()
     if unfinished:
         return {"id": unfinished[0], "calculationId": unfinished[1], "revision": unfinished[2],
             "status": unfinished[4], "createdBy": unfinished[3], "existing": True}
