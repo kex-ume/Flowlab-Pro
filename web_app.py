@@ -76,6 +76,10 @@ def current_actor():
     return session.get("full_name") or session.get("username") or "Unauthenticated local session"
 
 
+def chief_auto_approval():
+    return session.get("role_name") == "Chief Meteorologist"
+
+
 def add_notification(connection, user_id, title, message, link=None,
         entity_type=None, entity_id=None, notification_type="Workflow"):
     if not user_id:
@@ -1917,9 +1921,14 @@ def document_workflow(document_id):
         connection.close(); abort(404)
     try:
         if action=="submit" and row[0] in {"Draft","Reverted"}:
-            status="Submitted for Review"
-            connection.execute("UPDATE controlled_documents SET status=?,submitted_by=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",
-                (status,current_actor(),document_id))
+            status="Approved" if chief_auto_approval() else "Submitted for Review"
+            if status == "Approved":
+                connection.execute("""UPDATE controlled_documents SET status=?,submitted_by=?,approved_by=?,
+                    approved_at=CURRENT_TIMESTAMP,effective_date=date('now'),updated_at=CURRENT_TIMESTAMP WHERE id=?""",
+                    (status,current_actor(),current_actor(),document_id))
+            else:
+                connection.execute("UPDATE controlled_documents SET status=?,submitted_by=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                    (status,current_actor(),document_id))
         elif action=="revert" and row[0]=="Submitted for Review" and comment:
             status="Reverted"
             connection.execute("""UPDATE controlled_documents SET status=?,reviewed_by=?,reviewed_at=CURRENT_TIMESTAMP,
@@ -1934,6 +1943,10 @@ def document_workflow(document_id):
             raise ValueError("This document workflow action is not available for its current status.")
         connection.execute("INSERT INTO approval_history(entity_type,entity_id,action,actor,notes) VALUES ('controlled_document',?,?,?,?)",
             (document_id,action,current_actor(),comment or None))
+        if action == "submit" and status == "Approved":
+            connection.execute("""INSERT INTO approval_history(entity_type,entity_id,action,actor,notes)
+                VALUES ('controlled_document',?,'auto_approve',?,?)""", (document_id,current_actor(),
+                "Automatically approved under Chief Meteorologist authority."))
         audit_change(connection,"controlled_document",document_id,action,before={"status":row[0]},after={"status":status,"comment":comment or None})
         connection.commit(); flash(f"Document status changed to {status}.","success")
     except ValueError as error:
@@ -2114,9 +2127,10 @@ def uncertainty_api_workflow(record_type, record_id):
             assigned_approver FROM {table} WHERE id=?""", (record_id,)).fetchone()
         if not record_row:
             raise ValueError("Calculation record was not found.")
+        auto_approve = action == "submit" and chief_auto_approval()
         reviewer = approver = None
         reviewer_id = approver_id = None
-        if action == "submit":
+        if action == "submit" and not auto_approve:
             reviewer_id = body.get("reviewerUserId"); approver_id = body.get("approverUserId")
             reviewer = connection.execute("""SELECT u.full_name FROM users u JOIN roles r ON r.id=u.role_id
                 WHERE u.id=? AND u.is_active=1 AND r.name IN
@@ -2139,10 +2153,11 @@ def uncertainty_api_workflow(record_type, record_id):
             saved_payload.pop("backendResult", None)
             calculate_payload(connection, saved_payload)
         status = workflow(connection, "cmc" if record_type == "cmc" else "calculation",
-            record_id, action, current_actor(), body.get("comment", ""), reviewer, approver)
+            record_id, action, current_actor(), body.get("comment", ""), reviewer, approver,
+            auto_approve=auto_approve)
         creator_id = user_id_for_actor(connection,record_row[1])
         link = url_for("uncertainty",record=record_id)
-        if action == "submit":
+        if action == "submit" and not auto_approve:
             connection.execute("""UPDATE workflow_tasks SET submitted_user_id=?,assigned_user_id=?
                 WHERE entity_type=? AND entity_id=? AND status='Pending'""",
                 (session.get("user_id"),reviewer_id,entity,record_id))
@@ -2162,7 +2177,8 @@ def uncertainty_api_workflow(record_type, record_id):
             add_notification(connection,creator_id,"Uncertainty calculation approved",
                 f"Record {record_id} was approved by {current_actor()}.",link,entity,record_id)
         audit_change(connection, "cmc_revision" if record_type == "cmc" else "uncertainty_calculation",
-            record_id, action, before=None, after={"status": status, "comment": body.get("comment")})
+            record_id, "auto_approve" if auto_approve else action, before=None,
+            after={"status": status, "comment": body.get("comment")})
         connection.commit()
         return jsonify(ok=True, status=status)
     except ValueError as error:

@@ -208,6 +208,29 @@ class FreshDatabaseWebTests(unittest.TestCase):
         self.assertIn("No jobs match the selected filters.", self.client.get("/projects/jobs").get_data(as_text=True))
         self.assertIn("No controlled document has been uploaded.", self.client.get("/documents").get_data(as_text=True))
 
+    def test_chief_document_submission_is_approved_automatically(self):
+        connection = database.get_connection()
+        document_id = connection.execute("""INSERT INTO controlled_documents
+            (document_type,title,original_filename,file_path,status,uploaded_by)
+            VALUES ('Procedure','Chief procedure','procedure.pdf','procedure.pdf','Draft','Chief Metrologist')""").lastrowid
+        connection.commit(); connection.close()
+        with self.client.session_transaction() as login:
+            login["full_name"] = "Chief Metrologist"
+            login["role_name"] = "Chief Meteorologist"
+        response = self.client.post(f"/documents/{document_id}/workflow",
+            data={"action":"submit"})
+        self.assertEqual(response.status_code, 302)
+        connection = database.get_connection()
+        record = connection.execute("""SELECT status,submitted_by,approved_by,approved_at,effective_date
+            FROM controlled_documents WHERE id=?""", (document_id,)).fetchone()
+        history = connection.execute("""SELECT action FROM approval_history
+            WHERE entity_type='controlled_document' AND entity_id=? ORDER BY id""",
+            (document_id,)).fetchall()
+        connection.close()
+        self.assertEqual(record[0:3], ("Approved","Chief Metrologist","Chief Metrologist"))
+        self.assertTrue(record[3]); self.assertTrue(record[4])
+        self.assertEqual([item[0] for item in history], ["submit","auto_approve"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -590,7 +590,7 @@ def save_cmc(connection, payload, result, actor):
 
 
 def workflow(connection, record_type, record_id, action, actor, comment="",
-             assigned_reviewer=None, assigned_approver=None):
+             assigned_reviewer=None, assigned_approver=None, auto_approve=False):
     table = "cmc_revisions" if record_type == "cmc" else "uncertainty_calculations"
     creator_column = "created_by" if record_type == "cmc" else "calculated_by"
     row = connection.execute(
@@ -599,6 +599,29 @@ def workflow(connection, record_type, record_id, action, actor, comment="",
     if not row:
         raise ValueError("Calculation record was not found.")
     current = row[0]
+    if action == "submit" and auto_approve:
+        if current not in {"Draft", "Reverted"}:
+            raise ValueError(f"Cannot submit a calculation with status {current}.")
+        note = "Automatically approved under Chief Meteorologist authority."
+        if record_type == "cmc":
+            connection.execute(f"""UPDATE {table} SET status='Approved',submitted_at=CURRENT_TIMESTAMP,
+                reviewed_by=?,reviewed_at=CURRENT_TIMESTAMP,review_comment=?,hod_reviewer=?,
+                approved_at=CURRENT_TIMESTAMP,approved_by=?,effective_at=CURRENT_TIMESTAMP,
+                assigned_reviewer=NULL,assigned_approver=NULL WHERE id=?""",
+                (actor,note,actor,actor,record_id))
+        else:
+            connection.execute(f"""UPDATE {table} SET status='Approved',submitted_at=CURRENT_TIMESTAMP,
+                submitted_by=?,reviewed_by=?,reviewed_at=CURRENT_TIMESTAMP,review_comment=?,hod_reviewer=?,
+                approved_at=CURRENT_TIMESTAMP,approved_by=?,assigned_reviewer=NULL,assigned_approver=NULL
+                WHERE id=?""", (actor,actor,note,actor,actor,record_id))
+        entity = "cmc_revision" if record_type == "cmc" else "uncertainty_calculation"
+        connection.execute("""INSERT INTO approval_history
+            (entity_type,entity_id,action,actor,notes) VALUES (?,?,?,?,?)""",
+            (entity,record_id,"submit",actor,comment or None))
+        connection.execute("""INSERT INTO approval_history
+            (entity_type,entity_id,action,actor,notes) VALUES (?,?,?,?,?)""",
+            (entity,record_id,"auto_approve",actor,note))
+        return "Approved"
     if action == "submit" and (not assigned_reviewer or not assigned_approver):
         raise ValueError("Select both the Technical Reviewer and the final Approving Officer.")
     if action in {"review", "approve", "revert"} and row[1] == actor:

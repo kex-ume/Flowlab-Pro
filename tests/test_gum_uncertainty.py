@@ -309,6 +309,28 @@ class GUMWebWorkflowTests(unittest.TestCase):
         self.assertEqual(response.status_code, 422)
         self.assertIn("own uncertainty record", response.get_json()["error"])
 
+    def test_chief_submission_is_approved_automatically(self):
+        self.sign_in_as("Chief Metrologist", "Chief Meteorologist")
+        saved = self.client.post("/uncertainty/api/save", json=self.payload()).get_json()["record"]
+        response = self.client.post(
+            f"/uncertainty/api/records/calculation/{saved['id']}/workflow",
+            json={"action":"submit"})
+        self.assertEqual(response.status_code, 200, response.get_data(as_text=True))
+        self.assertEqual(response.get_json()["status"], "Approved")
+        connection = database.get_connection()
+        record = connection.execute("""SELECT status,submitted_by,approved_by,assigned_reviewer,
+            assigned_approver FROM uncertainty_calculations WHERE id=?""", (saved["id"],)).fetchone()
+        history = connection.execute("""SELECT action FROM approval_history
+            WHERE entity_type='uncertainty_calculation' AND entity_id=? ORDER BY id""",
+            (saved["id"],)).fetchall()
+        tasks = connection.execute("""SELECT COUNT(*) FROM workflow_tasks
+            WHERE entity_type='uncertainty_calculation' AND entity_id=?""", (saved["id"],)).fetchone()[0]
+        connection.close()
+        self.assertEqual(tuple(record),
+            ("Approved", "Chief Metrologist", "Chief Metrologist", None, None))
+        self.assertEqual([item[0] for item in history[-2:]], ["submit", "auto_approve"])
+        self.assertEqual(tasks, 0)
+
     def test_completed_job_blocks_new_uncertainty_until_authorized_reopen(self):
         connection = database.get_connection()
         connection.execute("UPDATE calibration_jobs SET status='Completed' WHERE id=?", (self.job_id,))
