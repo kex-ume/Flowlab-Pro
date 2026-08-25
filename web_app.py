@@ -200,10 +200,12 @@ def validate_report(upload, required=False):
 @app.before_request
 def ensure_database():
     initialize_database()
-    if app.config.get("TESTING") or request.endpoint in {"login", "setup", "static"}:
+    if app.config.get("TESTING") or request.endpoint in {"login", "setup", "forgot_password", "static"}:
         return
     if not session.get("user_id"):
         return redirect(url_for("login", next=request.path))
+    if session.get("must_change_password") and request.endpoint not in {"change_password", "logout"}:
+        return redirect(url_for("change_password"))
 
 
 @app.route("/login", methods=["GET", "POST"])
@@ -214,11 +216,73 @@ def login():
         if user:
             session.clear()
             session.update(user_id=user.id, username=user.username, full_name=user.full_name,
-                role_name=user.role_name)
+                role_name=user.role_name, must_change_password=user.must_change_password)
+            if user.must_change_password:
+                return redirect(url_for("change_password"))
             return redirect(request.args.get("next") or url_for("dashboard"))
         flash("Username or password is invalid.", "error")
     needs_setup = query("SELECT COUNT(*) FROM users")[0][0] == 0
     return render_template("login.html", page_title="Sign In", needs_setup=needs_setup)
+
+
+@app.route("/forgot-password", methods=["GET", "POST"])
+def forgot_password():
+    if request.method == "POST":
+        username = request.form.get("username", "").strip()
+        connection = get_connection()
+        user = connection.execute("""SELECT id,username FROM users
+            WHERE LOWER(username)=LOWER(?) AND is_active=1""", (username,)).fetchone()
+        if user:
+            pending = connection.execute("""SELECT id FROM password_reset_requests
+                WHERE user_id=? AND status='Pending'""", (user[0],)).fetchone()
+            if not pending:
+                request_id = connection.execute("""INSERT INTO password_reset_requests
+                    (user_id,status) VALUES (?,'Pending')""", (user[0],)).lastrowid
+                officers = connection.execute("""SELECT u.id FROM users u JOIN roles r ON r.id=u.role_id
+                    WHERE u.is_active=1 AND r.name IN ('Chief Meteorologist','Administrator')""").fetchall()
+                for officer in officers:
+                    add_notification(connection, officer[0], "Password reset requested",
+                        f"Account {user[1]} requested a password reset.", url_for("users"),
+                        "password_reset_request", request_id, "Security")
+                audit_change(connection, "password_reset_request", request_id, "request",
+                    after={"username": user[1], "status": "Pending"})
+            connection.commit()
+        connection.close()
+        flash("If that active username exists, its password-reset request is now awaiting the Chief or Administrator.", "success")
+        return redirect(url_for("login"))
+    return render_template("forgot_password.html", page_title="Forgot Password")
+
+
+@app.route("/change-password", methods=["GET", "POST"])
+def change_password():
+    if not session.get("user_id"):
+        return redirect(url_for("login"))
+    if request.method == "POST":
+        password = request.form.get("password", "")
+        confirmation = request.form.get("password_confirmation", "")
+        if len(password) < 10:
+            flash("Create a password of at least 10 characters.", "error")
+        elif password != confirmation:
+            flash("Password confirmation does not match.", "error")
+        else:
+            connection = get_connection()
+            existing = connection.execute("SELECT password_hash FROM users WHERE id=?",
+                (session["user_id"],)).fetchone()
+            password_hash = AuthService.hash_password(password)
+            if existing and existing[0] == password_hash:
+                connection.close(); flash("Create a password different from the temporary password.", "error")
+            else:
+                connection.execute("""UPDATE users SET password_hash=?,must_change_password=0
+                    WHERE id=?""", (password_hash, session["user_id"]))
+                connection.execute("""UPDATE password_reset_requests SET status='Completed',
+                    resolved_by=?,resolved_at=CURRENT_TIMESTAMP WHERE user_id=? AND status='Resolved'""",
+                    (current_actor(),session["user_id"]))
+                audit_change(connection, "user", session["user_id"], "password_change",
+                    after={"username": session.get("username"), "must_change_password": 0})
+                connection.commit(); connection.close(); session.clear()
+                flash("Your new password has been created. Sign in with it to continue.", "success")
+                return redirect(url_for("login"))
+    return render_template("change_password.html", page_title="Create New Password")
 
 
 @app.route("/setup", methods=["GET", "POST"])
@@ -465,8 +529,8 @@ def users():
                 if connection.execute("SELECT 1 FROM users WHERE LOWER(username)=LOWER(?)", (username,)).fetchone():
                     raise ValueError("Username already exists.")
                 cursor = connection.execute("""INSERT INTO users
-                    (username,password_hash,full_name,email,role_id,is_active)
-                    VALUES (?,?,?,?,?,1)""",
+                    (username,password_hash,full_name,email,role_id,is_active,must_change_password)
+                    VALUES (?,?,?,?,?,1,1)""",
                     (username, AuthService.hash_password(password), full_name, email, role_id))
                 audit_change(connection, "user", cursor.lastrowid, "create", after={
                     "username": username, "full_name": full_name, "role": role[1], "is_active": 1})
@@ -495,10 +559,13 @@ def users():
                 existing = connection.execute("SELECT username FROM users WHERE id=?", (user_id,)).fetchone()
                 if not existing or len(password) < 10:
                     raise ValueError("Select an existing user and enter a password of at least 10 characters.")
-                connection.execute("UPDATE users SET password_hash=? WHERE id=?",
+                connection.execute("UPDATE users SET password_hash=?,must_change_password=1 WHERE id=?",
                     (AuthService.hash_password(password), user_id))
+                connection.execute("""UPDATE password_reset_requests SET status='Resolved',resolved_by=?,
+                    resolved_at=CURRENT_TIMESTAMP WHERE user_id=? AND status='Pending'""",
+                    (current_actor(),user_id))
                 audit_change(connection, "user", user_id, "password_reset", after={"username": existing[0]})
-                flash(f"Password reset for {existing[0]}.", "success")
+                flash(f"Temporary password set for {existing[0]}. The user must create a new password at sign-in.", "success")
             elif action == "toggle_active":
                 user_id = request.form.get("user_id", type=int)
                 existing = connection.execute("SELECT username,is_active FROM users WHERE id=?", (user_id,)).fetchone()
@@ -516,12 +583,15 @@ def users():
             connection.commit()
             return redirect(url_for("users"))
         rows = connection.execute("""SELECT u.id,u.username,u.full_name,COALESCE(u.email,''),
-            r.name,u.role_id,u.is_active,COALESCE(u.last_login,''),u.created_at
+            r.name,u.role_id,u.is_active,COALESCE(u.last_login,''),u.created_at,u.must_change_password
             FROM users u JOIN roles r ON r.id=u.role_id
             ORDER BY CASE r.name WHEN 'Chief Meteorologist' THEN 1 WHEN 'Supervisor' THEN 2
             WHEN 'Engineer' THEN 3 WHEN 'Technician' THEN 4 WHEN 'Operator' THEN 5
             WHEN 'Guest' THEN 6 ELSE 7 END,u.full_name""").fetchall()
-        return render_template("users.html", users=rows, roles=roles,
+        reset_requests = connection.execute("""SELECT pr.id,u.id,u.username,u.full_name,
+            pr.requested_at FROM password_reset_requests pr JOIN users u ON u.id=pr.user_id
+            WHERE pr.status='Pending' ORDER BY pr.requested_at""").fetchall()
+        return render_template("users.html", users=rows, roles=roles, reset_requests=reset_requests,
             page_title="User Management", page_subtitle="Controlled accounts, roles and access",
             active_nav="database")
     except ValueError as error:

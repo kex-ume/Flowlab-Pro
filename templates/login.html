@@ -35,6 +35,7 @@
           <label>Password<input type="password" name="password" autocomplete="current-password" required></label>
           <button>Sign In</button>
         </form>
+        <a class="panel-link" href="{{url_for('forgot_password')}}">Forgot password?</a>
         {% if needs_setup %}<a class="panel-link" href="{{url_for('setup')}}">Create initial administrator</a>{% endif %}
         <div class="login-security"><span aria-hidden="true">✓</span> Role-controlled laboratory access</div>
       </div>

@@ -26,7 +26,7 @@
         <td><strong>{{ user[2] }}</strong><small class="user-name">{{ user[1] }}</small></td>
         <td>{{ user[3] or '—' }}</td>
         <td><span class="role-chip">{{ user[4] }}</span></td>
-        <td><span class="pill {{ 'ready' if user[6] else 'expired' }}">{{ 'Active' if user[6] else 'Inactive' }}</span></td>
+        <td><span class="pill {{ 'ready' if user[6] else 'expired' }}">{{ 'New password required' if user[9] and user[6] else ('Active' if user[6] else 'Inactive') }}</span></td>
         <td data-local-datetime="{{ user[7] or '' }}">{{ user[7] or 'Never' }}</td>
         <td class="user-actions">
           {% if user[4] != 'Administrator' %}
@@ -39,5 +39,13 @@
       {% else %}<tr><td colspan="6" class="empty">No user accounts are available.</td></tr>{% endfor %}
     </tbody></table></div>
   </section>
+  {% if reset_requests %}
+  <section class="panel user-register">
+    <div class="panel-head"><div><h3>Password reset requests</h3><small>Set a temporary password and communicate it securely to the requesting user.</small></div><span class="pill due">{{ reset_requests|length }} Pending</span></div>
+    <div class="table-scroll"><table><thead><tr><th>User</th><th>Requested</th><th>Set temporary password</th></tr></thead><tbody>
+      {% for item in reset_requests %}<tr><td><strong>{{ item[3] }}</strong><small class="user-name">{{ item[2] }}</small></td><td data-local-datetime="{{ item[4] }}">{{ item[4] }}</td><td><form method="post" class="user-inline-form password-form"><input type="hidden" name="action" value="reset_password"><input type="hidden" name="user_id" value="{{ item[1] }}"><label>Temporary password<input name="password" type="password" minlength="10" autocomplete="new-password" required></label><button>Issue temporary password</button></form></td></tr>{% endfor %}
+    </tbody></table></div>
+  </section>
+  {% endif %}
 </div>
 {% endblock %}

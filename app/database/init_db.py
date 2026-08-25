@@ -208,6 +208,20 @@ def initialize_database():
             updated_at TEXT DEFAULT CURRENT_TIMESTAMP
         )
     """)
+    ensure_column("users", "must_change_password", "INTEGER NOT NULL DEFAULT 0")
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS password_reset_requests (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            status TEXT NOT NULL DEFAULT 'Pending',
+            requested_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            resolved_by TEXT,
+            resolved_at TEXT,
+            FOREIGN KEY(user_id) REFERENCES users(id)
+        )
+    """)
+    cursor.execute("""CREATE INDEX IF NOT EXISTS idx_password_reset_pending
+        ON password_reset_requests(user_id,status,requested_at)""")
 
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS projects (

@@ -19,6 +19,7 @@ class AuthRepository:
                 u.role_id,
                 r.name,
                 u.is_active,
+                u.must_change_password,
                 u.last_login,
                 u.created_at
             FROM users u
@@ -43,8 +44,9 @@ class AuthRepository:
             role_id=row[5],
             role_name=row[6],
             is_active=bool(row[7]),
-            last_login=row[8] or "",
-            created_at=row[9] or "",
+            must_change_password=bool(row[8]),
+            last_login=row[9] or "",
+            created_at=row[10] or "",
         )
 
     def create_user(self, user: User):

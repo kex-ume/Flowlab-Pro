@@ -6,6 +6,7 @@ from pathlib import Path
 
 import app.database.database as database
 from app.database.init_db import initialize_database
+from app.modules.auth.service import AuthService
 from web_app import app
 
 
@@ -230,6 +231,65 @@ class FreshDatabaseWebTests(unittest.TestCase):
         self.assertEqual(record[0:3], ("Approved","Chief Metrologist","Chief Metrologist"))
         self.assertTrue(record[3]); self.assertTrue(record[4])
         self.assertEqual([item[0] for item in history], ["submit","auto_approve"])
+
+    def test_forgot_password_requires_temporary_password_and_new_password(self):
+        connection = database.get_connection()
+        chief_role = connection.execute(
+            "SELECT id FROM roles WHERE name='Chief Meteorologist'").fetchone()[0]
+        technician_role = connection.execute(
+            "SELECT id FROM roles WHERE name='Technician'").fetchone()[0]
+        chief_id = connection.execute("""INSERT INTO users
+            (username,password_hash,full_name,role_id,is_active)
+            VALUES ('chief-reset',?,'Chief Reset',?,1)""",
+            (AuthService.hash_password("ChiefPass123"),chief_role)).lastrowid
+        technician_id = connection.execute("""INSERT INTO users
+            (username,password_hash,full_name,role_id,is_active)
+            VALUES ('tech-reset',?,'Tech Reset',?,1)""",
+            (AuthService.hash_password("OldPassword1"),technician_role)).lastrowid
+        connection.commit(); connection.close()
+
+        response = self.client.post("/forgot-password", data={"username":"tech-reset"})
+        self.assertEqual(response.status_code, 302)
+        connection = database.get_connection()
+        request_status = connection.execute("""SELECT status FROM password_reset_requests
+            WHERE user_id=?""", (technician_id,)).fetchone()[0]
+        notification_count = connection.execute("""SELECT COUNT(*) FROM notifications
+            WHERE user_id=? AND entity_type='password_reset_request'""", (chief_id,)).fetchone()[0]
+        connection.close()
+        self.assertEqual(request_status, "Pending"); self.assertEqual(notification_count, 1)
+
+        with self.client.session_transaction() as login:
+            login["user_id"] = chief_id; login["username"] = "chief-reset"
+            login["full_name"] = "Chief Reset"; login["role_name"] = "Chief Meteorologist"
+        response = self.client.post("/users", data={"action":"reset_password",
+            "user_id":technician_id,"password":"Temporary123"})
+        self.assertEqual(response.status_code, 302)
+        connection = database.get_connection()
+        forced = connection.execute("SELECT must_change_password FROM users WHERE id=?",
+            (technician_id,)).fetchone()[0]
+        request_status = connection.execute("""SELECT status FROM password_reset_requests
+            WHERE user_id=?""", (technician_id,)).fetchone()[0]
+        connection.close()
+        self.assertEqual(forced, 1); self.assertEqual(request_status, "Resolved")
+
+        with self.client.session_transaction() as login:
+            login.clear()
+        response = self.client.post("/login", data={"username":"tech-reset",
+            "password":"Temporary123"})
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(response.headers["Location"].endswith("/change-password"))
+        response = self.client.post("/change-password", data={"password":"NewPassword123",
+            "password_confirmation":"NewPassword123"})
+        self.assertEqual(response.status_code, 302)
+        connection = database.get_connection()
+        password_row = connection.execute("SELECT password_hash,must_change_password FROM users WHERE id=?",
+            (technician_id,)).fetchone()
+        request_status = connection.execute("""SELECT status FROM password_reset_requests
+            WHERE user_id=?""", (technician_id,)).fetchone()[0]
+        connection.close()
+        self.assertEqual(password_row,
+            (AuthService.hash_password("NewPassword123"),0))
+        self.assertEqual(request_status, "Completed")
 
 
 if __name__ == "__main__":

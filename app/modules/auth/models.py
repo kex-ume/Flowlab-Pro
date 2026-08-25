@@ -18,5 +18,6 @@ class User:
     role_id: int | None = None
     role_name: str = ""
     is_active: bool = True
+    must_change_password: bool = False
     last_login: str = ""
     created_at: str = ""
