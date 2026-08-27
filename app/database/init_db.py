@@ -1,7 +1,27 @@
-from app.database.database import get_connection
+from app.database.database import database_backend, get_connection
+
+
+_postgres_schema_verified = False
 
 
 def initialize_database():
+    global _postgres_schema_verified
+    if database_backend() == "postgresql":
+        if _postgres_schema_verified:
+            return
+        conn = get_connection()
+        try:
+            row = conn.execute("SELECT to_regclass('public.users')").fetchone()
+            if not row or row[0] is None:
+                raise RuntimeError(
+                    "The PostgreSQL database is empty. Run scripts/migrate_sqlite_to_postgres.py "
+                    "before starting FlowLab Pro."
+                )
+            _postgres_schema_verified = True
+        finally:
+            conn.close()
+        return
+
     conn = get_connection()
     cursor = conn.cursor()
 
