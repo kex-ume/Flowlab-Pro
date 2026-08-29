@@ -46,6 +46,8 @@ def translate_sql(sql: str) -> str:
                         "TO_CHAR(CURRENT_DATE + (?)::interval, 'YYYY-MM-DD')", translated, flags=re.I)
     translated = re.sub(r"date\(\s*'now'\s*,\s*\?\s*\)",
                         "TO_CHAR(CURRENT_DATE + (?)::interval, 'YYYY-MM-DD')", translated, flags=re.I)
+    translated = re.sub(r"date\(\s*'now'\s*,\s*'localtime'\s*\)",
+                        "TO_CHAR(CURRENT_DATE, 'YYYY-MM-DD')", translated, flags=re.I)
 
     def fixed_modifier(match):
         return f"TO_CHAR(CURRENT_DATE + INTERVAL '{match.group(1)}', 'YYYY-MM-DD')"

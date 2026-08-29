@@ -22,6 +22,10 @@ class PostgreSQLCompatibilityTests(unittest.TestCase):
         sql = translate_sql("SELECT date('now', ?)")
         self.assertEqual(sql, "SELECT TO_CHAR(CURRENT_DATE + (%s)::interval, 'YYYY-MM-DD')")
 
+    def test_localtime_is_not_treated_as_an_interval(self):
+        sql = translate_sql("SELECT date('now', 'localtime')")
+        self.assertEqual(sql, "SELECT TO_CHAR(CURRENT_DATE, 'YYYY-MM-DD')")
+
     def test_insert_or_ignore_is_translated(self):
         sql = translate_sql("INSERT OR IGNORE INTO roles(name) VALUES (?)")
         self.assertEqual(sql, "INSERT INTO roles(name) VALUES (%s) ON CONFLICT DO NOTHING")
