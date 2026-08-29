@@ -56,6 +56,15 @@ def source_summary(connection, tables):
     return {table: connection.execute(f"SELECT COUNT(*) FROM {quote(table)}").fetchone()[0] for table in tables}
 
 
+def normalized_row(row, declared_types):
+    """Account for SQLite's permissive empty strings in typed PostgreSQL fields."""
+    text_types = ("CHAR", "CLOB", "TEXT", "BLOB")
+    return tuple(
+        None if value == "" and not any(kind in (declared_type or "").upper() for kind in text_types) else value
+        for value, declared_type in zip(row, declared_types)
+    )
+
+
 def migrate(sqlite_path: Path, target_url: str, drop_existing: bool) -> None:
     try:
         import psycopg
@@ -90,8 +99,13 @@ def migrate(sqlite_path: Path, target_url: str, drop_existing: bool) -> None:
                 cursor.execute(postgres_ddl(ddl))
 
             for table in tables:
-                columns = [row[1] for row in source.execute(f"PRAGMA table_info({quote(table)})")]
-                rows = source.execute(f"SELECT * FROM {quote(table)}").fetchall()
+                column_info = source.execute(f"PRAGMA table_info({quote(table)})").fetchall()
+                columns = [row[1] for row in column_info]
+                declared_types = [row[2] for row in column_info]
+                rows = [
+                    normalized_row(row, declared_types)
+                    for row in source.execute(f"SELECT * FROM {quote(table)}").fetchall()
+                ]
                 if rows:
                     column_sql = ", ".join(quote(column) for column in columns)
                     placeholders = ", ".join(["%s"] * len(columns))

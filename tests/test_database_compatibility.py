@@ -1,7 +1,7 @@
 import unittest
 
 from app.database.database import translate_sql
-from scripts.migrate_sqlite_to_postgres import postgres_ddl
+from scripts.migrate_sqlite_to_postgres import normalized_row, postgres_ddl
 
 
 class PostgreSQLCompatibilityTests(unittest.TestCase):
@@ -34,6 +34,10 @@ class PostgreSQLCompatibilityTests(unittest.TestCase):
         self.assertIn("id BIGSERIAL PRIMARY KEY", ddl)
         self.assertIn("value DOUBLE PRECISION", ddl)
         self.assertIn("created_at TIMESTAMP DEFAULT (CURRENT_TIMESTAMP)", ddl)
+
+    def test_empty_values_are_normalized_only_for_typed_fields(self):
+        row = normalized_row(("", "", "", "note"), ("REAL", "INTEGER", "TEXT", "TEXT"))
+        self.assertEqual(row, (None, None, "", "note"))
 
 
 if __name__ == "__main__":
