@@ -8,9 +8,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from werkzeug.security import generate_password_hash
-
 from app.database.database import database_backend, managed_connection
+from app.modules.auth.service import AuthService
 
 
 def main() -> None:
@@ -40,7 +39,7 @@ def main() -> None:
             """UPDATE users
                SET password_hash=?, is_active=1, must_change_password=1
                WHERE id=?""",
-            (generate_password_hash(password), user[0]),
+            (AuthService.hash_password(password), user[0]),
         )
 
     print(f"Password reset completed for {args.username}. A password change is required at sign-in.")

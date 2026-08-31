@@ -9,8 +9,14 @@ import calendar
 from datetime import date, timedelta
 import io
 import json
+import hashlib
+import os
 from pathlib import Path
+import secrets
 import shutil
+import smtplib
+import time
+from email.message import EmailMessage
 from uuid import uuid4
 
 from flask import Flask, abort, flash, jsonify, redirect, render_template, request, send_file, session, url_for
@@ -74,6 +80,52 @@ def query(sql, params=()):
 
 def current_actor():
     return session.get("full_name") or session.get("username") or "Unauthenticated local session"
+
+
+def email_recovery_configured():
+    return all(os.environ.get(name, "").strip() for name in
+        ("FLOWLAB_PUBLIC_URL", "FLOWLAB_SMTP_HOST", "FLOWLAB_SMTP_FROM"))
+
+
+def send_password_reset_email(recipient, reset_url):
+    message = EmailMessage()
+    message["Subject"] = "FlowLab Pro password recovery"
+    message["From"] = os.environ["FLOWLAB_SMTP_FROM"]
+    message["To"] = recipient
+    message.set_content(
+        "A password reset was requested for your FlowLab Pro account.\n\n"
+        f"Open this link within 30 minutes:\n{reset_url}\n\n"
+        "If you did not request this reset, ignore this message. The link can be used only once."
+    )
+    host = os.environ["FLOWLAB_SMTP_HOST"]
+    port = int(os.environ.get("FLOWLAB_SMTP_PORT", "587"))
+    use_tls = os.environ.get("FLOWLAB_SMTP_STARTTLS", "1").lower() not in {"0", "false", "no"}
+    username = os.environ.get("FLOWLAB_SMTP_USERNAME", "").strip()
+    password = os.environ.get("FLOWLAB_SMTP_PASSWORD", "")
+    with smtplib.SMTP(host, port, timeout=15) as server:
+        if use_tls:
+            server.starttls()
+        if username:
+            server.login(username, password)
+        server.send_message(message)
+
+
+def create_officer_reset_request(connection, user):
+    pending = connection.execute("""SELECT id FROM password_reset_requests
+        WHERE user_id=? AND status='Pending'""", (user[0],)).fetchone()
+    if pending:
+        return pending[0]
+    request_id = connection.execute("""INSERT INTO password_reset_requests
+        (user_id,status) VALUES (?,'Pending')""", (user[0],)).lastrowid
+    officers = connection.execute("""SELECT u.id FROM users u JOIN roles r ON r.id=u.role_id
+        WHERE u.is_active=1 AND r.name IN ('Chief Meteorologist','Administrator')""").fetchall()
+    for officer in officers:
+        add_notification(connection, officer[0], "Password reset requested",
+            f"Account {user[1]} requested a password reset.", url_for("users"),
+            "password_reset_request", request_id, "Security")
+    audit_change(connection, "password_reset_request", request_id, "request",
+        after={"username": user[1], "status": "Pending"})
+    return request_id
 
 
 def chief_auto_approval():
@@ -200,7 +252,8 @@ def validate_report(upload, required=False):
 @app.before_request
 def ensure_database():
     initialize_database()
-    if app.config.get("TESTING") or request.endpoint in {"login", "setup", "forgot_password", "static"}:
+    if app.config.get("TESTING") or request.endpoint in {
+            "login", "setup", "forgot_password", "email_password_reset", "static"}:
         return
     if not session.get("user_id"):
         return redirect(url_for("login", next=request.path))
@@ -228,29 +281,72 @@ def login():
 @app.route("/forgot-password", methods=["GET", "POST"])
 def forgot_password():
     if request.method == "POST":
-        username = request.form.get("username", "").strip()
+        identifier = request.form.get("identifier", request.form.get("username", "")).strip()
         connection = get_connection()
-        user = connection.execute("""SELECT id,username FROM users
-            WHERE LOWER(username)=LOWER(?) AND is_active=1""", (username,)).fetchone()
+        user = connection.execute("""SELECT id,username,email FROM users
+            WHERE (LOWER(username)=LOWER(?) OR LOWER(COALESCE(email,''))=LOWER(?))
+            AND is_active=1""", (identifier,identifier)).fetchone()
         if user:
-            pending = connection.execute("""SELECT id FROM password_reset_requests
-                WHERE user_id=? AND status='Pending'""", (user[0],)).fetchone()
-            if not pending:
-                request_id = connection.execute("""INSERT INTO password_reset_requests
-                    (user_id,status) VALUES (?,'Pending')""", (user[0],)).lastrowid
-                officers = connection.execute("""SELECT u.id FROM users u JOIN roles r ON r.id=u.role_id
-                    WHERE u.is_active=1 AND r.name IN ('Chief Meteorologist','Administrator')""").fetchall()
-                for officer in officers:
-                    add_notification(connection, officer[0], "Password reset requested",
-                        f"Account {user[1]} requested a password reset.", url_for("users"),
-                        "password_reset_request", request_id, "Security")
-                audit_change(connection, "password_reset_request", request_id, "request",
-                    after={"username": user[1], "status": "Pending"})
+            delivered = False
+            if user[2] and email_recovery_configured():
+                token = secrets.token_urlsafe(32)
+                token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
+                connection.execute("""UPDATE password_reset_tokens SET used_at=CURRENT_TIMESTAMP
+                    WHERE user_id=? AND used_at IS NULL""", (user[0],))
+                connection.execute("""INSERT INTO password_reset_tokens
+                    (user_id,token_hash,expires_at_epoch) VALUES (?,?,?)""",
+                    (user[0],token_hash,int(time.time()) + 1800))
+                connection.commit()
+                reset_url = os.environ["FLOWLAB_PUBLIC_URL"].rstrip("/") + url_for(
+                    "email_password_reset", token=token)
+                try:
+                    send_password_reset_email(user[2], reset_url)
+                    delivered = True
+                    audit_change(connection, "user", user[0], "email_password_reset_requested",
+                        after={"username":user[1], "delivery":"email"})
+                except Exception:
+                    app.logger.exception("Password recovery email delivery failed")
+                    connection.execute("""UPDATE password_reset_tokens SET used_at=CURRENT_TIMESTAMP
+                        WHERE token_hash=?""", (token_hash,))
+            if not delivered:
+                create_officer_reset_request(connection, user)
             connection.commit()
         connection.close()
-        flash("If that active username exists, its password-reset request is now awaiting the Chief or Administrator.", "success")
+        flash("If that active account exists, recovery instructions have been sent to its registered email or forwarded for controlled support.", "success")
         return redirect(url_for("login"))
     return render_template("forgot_password.html", page_title="Forgot Password")
+
+
+@app.route("/reset-password/<token>", methods=["GET", "POST"])
+def email_password_reset(token):
+    token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    connection = get_connection()
+    reset = connection.execute("""SELECT t.id,t.user_id,t.expires_at_epoch,t.used_at,u.username
+        FROM password_reset_tokens t JOIN users u ON u.id=t.user_id
+        WHERE t.token_hash=? AND u.is_active=1""", (token_hash,)).fetchone()
+    valid = bool(reset and not reset[3] and reset[2] >= int(time.time()))
+    if request.method == "POST" and valid:
+        password = request.form.get("password", "")
+        confirmation = request.form.get("password_confirmation", "")
+        if len(password) < 10:
+            flash("Create a password of at least 10 characters.", "error")
+        elif password != confirmation:
+            flash("Password confirmation does not match.", "error")
+        else:
+            connection.execute("UPDATE users SET password_hash=?,must_change_password=0 WHERE id=?",
+                (AuthService.hash_password(password),reset[1]))
+            connection.execute("UPDATE password_reset_tokens SET used_at=CURRENT_TIMESTAMP WHERE id=?",
+                (reset[0],))
+            connection.execute("""UPDATE password_reset_requests SET status='Completed',
+                resolved_by='Email recovery',resolved_at=CURRENT_TIMESTAMP
+                WHERE user_id=? AND status IN ('Pending','Resolved')""", (reset[1],))
+            audit_change(connection, "user", reset[1], "email_password_reset_completed",
+                after={"username":reset[4]})
+            connection.commit(); connection.close()
+            flash("Your password has been reset. Sign in with the new password.", "success")
+            return redirect(url_for("login"))
+    connection.close()
+    return render_template("reset_password.html", page_title="Reset Password", valid_token=valid)
 
 
 @app.route("/change-password", methods=["GET", "POST"])

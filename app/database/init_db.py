@@ -17,6 +17,17 @@ def initialize_database():
                     "The PostgreSQL database is empty. Run scripts/migrate_sqlite_to_postgres.py "
                     "before starting FlowLab Pro."
                 )
+            conn.execute("""CREATE TABLE IF NOT EXISTS password_reset_tokens (
+                id BIGSERIAL PRIMARY KEY,
+                user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                token_hash TEXT NOT NULL UNIQUE,
+                expires_at_epoch BIGINT NOT NULL,
+                used_at TIMESTAMP,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )""")
+            conn.execute("""CREATE INDEX IF NOT EXISTS idx_password_reset_token_lookup
+                ON password_reset_tokens(token_hash,expires_at_epoch,used_at)""")
+            conn.commit()
             _postgres_schema_verified = True
         finally:
             conn.close()
@@ -242,6 +253,19 @@ def initialize_database():
     """)
     cursor.execute("""CREATE INDEX IF NOT EXISTS idx_password_reset_pending
         ON password_reset_requests(user_id,status,requested_at)""")
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS password_reset_tokens (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            token_hash TEXT NOT NULL UNIQUE,
+            expires_at_epoch INTEGER NOT NULL,
+            used_at TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+    """)
+    cursor.execute("""CREATE INDEX IF NOT EXISTS idx_password_reset_token_lookup
+        ON password_reset_tokens(token_hash,expires_at_epoch,used_at)""")
 
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS projects (

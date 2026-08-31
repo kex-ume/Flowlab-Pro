@@ -30,6 +30,13 @@ class PostgreSQLCompatibilityTests(unittest.TestCase):
         sql = translate_sql("INSERT OR IGNORE INTO roles(name) VALUES (?)")
         self.assertEqual(sql, "INSERT INTO roles(name) VALUES (%s) ON CONFLICT DO NOTHING")
 
+    def test_json_extract_is_translated(self):
+        sql = translate_sql(
+            "SELECT json_extract(snapshot_json,'$.backendResult.cmcComparison[0].applicableCmc')"
+        )
+        self.assertEqual(sql,
+            "SELECT ((snapshot_json)::jsonb #>> '{backendResult,cmcComparison,0,applicableCmc}')")
+
     def test_sqlite_schema_types_are_translated(self):
         ddl = postgres_ddl(
             "CREATE TABLE samples (id INTEGER PRIMARY KEY AUTOINCREMENT, value REAL, "

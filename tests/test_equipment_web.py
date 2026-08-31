@@ -3,6 +3,8 @@ import tempfile
 import unittest
 from datetime import date, timedelta
 from pathlib import Path
+from unittest.mock import patch
+from urllib.parse import urlparse
 
 import app.database.database as database
 from app.database.init_db import initialize_database
@@ -290,6 +292,39 @@ class FreshDatabaseWebTests(unittest.TestCase):
         self.assertEqual(password_row,
             (AuthService.hash_password("NewPassword123"),0))
         self.assertEqual(request_status, "Completed")
+
+    def test_registered_email_receives_single_use_password_reset_link(self):
+        connection = database.get_connection()
+        technician_role = connection.execute(
+            "SELECT id FROM roles WHERE name='Technician'").fetchone()[0]
+        user_id = connection.execute("""INSERT INTO users
+            (username,password_hash,full_name,email,role_id,is_active)
+            VALUES ('email-reset',?,'Email Reset','analyst@example.test',?,1)""",
+            (AuthService.hash_password("OldPassword1"),technician_role)).lastrowid
+        connection.commit(); connection.close()
+        sent = []
+
+        with patch("web_app.email_recovery_configured", return_value=True), \
+                patch("web_app.send_password_reset_email",
+                    side_effect=lambda recipient,url: sent.append((recipient,url))), \
+                patch.dict("os.environ", {"FLOWLAB_PUBLIC_URL":"https://flowlab.example"}):
+            response = self.client.post("/forgot-password",
+                data={"identifier":"analyst@example.test"})
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(sent[0][0], "analyst@example.test")
+        reset_path = urlparse(sent[0][1]).path
+        self.assertIn("Reset password", self.client.get(reset_path).get_data(as_text=True))
+        response = self.client.post(reset_path, data={
+            "password":"NewEmailPassword123", "password_confirmation":"NewEmailPassword123"})
+        self.assertEqual(response.status_code, 302)
+        self.assertIsNotNone(AuthService().authenticate("email-reset", "NewEmailPassword123"))
+        self.assertIn("already been used", self.client.get(reset_path).get_data(as_text=True))
+        connection = database.get_connection()
+        used = connection.execute("""SELECT used_at FROM password_reset_tokens
+            WHERE user_id=?""", (user_id,)).fetchone()[0]
+        connection.close()
+        self.assertTrue(used)
 
 
 if __name__ == "__main__":

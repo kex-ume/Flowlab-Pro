@@ -138,7 +138,7 @@ def _equipment_source(connection, source, nominal_flow):
     row = connection.execute("""SELECT e.id,e.asset_number,e.equipment_name,
         e.next_calibration_date,e.status,e.is_active,e.certificate_path,
         ec.operating_range_min,ec.operating_range_max,ec.operating_unit,
-        COALESCE(ec.accuracy_value,ec.accuracy_class),ec.resolution,p.certificate_number,p.standard_uncertainty,
+        COALESCE(CAST(ec.accuracy_value AS TEXT),ec.accuracy_class),ec.resolution,p.certificate_number,p.standard_uncertainty,
         p.expanded_uncertainty,p.coverage_factor,p.resolution,p.drift,p.version,p.certificate_path
         ,ec.tolerance,(SELECT ch.id FROM calibration_history ch WHERE ch.equipment_id=e.id
             AND ch.is_deleted=0 ORDER BY ch.calibration_date DESC,ch.id DESC LIMIT 1)

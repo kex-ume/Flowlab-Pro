@@ -60,6 +60,18 @@ def translate_sql(sql: str) -> str:
     translated = re.sub(r"([A-Za-z_][A-Za-z0-9_.]*)\s+COLLATE\s+NOCASE",
                         r"LOWER(\1)", translated, flags=re.I)
     translated = re.sub(r"\bSELECT\s+last_insert_rowid\s*\(\s*\)", "SELECT LASTVAL()", translated, flags=re.I)
+
+    def json_value(match):
+        expression = match.group(1).strip()
+        path = re.sub(r"\[(\d+)\]", r".\1", match.group(2)).strip(".")
+        return f"(({expression})::jsonb #>> '{{{','.join(path.split('.'))}}}')"
+
+    translated = re.sub(
+        r"json_extract\(\s*([^,()]+)\s*,\s*'\$\.([^']+)'\s*\)",
+        json_value,
+        translated,
+        flags=re.I,
+    )
     ignore_insert = bool(re.search(r"\bINSERT\s+OR\s+IGNORE\b", translated, re.I))
     translated = re.sub(r"\bINSERT\s+OR\s+IGNORE\b", "INSERT", translated, flags=re.I)
     if ignore_insert and not re.search(r"\bON\s+CONFLICT\b", translated, re.I):

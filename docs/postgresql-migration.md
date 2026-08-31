@@ -53,6 +53,22 @@ Keep `FLOWLAB_DATABASE_URL` as a protected machine-level environment variable on
 
 Allow TCP port 5050 only from the reverse proxy or trusted network. For public use, put IIS, Nginx, or Cloudflare Tunnel in front of the app and use HTTPS.
 
+## Email password recovery
+
+Password recovery continues to create a controlled Chief/Administrator request when email is not configured. To send 30-minute, single-use recovery links, provide these protected environment variables to the FlowLab server process:
+
+```text
+FLOWLAB_PUBLIC_URL=https://your-flowlab-address.example
+FLOWLAB_SMTP_HOST=your-mail-server
+FLOWLAB_SMTP_PORT=587
+FLOWLAB_SMTP_STARTTLS=1
+FLOWLAB_SMTP_USERNAME=your-service-account
+FLOWLAB_SMTP_PASSWORD=your-service-account-password
+FLOWLAB_SMTP_FROM=FlowLab Pro <flowlab@your-domain.example>
+```
+
+Every user who will recover by email must have a unique, accessible email address in User Management. Never put SMTP credentials in Git. Restart the FlowLab server after changing environment variables.
+
 ## 5. Acceptance and rollback
 
 Before allowing normal use, verify sign-in, users, projects/jobs, equipment history, uncertainty draft/approval, notifications, uploaded documents, PDF/CSV exports, and record counts. Keep the SQLite backup unchanged until acceptance is complete.
