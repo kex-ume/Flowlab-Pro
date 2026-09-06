@@ -331,6 +331,20 @@ class GUMWebWorkflowTests(unittest.TestCase):
         self.assertEqual([item[0] for item in history[-2:]], ["submit", "auto_approve"])
         self.assertEqual(tasks, 0)
 
+    def test_chief_can_take_over_review_and_approval_tasks(self):
+        saved = self.client.post("/uncertainty/api/save", json=self.payload()).get_json()["record"]
+        self.submit_for_review(saved["id"])
+        self.sign_in_as("Chief Metrologist", "Chief Meteorologist")
+        reviewed = self.client.post(
+            f"/uncertainty/api/records/calculation/{saved['id']}/workflow",
+            json={"action":"review", "comment":"Chief authority review"})
+        self.assertEqual(reviewed.status_code, 200, reviewed.get_data(as_text=True))
+        approved = self.client.post(
+            f"/uncertainty/api/records/calculation/{saved['id']}/workflow",
+            json={"action":"approve", "comment":"Chief authority approval"})
+        self.assertEqual(approved.status_code, 200, approved.get_data(as_text=True))
+        self.assertEqual(approved.get_json()["status"], "Approved")
+
     def test_completed_job_blocks_new_uncertainty_until_authorized_reopen(self):
         connection = database.get_connection()
         connection.execute("UPDATE calibration_jobs SET status='Completed' WHERE id=?", (self.job_id,))

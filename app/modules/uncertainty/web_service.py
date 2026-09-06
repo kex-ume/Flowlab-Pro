@@ -590,7 +590,8 @@ def save_cmc(connection, payload, result, actor):
 
 
 def workflow(connection, record_type, record_id, action, actor, comment="",
-             assigned_reviewer=None, assigned_approver=None, auto_approve=False):
+             assigned_reviewer=None, assigned_approver=None, auto_approve=False,
+             authority_override=False):
     table = "cmc_revisions" if record_type == "cmc" else "uncertainty_calculations"
     creator_column = "created_by" if record_type == "cmc" else "calculated_by"
     row = connection.execute(
@@ -624,15 +625,15 @@ def workflow(connection, record_type, record_id, action, actor, comment="",
         return "Approved"
     if action == "submit" and (not assigned_reviewer or not assigned_approver):
         raise ValueError("Select both the Technical Reviewer and the final Approving Officer.")
-    if action in {"review", "approve", "revert"} and row[1] == actor:
+    if action in {"review", "approve", "revert"} and row[1] == actor and not authority_override:
         raise ValueError("The creator cannot review or approve their own uncertainty record.")
-    if action == "review" and row[3] and row[3] != actor:
+    if action == "review" and row[3] and row[3] != actor and not authority_override:
         raise ValueError(f"This Technical Review is assigned to {row[3]}.")
-    if action == "revert" and current == "Submitted for Review" and row[3] and row[3] != actor:
+    if action == "revert" and current == "Submitted for Review" and row[3] and row[3] != actor and not authority_override:
         raise ValueError(f"This Technical Review is assigned to {row[3]}.")
-    if action in {"approve", "revert"} and current == "HOD Review" and row[4] and row[4] != actor:
+    if action in {"approve", "revert"} and current == "HOD Review" and row[4] and row[4] != actor and not authority_override:
         raise ValueError(f"Final approval is assigned to {row[4]}.")
-    if action == "approve" and row[2] == actor:
+    if action == "approve" and row[2] == actor and not authority_override:
         raise ValueError("The technical reviewer cannot also give final HOD approval.")
     transitions = {"submit": ({"Draft", "Reverted"}, "Submitted for Review"),
                    "review": ({"Submitted for Review"}, "HOD Review"),

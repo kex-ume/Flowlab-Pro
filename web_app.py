@@ -132,6 +132,41 @@ def chief_auto_approval():
     return session.get("role_name") == "Chief Meteorologist"
 
 
+def workflow_authority():
+    return session.get("role_name") in {"Chief Meteorologist", "Administrator"}
+
+
+def task_destination(connection, entity_type, entity_id, stored_link=None):
+    if stored_link and stored_link.startswith("/") and not stored_link.startswith("//"):
+        return stored_link
+    if entity_type == "password_reset_request":
+        return url_for("users")
+    if entity_type in {"calibration_job", "job"}:
+        return url_for("job_detail", job_id=entity_id)
+    if entity_type == "project":
+        return url_for("project_jobs", project=entity_id)
+    if entity_type == "equipment":
+        return url_for("equipment_detail", equipment_id=entity_id)
+    if entity_type in {"calibration", "maintenance"}:
+        table = "calibration_history" if entity_type == "calibration" else "maintenance_history"
+        owner = connection.execute(f"SELECT equipment_id FROM {table} WHERE id=?", (entity_id,)).fetchone()
+        if owner:
+            return url_for("equipment_detail", equipment_id=owner[0], tab=entity_type)
+    if entity_type in {"uncertainty_calculation", "uncertainty"}:
+        return url_for("uncertainty", record=entity_id)
+    if entity_type == "cmc_revision":
+        return url_for("uncertainty")
+    if entity_type == "controlled_document":
+        return url_for("documents")
+    if entity_type == "quality_record":
+        record = connection.execute("SELECT record_type FROM quality_records WHERE id=?", (entity_id,)).fetchone()
+        if record:
+            for section, workspace_data in WORKSPACES.items():
+                if any(item[0] == record[0] for item in workspace_data["modules"]):
+                    return url_for("module_page", section=section, module=record[0])
+    return url_for("reminders")
+
+
 def add_notification(connection, user_id, title, message, link=None,
         entity_type=None, entity_id=None, notification_type="Workflow"):
     if not user_id:
@@ -497,12 +532,37 @@ def reminders():
             AND (j.assigned_user_id=? OR j.assigned_user_id IS NULL OR ? IN ('Chief Meteorologist','Supervisor','Administrator'))
             ORDER BY COALESCE(NULLIF(j.required_date,''),NULLIF(j.planned_start_date,''))""",
             (user_id, session.get("role_name", ""))).fetchall()
-        connection.execute("UPDATE notifications SET is_read=1,read_at=CURRENT_TIMESTAMP WHERE user_id=? AND is_read=0",
-            (user_id,))
+        task_rows = connection.execute("""SELECT id,entity_type,entity_id,task_type,submitted_by,
+            submitted_at,assigned_to,priority,due_date FROM workflow_tasks
+            WHERE status='Pending' AND (?=1 OR assigned_user_id=? OR assigned_to=?)
+            ORDER BY CASE priority WHEN 'Urgent' THEN 1 WHEN 'High' THEN 2 ELSE 3 END,submitted_at""",
+            (int(workflow_authority()),user_id,current_actor())).fetchall()
+        tasks = [{"id":row[0], "entity_type":row[1], "entity_id":row[2],
+            "task_type":row[3], "submitted_by":row[4], "submitted_at":row[5],
+            "assigned_to":row[6], "priority":row[7] or "Normal", "due_date":row[8],
+            "url":task_destination(connection,row[1],row[2])} for row in task_rows]
         connection.commit()
         return render_template("reminders.html", notifications=notifications,
-            equipment_reminders=equipment_reminders, job_reminders=job_reminders,
+            equipment_reminders=equipment_reminders, job_reminders=job_reminders, tasks=tasks,
+            has_workflow_authority=workflow_authority(),
             page_title="Notifications & Reminders", page_subtitle="Assigned reviews, due equipment and scheduled Jobs")
+    finally:
+        connection.close()
+
+
+@app.get("/notifications/<int:notification_id>/open")
+def notification_open(notification_id):
+    connection = get_connection()
+    try:
+        notification = connection.execute("""SELECT link,entity_type,entity_id FROM notifications
+            WHERE id=? AND user_id=?""", (notification_id,session.get("user_id"))).fetchone()
+        if not notification:
+            abort(404)
+        destination = task_destination(connection,notification[1],notification[2],notification[0])
+        connection.execute("""UPDATE notifications SET is_read=1,read_at=CURRENT_TIMESTAMP
+            WHERE id=?""", (notification_id,))
+        connection.commit()
+        return redirect(destination)
     finally:
         connection.close()
 
@@ -1841,7 +1901,7 @@ def equipment_record_workflow(equipment_id,kind,record_id):
         elif action == "revert":
             if row[0] != "Submitted for Review" or not comment:
                 raise ValueError("A submitted record and a review comment are required to revert.")
-            if row[2] and row[2] != session.get("user_id"):
+            if row[2] and row[2] != session.get("user_id") and not workflow_authority():
                 raise ValueError("This review is assigned to another user.")
             status = "Reverted"
             connection.execute(f"""UPDATE {table} SET status=?,reviewed_by=?,reviewed_at=CURRENT_TIMESTAMP,
@@ -1852,9 +1912,9 @@ def equipment_record_workflow(equipment_id,kind,record_id):
         elif action == "approve":
             if row[0] != "Submitted for Review":
                 raise ValueError("Only a submitted record can be approved.")
-            if row[1] == current_actor():
+            if row[1] == current_actor() and not workflow_authority():
                 raise ValueError("The submitter cannot approve their own controlled record.")
-            if row[2] and row[2] != session.get("user_id"):
+            if row[2] and row[2] != session.get("user_id") and not workflow_authority():
                 raise ValueError("This review is assigned to another user.")
             if kind == "calibration":
                 candidate = connection.execute("SELECT calibration_date,certificate_number FROM calibration_history WHERE id=?",
@@ -2100,7 +2160,7 @@ def document_workflow(document_id):
             connection.execute("""UPDATE controlled_documents SET status=?,reviewed_by=?,reviewed_at=CURRENT_TIMESTAMP,
                 updated_at=CURRENT_TIMESTAMP WHERE id=?""",(status,current_actor(),document_id))
         elif action=="approve" and row[0]=="Submitted for Review":
-            if row[1]==current_actor():
+            if row[1]==current_actor() and not workflow_authority():
                 raise ValueError("The uploader cannot approve their own controlled document.")
             status="Approved"
             connection.execute("""UPDATE controlled_documents SET status=?,approved_by=?,approved_at=CURRENT_TIMESTAMP,
@@ -2320,7 +2380,7 @@ def uncertainty_api_workflow(record_type, record_id):
             calculate_payload(connection, saved_payload)
         status = workflow(connection, "cmc" if record_type == "cmc" else "calculation",
             record_id, action, current_actor(), body.get("comment", ""), reviewer, approver,
-            auto_approve=auto_approve)
+            auto_approve=auto_approve, authority_override=workflow_authority())
         creator_id = user_id_for_actor(connection,record_row[1])
         link = url_for("uncertainty",record=record_id)
         if action == "submit" and not auto_approve:

@@ -1,10 +1,22 @@
 {% extends 'base.html' %}
 {% block content %}
 <div class="reminder-grid">
+  <section class="panel reminder-panel wide">
+    <div class="panel-head"><div><h3>Actionable tasks</h3><small>{% if has_workflow_authority %}All pending laboratory tasks available under your authority{% else %}Reviews and approvals assigned to you{% endif %}</small></div><span class="meta-pill">{{ tasks|length }}</span></div>
+    <div class="task-list">
+      {% for task in tasks %}<a class="task-row" href="{{task.url}}">
+        <span class="task-kind">{{task.task_type}}</span>
+        <span><b>{{task.entity_type|replace('_',' ')|title}} · Record {{task.entity_id}}</b><small>Submitted by {{task.submitted_by}} · <span data-local-datetime="{{task.submitted_at}}">{{task.submitted_at}}</span></small></span>
+        <span><small>Assigned to</small><b>{{task.assigned_to}}</b></span>
+        <span class="pill {{'overdue' if task.priority in ('Urgent','High') else 'due'}}">{{task.priority}}</span>
+        <strong class="task-open">Open task →</strong>
+      </a>{% else %}<div class="table-empty"><span>No pending tasks require action.</span></div>{% endfor %}
+    </div>
+  </section>
   <section class="panel reminder-panel">
     <div class="panel-head"><h3>My notifications</h3><span class="meta-pill">{{ notifications|length }}</span></div>
     <div class="notification-list">
-      {% for n in notifications %}<a class="notification-row {{'unread' if not n[7]}}" href="{{n[4] or '#'}}">
+      {% for n in notifications %}<a class="notification-row {{'unread' if not n[7]}}" href="{{url_for('notification_open',notification_id=n[0])}}">
         <span class="notification-mark"></span><div><b>{{n[2]}}</b><p>{{n[3]}}</p><small>{{n[1]}} · <span data-local-datetime="{{n[8]}}">{{n[8]}}</span></small></div>
       </a>{% else %}<div class="table-empty"><span>You have no workflow notifications.</span></div>{% endfor %}
     </div>

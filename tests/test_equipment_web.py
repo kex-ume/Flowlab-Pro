@@ -326,6 +326,44 @@ class FreshDatabaseWebTests(unittest.TestCase):
         connection.close()
         self.assertTrue(used)
 
+    def test_chief_sees_all_pending_tasks_and_notifications_open_the_record(self):
+        connection = database.get_connection()
+        chief_role = connection.execute(
+            "SELECT id FROM roles WHERE name='Chief Meteorologist'").fetchone()[0]
+        technician_role = connection.execute(
+            "SELECT id FROM roles WHERE name='Technician'").fetchone()[0]
+        chief_id = connection.execute("""INSERT INTO users
+            (username,password_hash,full_name,role_id,is_active)
+            VALUES ('task-chief',?,'Task Chief',?,1)""",
+            (AuthService.hash_password("ChiefPassword1"),chief_role)).lastrowid
+        technician_id = connection.execute("""INSERT INTO users
+            (username,password_hash,full_name,role_id,is_active)
+            VALUES ('task-tech',?,'Task Technician',?,1)""",
+            (AuthService.hash_password("TechPassword1"),technician_role)).lastrowid
+        connection.execute("""INSERT INTO workflow_tasks
+            (entity_type,entity_id,task_type,status,submitted_by,assigned_to,assigned_user_id)
+            VALUES ('controlled_document',42,'Approval','Pending','Task Technician','Task Technician',?)""",
+            (technician_id,))
+        notification_id = connection.execute("""INSERT INTO notifications
+            (user_id,title,message,link,entity_type,entity_id)
+            VALUES (?,'Document approval','Open the submitted document','/documents','controlled_document',42)""",
+            (chief_id,)).lastrowid
+        connection.commit(); connection.close()
+        with self.client.session_transaction() as login:
+            login.update(user_id=chief_id,username="task-chief",full_name="Task Chief",
+                role_name="Chief Meteorologist")
+        page = self.client.get("/reminders").get_data(as_text=True)
+        self.assertIn("Actionable tasks", page)
+        self.assertIn("Record 42", page)
+        self.assertIn("Open task", page)
+        response = self.client.get(f"/notifications/{notification_id}/open")
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(response.headers["Location"].endswith("/documents"))
+        connection = database.get_connection()
+        self.assertEqual(connection.execute("SELECT is_read FROM notifications WHERE id=?",
+            (notification_id,)).fetchone()[0], 1)
+        connection.close()
+
 
 if __name__ == "__main__":
     unittest.main()
