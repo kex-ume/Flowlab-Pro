@@ -32,7 +32,15 @@
         {% endwith %}
         <form method="post" class="login-form">
           <label>Username<input name="username" autocomplete="username" required></label>
-          <label>Password<input type="password" name="password" autocomplete="current-password" required></label>
+          <label>Password
+            <span class="password-input">
+              <input id="loginPassword" type="password" name="password" autocomplete="current-password" required>
+              <button class="password-toggle" type="button" aria-label="Show password" aria-pressed="false" aria-controls="loginPassword">
+                <svg class="eye-open" viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.7"/></svg>
+                <svg class="eye-closed" viewBox="0 0 24 24" aria-hidden="true"><path d="m3 3 18 18M10.6 6.1A10.8 10.8 0 0 1 12 6c6 0 9.5 6 9.5 6a16.8 16.8 0 0 1-2.1 2.8M6.4 6.4C3.9 8 2.5 12 2.5 12s3.5 6 9.5 6a9.7 9.7 0 0 0 3-.5M9.9 9.9a3 3 0 0 0 4.2 4.2"/></svg>
+              </button>
+            </span>
+          </label>
           <button>Sign In</button>
         </form>
         <a class="panel-link" href="{{url_for('forgot_password')}}">Forgot password?</a>
@@ -41,5 +49,9 @@
       </div>
     </section>
   </main>
+  <script>
+    const password=document.getElementById('loginPassword'),toggle=document.querySelector('.password-toggle');
+    toggle.addEventListener('click',()=>{const reveal=password.type==='password';password.type=reveal?'text':'password';toggle.setAttribute('aria-pressed',String(reveal));toggle.setAttribute('aria-label',reveal?'Hide password':'Show password');password.focus()});
+  </script>
 </body>
 </html>
