@@ -17,6 +17,7 @@ import shutil
 import smtplib
 import time
 from email.message import EmailMessage
+from email.utils import parseaddr
 from uuid import uuid4
 
 from flask import Flask, abort, flash, jsonify, redirect, render_template, request, send_file, session, url_for
@@ -207,6 +208,16 @@ def setting_integer(key, fallback):
         return fallback
 
 
+def setting_text(key, fallback=""):
+    rows = query("SELECT setting_value FROM system_settings WHERE setting_key=?", (key,))
+    return str(rows[0][0]).strip() if rows and rows[0][0] is not None else fallback
+
+
+def valid_email(value):
+    parsed = parseaddr(value or "")[1]
+    return parsed == (value or "").strip() and "@" in parsed and "." in parsed.rsplit("@", 1)[-1]
+
+
 def next_reference(connection, table, column, prefix):
     year = date.today().year
     stem = f"{prefix}-{year}-"
@@ -318,12 +329,20 @@ def forgot_password():
     if request.method == "POST":
         identifier = request.form.get("identifier", request.form.get("username", "")).strip()
         connection = get_connection()
-        user = connection.execute("""SELECT id,username,email FROM users
-            WHERE (LOWER(username)=LOWER(?) OR LOWER(COALESCE(email,''))=LOWER(?))
-            AND is_active=1""", (identifier,identifier)).fetchone()
+        user = connection.execute("""SELECT u.id,u.username,u.email,r.name FROM users u
+            JOIN roles r ON r.id=u.role_id
+            WHERE (LOWER(u.username)=LOWER(?) OR LOWER(COALESCE(u.email,''))=LOWER(?))
+            AND u.is_active=1""", (identifier,identifier)).fetchone()
+        admin_recovery_email = setting_text("admin_recovery_email", "ikechukwuumezulike@gmail.com")
+        if not user and identifier.lower() == admin_recovery_email.lower():
+            user = connection.execute("""SELECT u.id,u.username,u.email,r.name FROM users u
+                JOIN roles r ON r.id=u.role_id WHERE u.is_active=1
+                AND r.name IN ('Administrator','Chief Meteorologist')
+                ORDER BY CASE r.name WHEN 'Administrator' THEN 1 ELSE 2 END,u.id LIMIT 1""").fetchone()
         if user:
             delivered = False
-            if user[2] and email_recovery_configured():
+            recipient = admin_recovery_email if user[3] in {"Administrator","Chief Meteorologist"} else user[2]
+            if recipient and email_recovery_configured():
                 token = secrets.token_urlsafe(32)
                 token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
                 connection.execute("""UPDATE password_reset_tokens SET used_at=CURRENT_TIMESTAMP
@@ -335,7 +354,7 @@ def forgot_password():
                 reset_url = os.environ["FLOWLAB_PUBLIC_URL"].rstrip("/") + url_for(
                     "email_password_reset", token=token)
                 try:
-                    send_password_reset_email(user[2], reset_url)
+                    send_password_reset_email(recipient, reset_url)
                     delivered = True
                     audit_change(connection, "user", user[0], "email_password_reset_requested",
                         after={"username":user[1], "delivery":"email"})
@@ -826,12 +845,18 @@ def settings():
     if request.method == "POST":
         require_permission("settings")
         raw_days = request.form.get("equipment_due_soon_days", "").strip()
+        existing_recovery_email = setting_text(
+            "admin_recovery_email", "ikechukwuumezulike@gmail.com")
+        recovery_email = (request.form.get("admin_recovery_email", "").strip()
+            if session.get("role_name") == "Administrator" else existing_recovery_email)
         try:
             days = int(raw_days)
             if not 0 <= days <= 365:
                 raise ValueError
+            if not valid_email(recovery_email):
+                raise ValueError
         except ValueError:
-            flash("Due-soon warning period must be a whole number from 0 to 365.", "error")
+            flash("Enter a whole-number warning period from 0 to 365 and a valid Administrator recovery email.", "error")
         else:
             connection = get_connection()
             before = connection.execute("SELECT setting_value FROM system_settings WHERE setting_key='equipment_due_soon_days'").fetchone()
@@ -840,14 +865,27 @@ def settings():
                 VALUES ('equipment_due_soon_days',?,'integer',?,CURRENT_TIMESTAMP)
                 ON CONFLICT(setting_key) DO UPDATE SET setting_value=excluded.setting_value,
                 updated_by=excluded.updated_by,updated_at=CURRENT_TIMESTAMP""", (str(days), current_actor()))
+            before_email = connection.execute("""SELECT setting_value FROM system_settings
+                WHERE setting_key='admin_recovery_email'""").fetchone()
+            connection.execute("""INSERT INTO system_settings
+                (setting_key,setting_value,value_type,updated_by,updated_at)
+                VALUES ('admin_recovery_email',?,'email',?,CURRENT_TIMESTAMP)
+                ON CONFLICT(setting_key) DO UPDATE SET setting_value=excluded.setting_value,
+                updated_by=excluded.updated_by,updated_at=CURRENT_TIMESTAMP""",
+                (recovery_email,current_actor()))
             audit_change(connection, "system_setting", None, "update",
-                before={"equipment_due_soon_days": before[0] if before else None},
-                after={"equipment_due_soon_days": days})
+                before={"equipment_due_soon_days": before[0] if before else None,
+                    "admin_recovery_email":before_email[0] if before_email else None},
+                after={"equipment_due_soon_days": days,
+                    "admin_recovery_email":recovery_email})
             connection.commit(); connection.close()
             flash("Settings saved.", "success")
             return redirect(url_for("settings"))
     return render_template("settings.html",
         due_soon_days=setting_integer("equipment_due_soon_days", 30),
+        admin_recovery_email=setting_text("admin_recovery_email", "ikechukwuumezulike@gmail.com"),
+        email_delivery_configured=email_recovery_configured(),
+        can_change_admin_recovery_email=session.get("role_name") == "Administrator",
         page_title="Settings", page_subtitle="", active_nav="settings")
 
 

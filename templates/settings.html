@@ -3,7 +3,10 @@
 <section class="panel compact-panel">
   <form method="post" class="form-grid single-record-form">
     <label>Equipment due-soon warning period (days) *<input type="number" name="equipment_due_soon_days" min="0" max="365" step="1" value="{{ due_soon_days }}" required></label>
+    <label>Administrator recovery email *<input type="email" name="admin_recovery_email" value="{{admin_recovery_email}}" {% if not can_change_admin_recovery_email %}disabled aria-describedby="recovery-email-access"{% else %}required{% endif %}></label>
     <button>Save</button>
   </form>
+  {% if not can_change_admin_recovery_email %}<small id="recovery-email-access">Only an Administrator can change the recovery address.</small>{% endif %}
+  <div class="login-security"><span aria-hidden="true">✓</span> Email delivery: {{'Configured' if email_delivery_configured else 'Awaiting outgoing mail-server configuration'}}</div>
 </section>
 {% endblock %}

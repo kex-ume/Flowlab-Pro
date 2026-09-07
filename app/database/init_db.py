@@ -27,6 +27,11 @@ def initialize_database():
             )""")
             conn.execute("""CREATE INDEX IF NOT EXISTS idx_password_reset_token_lookup
                 ON password_reset_tokens(token_hash,expires_at_epoch,used_at)""")
+            conn.execute("""INSERT INTO system_settings
+                (setting_key,setting_value,value_type,updated_by,updated_at)
+                VALUES ('admin_recovery_email','ikechukwuumezulike@gmail.com','email',
+                    'System configuration',CURRENT_TIMESTAMP)
+                ON CONFLICT(setting_key) DO NOTHING""")
             conn.commit()
             _postgres_schema_verified = True
         finally:
@@ -1151,6 +1156,9 @@ def initialize_database():
     cursor.execute("""INSERT OR IGNORE INTO system_settings
         (setting_key,setting_value,value_type,updated_by)
         VALUES ('equipment_due_soon_days','30','integer','System configuration')""")
+    cursor.execute("""INSERT OR IGNORE INTO system_settings
+        (setting_key,setting_value,value_type,updated_by)
+        VALUES ('admin_recovery_email','ikechukwuumezulike@gmail.com','email','System configuration')""")
 
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS record_notes (

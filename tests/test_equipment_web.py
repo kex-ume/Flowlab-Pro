@@ -364,6 +364,49 @@ class FreshDatabaseWebTests(unittest.TestCase):
             (notification_id,)).fetchone()[0], 1)
         connection.close()
 
+    def test_admin_recovery_email_is_defaulted_changeable_and_routes_admin_recovery(self):
+        connection = database.get_connection()
+        administrator_role = connection.execute(
+            "SELECT id FROM roles WHERE name='Administrator'").fetchone()[0]
+        admin_id = connection.execute("""INSERT INTO users
+            (username,password_hash,full_name,email,role_id,is_active)
+            VALUES ('recovery-admin',?,'Recovery Admin','other@example.test',?,1)""",
+            (AuthService.hash_password("AdminPassword1"),administrator_role)).lastrowid
+        default_email = connection.execute("""SELECT setting_value FROM system_settings
+            WHERE setting_key='admin_recovery_email'""").fetchone()[0]
+        connection.commit(); connection.close()
+        self.assertEqual(default_email, "ikechukwuumezulike@gmail.com")
+        sent = []
+        with patch("web_app.email_recovery_configured", return_value=True), \
+                patch("web_app.send_password_reset_email",
+                    side_effect=lambda recipient,url: sent.append((recipient,url))), \
+                patch.dict("os.environ", {"FLOWLAB_PUBLIC_URL":"https://flowlab.example"}):
+            self.client.post("/forgot-password", data={"identifier":default_email})
+        self.assertEqual(sent[0][0], default_email)
+
+        with self.client.session_transaction() as login:
+            login.update(user_id=admin_id,username="recovery-admin",full_name="Recovery Admin",
+                role_name="Administrator")
+        response = self.client.post("/settings", data={
+            "equipment_due_soon_days":"30", "admin_recovery_email":"new-admin@example.test"})
+        self.assertEqual(response.status_code, 302)
+        connection = database.get_connection()
+        changed = connection.execute("""SELECT setting_value FROM system_settings
+            WHERE setting_key='admin_recovery_email'""").fetchone()[0]
+        connection.close()
+        self.assertEqual(changed, "new-admin@example.test")
+
+        with self.client.session_transaction() as login:
+            login["role_name"] = "Chief Meteorologist"
+        response = self.client.post("/settings", data={
+            "equipment_due_soon_days":"30", "admin_recovery_email":"blocked@example.test"})
+        self.assertEqual(response.status_code, 302)
+        connection = database.get_connection()
+        protected = connection.execute("""SELECT setting_value FROM system_settings
+            WHERE setting_key='admin_recovery_email'""").fetchone()[0]
+        connection.close()
+        self.assertEqual(protected, "new-admin@example.test")
+
 
 if __name__ == "__main__":
     unittest.main()
