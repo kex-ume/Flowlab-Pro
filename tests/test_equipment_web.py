@@ -211,6 +211,31 @@ class FreshDatabaseWebTests(unittest.TestCase):
         self.assertIn("No jobs match the selected filters.", self.client.get("/projects/jobs").get_data(as_text=True))
         self.assertIn("No controlled document has been uploaded.", self.client.get("/documents").get_data(as_text=True))
 
+    def test_equipment_location_can_be_created_edited_and_viewed(self):
+        response = self.client.post("/equipment", data={
+            "equipment_name":"Reference Pressure Gauge", "asset_number":"RPG-001",
+            "laboratory_location":"Pressure Laboratory · Bay 2",
+            "validity_value":"12", "validity_unit":"Months"})
+        self.assertEqual(response.status_code, 302)
+        connection = database.get_connection()
+        equipment_id,location = connection.execute("""SELECT id,laboratory_location
+            FROM laboratory_equipment WHERE asset_number='RPG-001'""").fetchone()
+        connection.close()
+        self.assertEqual(location, "Pressure Laboratory · Bay 2")
+        detail = self.client.get(f"/equipment/{equipment_id}").get_data(as_text=True)
+        self.assertIn("Pressure Laboratory · Bay 2", detail)
+        response = self.client.post(f"/equipment/{equipment_id}/edit", data={
+            "equipment_name":"Reference Pressure Gauge", "serial_number":"",
+            "manufacturer":"", "model":"", "equipment_type":"Pressure",
+            "laboratory_location":"Standards Room", "validity_value":"1",
+            "validity_unit":"Years", "notes":"", "reason":"Correct equipment location"})
+        self.assertEqual(response.status_code, 302)
+        connection = database.get_connection()
+        location = connection.execute("SELECT laboratory_location FROM laboratory_equipment WHERE id=?",
+            (equipment_id,)).fetchone()[0]
+        connection.close()
+        self.assertEqual(location, "Standards Room")
+
     def test_chief_document_submission_is_approved_automatically(self):
         connection = database.get_connection()
         document_id = connection.execute("""INSERT INTO controlled_documents

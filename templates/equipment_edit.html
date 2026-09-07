@@ -9,6 +9,7 @@
     <label>Manufacturer<input name="manufacturer" value="{{item[4]}}"></label>
     <label>Model<input name="model" value="{{item[5]}}"></label>
     <label>Equipment type<input name="equipment_type" value="{{item[6]}}"></label>
+    <label>Location<input name="laboratory_location" value="{{item[13]}}" autocomplete="organization"></label>
     <label>Validity value *<input type="number" min="1" name="validity_value" value="{{item[7] or ''}}" required></label>
     <label>Validity unit *<select name="validity_unit" required>{% for unit in ['Days','Months','Years'] %}<option {{'selected' if item[8]==unit}}>{{unit}}</option>{% endfor %}</select></label>
     <label class="check"><input type="checkbox" name="is_primary" {{'checked' if item[9]}}> Primary / reference</label>

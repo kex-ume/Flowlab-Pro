@@ -1340,12 +1340,13 @@ def equipment():
                     raise ValueError("Serial number is already assigned to another equipment record.")
                 cursor = connection.execute("""INSERT INTO laboratory_equipment
                     (asset_number, equipment_name, equipment_type, manufacturer, model,
-                     serial_number, is_reference_standard,include_in_calibration_programme,
+                     serial_number,laboratory_location,is_reference_standard,include_in_calibration_programme,
                      validity_value,validity_unit,record_status,notes,created_by,updated_by)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (asset_number, equipment_name, request.form.get("equipment_type", "").strip(),
                      request.form.get("manufacturer", "").strip(), request.form.get("model", "").strip(),
-                     serial_number, int(bool(request.form.get("is_primary"))),
+                     serial_number,request.form.get("laboratory_location", "").strip(),
+                     int(bool(request.form.get("is_primary"))),
                      int(bool(request.form.get("include_programme"))),
                      validity_value,validity_unit,controlled_status(),
                      request.form.get("notes", "").strip() or None, current_actor(), current_actor()))
@@ -1634,7 +1635,8 @@ def equipment_edit(equipment_id):
     row = connection.execute("""SELECT id,equipment_name,asset_number,COALESCE(serial_number,''),
         COALESCE(manufacturer,''),COALESCE(model,''),COALESCE(equipment_type,''),
         validity_value,COALESCE(validity_unit,''),is_reference_standard,
-        include_in_calibration_programme,record_status,COALESCE(notes,'')
+        include_in_calibration_programme,record_status,COALESCE(notes,''),
+        COALESCE(laboratory_location,'')
         FROM laboratory_equipment WHERE id=? AND is_active=1""", (equipment_id,)).fetchone()
     if not row:
         connection.close(); abort(404)
@@ -1656,22 +1658,25 @@ def equipment_edit(equipment_id):
                 raise ValueError("Serial number is already assigned to another equipment record.")
             before = {"equipment_name":row[1],"serial_number":row[3],"manufacturer":row[4],
                 "model":row[5],"equipment_type":row[6],"validity_value":row[7],
-                "validity_unit":row[8],"programme":row[10],"status":row[11]}
+                "validity_unit":row[8],"programme":row[10],"status":row[11],
+                "laboratory_location":row[13]}
             connection.execute("""UPDATE laboratory_equipment SET equipment_name=?,serial_number=?,
                 manufacturer=?,model=?,equipment_type=?,validity_value=?,validity_unit=?,
-                is_reference_standard=?,include_in_calibration_programme=?,notes=?,updated_by=?,
+                is_reference_standard=?,include_in_calibration_programme=?,notes=?,laboratory_location=?,updated_by=?,
                 updated_at=CURRENT_TIMESTAMP WHERE id=?""", (
                 request.form["equipment_name"].strip(),serial,
                 request.form.get("manufacturer", "").strip(),request.form.get("model", "").strip(),
                 request.form.get("equipment_type", "").strip(),validity_value,validity_unit,
                 int(bool(request.form.get("is_primary"))),int(bool(request.form.get("include_programme"))),
-                request.form.get("notes", "").strip() or None,current_actor(),equipment_id))
+                request.form.get("notes", "").strip() or None,
+                request.form.get("laboratory_location", "").strip(),current_actor(),equipment_id))
             after = {"equipment_name":request.form["equipment_name"].strip(),"serial_number":serial,
                 "validity_value":validity_value,"validity_unit":validity_unit,
+                "laboratory_location":request.form.get("laboratory_location", "").strip(),
                 "reason":reason,"status":row[11]}
             audit_change(connection,"equipment",equipment_id,"edit_approved" if row[11]=="Approved" else "edit",
                 before=before,after=after)
-            connection.commit(); flash("Equipment updated.","success")
+            connection.commit(); connection.close(); flash("Equipment updated.","success")
             return redirect(url_for("equipment"))
         except Exception as error:
             connection.rollback(); flash(str(error),"error")
