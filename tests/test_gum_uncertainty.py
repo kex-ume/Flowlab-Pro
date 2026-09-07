@@ -184,6 +184,19 @@ class GUMWebWorkflowTests(unittest.TestCase):
         self.assertIn("navigator.sendBeacon('/uncertainty/api/autosave'", script)
         self.assertIn("Assign and Submit for Review", script)
 
+    def test_standalone_tool_calculates_but_cannot_create_a_record(self):
+        page=self.client.get("/uncertainty?standalone=1").get_data(as_text=True)
+        self.assertIn("Standalone Uncertainty Calculator",page)
+        self.assertIn("Not retained",page)
+        standalone=self.payload();standalone["jobId"]="";standalone["standalone"]=True
+        response=self.client.post("/uncertainty/api/calculate",json=standalone)
+        self.assertEqual(response.status_code,200,response.get_data(as_text=True))
+        response=self.client.post("/uncertainty/api/save",json=standalone)
+        self.assertEqual(response.status_code,422)
+        connection=database.get_connection()
+        count=connection.execute("SELECT COUNT(*) FROM uncertainty_calculations").fetchone()[0]
+        connection.close();self.assertEqual(count,0)
+
     def test_partial_draft_autosaves_and_can_be_discarded(self):
         partial = self.payload(); partial["points"][0]["runs"] = partial["points"][0]["runs"][:1]
         saved = self.client.post("/uncertainty/api/autosave", json=partial)

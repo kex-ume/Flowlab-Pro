@@ -55,18 +55,13 @@ def notification_context():
         return {"notification_count": 0}
     connection = get_connection()
     try:
-        personal = connection.execute("""SELECT COUNT(*) FROM notifications
-            WHERE user_id=? AND is_read=0""", (user_id,)).fetchone()[0]
-        equipment_due = connection.execute("""SELECT COUNT(*) FROM laboratory_equipment
-            WHERE is_active=1 AND include_in_calibration_programme=1
-            AND next_calibration_date IS NOT NULL
-            AND next_calibration_date<=date('now','+30 days')""").fetchone()[0]
-        jobs_due = connection.execute("""SELECT COUNT(*) FROM calibration_jobs
-            WHERE is_deleted=0 AND status NOT IN ('Completed','Cancelled')
-            AND COALESCE(NULLIF(required_date,''),NULLIF(planned_start_date,'')) IS NOT NULL
-            AND COALESCE(NULLIF(required_date,''),NULLIF(planned_start_date,''))<=date('now','+14 days')
-            AND (assigned_user_id=? OR assigned_user_id IS NULL)""", (user_id,)).fetchone()[0]
-        return {"notification_count": personal + equipment_due + jobs_due}
+        if workflow_authority():
+            count = connection.execute("""SELECT COUNT(*) FROM workflow_tasks
+                WHERE status='Pending'""").fetchone()[0]
+        else:
+            count = connection.execute("""SELECT COUNT(*) FROM notifications
+                WHERE user_id=? AND is_read=0""", (user_id,)).fetchone()[0]
+        return {"notification_count": count}
     finally:
         connection.close()
 
@@ -157,6 +152,8 @@ def task_destination(connection, entity_type, entity_id, stored_link=None):
         return url_for("uncertainty", record=entity_id)
     if entity_type == "cmc_revision":
         return url_for("uncertainty")
+    if entity_type == "capa":
+        return url_for("capa_detail",record_id=entity_id)
     if entity_type == "controlled_document":
         return url_for("documents")
     if entity_type == "quality_record":
@@ -500,6 +497,14 @@ def dashboard():
         submitted_at, priority FROM workflow_tasks
         WHERE status='Pending' AND (assigned_user_id=? OR assigned_to=?)
         ORDER BY submitted_at LIMIT 5""", (session.get("user_id"), current_actor()))
+    incomplete_jobs = query("""SELECT j.id,j.job_number,COALESCE(j.job_title,''),
+        COALESCE(j.planned_start_date,''),COALESCE(j.required_date,''),j.status,
+        COALESCE(u.full_name,'Unassigned') FROM calibration_jobs j
+        LEFT JOIN users u ON u.id=j.assigned_user_id
+        WHERE j.is_deleted=0 AND j.status NOT IN ('Completed','Cancelled')
+        AND (?=1 OR j.assigned_user_id=? OR j.assigned_user_id IS NULL)
+        ORDER BY CASE WHEN NULLIF(j.required_date,'') IS NULL THEN 1 ELSE 0 END,
+        j.required_date,j.id LIMIT 12""", (int(workflow_authority()),session.get("user_id")))
     standards = query("SELECT COUNT(*) FROM laboratory_equipment WHERE is_reference_standard=1 AND is_active=1")[0][0]
     kpis = (
         {"value": counts["equipment"], "label": "Equipment Assets"},
@@ -522,7 +527,7 @@ def dashboard():
         "detail": f"Record {task[1]} · submitted by {task[2]} at {task[3]}",
         "label": task[4] or "Normal", "tone": "due"} for task in review_tasks]
     return render_template("dashboard.html", counts=counts, kpis=kpis,
-        readiness=readiness, upcoming=upcoming, attention=attention,
+        readiness=readiness, upcoming=upcoming, attention=attention,incomplete_jobs=incomplete_jobs,
         today=date.today().isoformat(), page_title=f"Welcome back, {current_actor()}",
         page_subtitle="Today's calibration and compliance picture", active_nav="dashboard")
 
@@ -534,7 +539,7 @@ def reminders():
     try:
         notifications = connection.execute("""SELECT id,notification_type,title,message,link,
             entity_type,entity_id,is_read,created_at FROM notifications
-            WHERE user_id=? ORDER BY is_read,created_at DESC LIMIT 100""", (user_id,)).fetchall()
+            WHERE user_id=? AND is_read=0 ORDER BY created_at DESC LIMIT 100""", (user_id,)).fetchall()
         equipment_reminders = connection.execute("""SELECT id,asset_number,equipment_name,
             next_calibration_date,CASE WHEN next_calibration_date<date('now') THEN 'Expired'
             WHEN next_calibration_date=date('now') THEN 'Due Today' ELSE 'Due Soon' END
@@ -569,6 +574,58 @@ def reminders():
         connection.close()
 
 
+@app.get("/workflow/tasks/<int:task_id>")
+def workflow_task_overview(task_id):
+    if not workflow_authority():
+        abort(403)
+    connection = get_connection()
+    try:
+        task = connection.execute("""SELECT id,entity_type,entity_id,task_type,status,
+            submitted_by,submitted_at,assigned_to,priority,due_date,COALESCE(comment,'')
+            FROM workflow_tasks WHERE id=? AND status='Pending'""",(task_id,)).fetchone()
+        if not task:
+            abort(404)
+        entity_type,entity_id = task[1],task[2]
+        title = f"{entity_type.replace('_',' ').title()} · Record {entity_id}"
+        facts,files = [],[]
+        if entity_type == "controlled_document":
+            row = connection.execute("""SELECT title,document_type,version,status,
+                original_filename FROM controlled_documents WHERE id=? AND is_deleted=0""",(entity_id,)).fetchone()
+            if row:
+                title=row[0]; facts=[("Document type",row[1]),("Version",row[2]),("Status",row[3])]
+                files=[(row[4] or "Associated document",url_for("document_file",document_id=entity_id))]
+        elif entity_type in {"uncertainty_calculation","uncertainty"}:
+            row=connection.execute("""SELECT calculation_uid,method_name,status,revision,
+                expanded_uncertainty FROM uncertainty_calculations WHERE id=?""",(entity_id,)).fetchone()
+            if row:
+                title=row[0]; facts=[("Method",row[1]),("Status",row[2]),("Revision",row[3]),("Expanded uncertainty",row[4])]
+        elif entity_type in {"calibration","maintenance"}:
+            table="calibration_history" if entity_type=="calibration" else "maintenance_history"
+            path_column="certificate_path" if entity_type=="calibration" else "document_path"
+            row=connection.execute(f"""SELECT r.status,e.asset_number,e.equipment_name,e.id,r.{path_column}
+                FROM {table} r JOIN laboratory_equipment e ON e.id=r.equipment_id WHERE r.id=?""",(entity_id,)).fetchone()
+            if row:
+                title=f"{row[1]} · {row[2]}";facts=[("Record type",entity_type.title()),("Status",row[0])]
+                if row[4]: files=[("Associated report",url_for("equipment_file",equipment_id=row[3],kind=entity_type,record_id=entity_id))]
+        elif entity_type in {"calibration_job","job"}:
+            row=connection.execute("SELECT job_number,job_title,status FROM calibration_jobs WHERE id=?",(entity_id,)).fetchone()
+            if row:
+                title=row[0];facts=[("Title",row[1]),("Status",row[2])]
+        elif entity_type=="capa":
+            row=connection.execute("""SELECT ncr_number,title,source,clause_reference,status,
+                target_close_date,issued_ncr_path,closeout_report_path FROM capa_records WHERE id=?""",(entity_id,)).fetchone()
+            if row:
+                title=f"{row[0]} · {row[1]}";facts=[("Source",row[2]),("ISO/IEC 17025 clause",row[3]),
+                    ("Status",row[4]),("Target close-out",row[5])]
+                files=[("Issued NCR",url_for("capa_file",record_id=entity_id,kind="issued"))]
+                if row[7]: files.append(("Close-out report",url_for("capa_file",record_id=entity_id,kind="closeout")))
+        destination=task_destination(connection,entity_type,entity_id)
+        return render_template("workflow_task.html",task=task,title=title,facts=facts,files=files,
+            destination=destination,page_title="Approval Task",page_subtitle="Review the record and its evidence before deciding",active_nav="database")
+    finally:
+        connection.close()
+
+
 @app.get("/notifications/<int:notification_id>/open")
 def notification_open(notification_id):
     connection = get_connection()
@@ -584,6 +641,148 @@ def notification_open(notification_id):
         return redirect(destination)
     finally:
         connection.close()
+
+
+def _save_capa_file(upload, ncr_number, category):
+    if not upload or not upload.filename:
+        return None
+    if Path(upload.filename).suffix.lower() not in REPORT_EXTENSIONS:
+        raise ValueError("Evidence must be PDF, DOCX, XLSX, JPG or PNG.")
+    destination=Path("data/documents/capa")/ncr_number/category
+    destination.mkdir(parents=True,exist_ok=True)
+    target=destination/f"{uuid4().hex}_{Path(upload.filename).name}"
+    upload.save(target)
+    return str(target)
+
+
+@app.route("/capa",methods=["GET","POST"])
+def capa():
+    connection=get_connection()
+    try:
+        if request.method=="POST":
+            require_permission("equipment_add")
+            required={"NCR number":request.form.get("ncr_number","").strip(),
+                "Title":request.form.get("title","").strip(),"Source":request.form.get("source","").strip(),
+                "Description":request.form.get("description","").strip(),"Owner":request.form.get("owner","").strip(),
+                "Issued date":request.form.get("issued_date"),"Target close-out date":request.form.get("target_close_date")}
+            missing=[name for name,value in required.items() if not value]
+            if missing: raise ValueError("Required NCR fields: "+", ".join(missing)+".")
+            issued_path=_save_capa_file(request.files.get("issued_ncr"),required["NCR number"],"issued")
+            if not issued_path: raise ValueError("Upload the issued NCR before saving the record.")
+            cursor=connection.execute("""INSERT INTO capa_records
+                (ncr_number,title,source,clause_reference,description,owner,issued_date,
+                 target_close_date,status,issued_ncr_path,created_by)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?)""",(required["NCR number"],required["Title"],required["Source"],
+                request.form.get("clause_reference","").strip(),required["Description"],required["Owner"],
+                required["Issued date"],required["Target close-out date"],"Open",issued_path,current_actor()))
+            audit_change(connection,"capa",cursor.lastrowid,"create",after={"ncr_number":required["NCR number"],"status":"Open"})
+            connection.commit();flash("NCR opened. Complete corrective-action evidence before submitting closure.","success")
+            return redirect(url_for("capa_detail",record_id=cursor.lastrowid))
+        records=connection.execute("""SELECT id,ncr_number,title,source,owner,issued_date,
+            target_close_date,status,approved_by FROM capa_records WHERE is_deleted=0
+            ORDER BY CASE status WHEN 'Submitted for Closure Review' THEN 1 WHEN 'Open' THEN 2
+            WHEN 'Reverted' THEN 3 ELSE 4 END,target_close_date""").fetchall()
+        return render_template("capa.html",records=records,page_title="CAPA & NCR",page_subtitle="ISO/IEC 17025 nonconforming work and corrective action",active_nav="iso17025")
+    except ValueError as error:
+        connection.rollback();flash(str(error),"error");return redirect(url_for("capa"))
+    finally: connection.close()
+
+
+@app.route("/capa/<int:record_id>",methods=["GET","POST"])
+def capa_detail(record_id):
+    connection=get_connection()
+    try:
+        row=connection.execute("""SELECT id,ncr_number,title,source,clause_reference,description,
+            immediate_correction,root_cause,corrective_action,owner,issued_date,target_close_date,
+            status,issued_ncr_path,closeout_report_path,created_by,assigned_reviewer_id,
+            submitted_by,submitted_at,review_comment,approved_at,approved_by,created_at,closed_at,
+            updated_at,is_deleted FROM capa_records WHERE id=? AND is_deleted=0""",(record_id,)).fetchone()
+        if not row: abort(404)
+        if request.method=="POST":
+            require_permission("equipment_edit")
+            if row[12]=="Closed": raise ValueError("Closed NCR records are locked.")
+            closeout=_save_capa_file(request.files.get("closeout_report"),row[1],"closeout") or row[14]
+            connection.execute("""UPDATE capa_records SET immediate_correction=?,root_cause=?,
+                corrective_action=?,owner=?,target_close_date=?,closeout_report_path=?,
+                status=CASE WHEN status='Reverted' THEN 'Open' ELSE status END,updated_at=CURRENT_TIMESTAMP WHERE id=?""",
+                (request.form.get("immediate_correction","").strip(),request.form.get("root_cause","").strip(),
+                 request.form.get("corrective_action","").strip(),request.form.get("owner","").strip(),
+                 request.form.get("target_close_date"),closeout,record_id))
+            audit_change(connection,"capa",record_id,"update",after={"closeout_report":bool(closeout)})
+            connection.commit();flash("Corrective-action record updated.","success")
+            return redirect(url_for("capa_detail",record_id=record_id))
+        reviewers=connection.execute("""SELECT u.id,u.full_name,r.name FROM users u JOIN roles r ON r.id=u.role_id
+            WHERE u.is_active=1 AND r.name IN ('Chief Meteorologist','Administrator') ORDER BY u.full_name""").fetchall()
+        history=connection.execute("""SELECT action,actor,notes,occurred_at FROM approval_history
+            WHERE entity_type='capa' AND entity_id=? ORDER BY id""",(record_id,)).fetchall()
+        return render_template("capa_detail.html",record=row,reviewers=reviewers,history=history,
+            page_title=f"NCR · {row[1]}",page_subtitle=row[2],active_nav="iso17025")
+    except ValueError as error:
+        connection.rollback();flash(str(error),"error");return redirect(url_for("capa_detail",record_id=record_id))
+    finally: connection.close()
+
+
+@app.post("/capa/<int:record_id>/submit")
+def capa_submit(record_id):
+    require_permission("equipment_edit")
+    connection=get_connection()
+    try:
+        row=connection.execute("""SELECT ncr_number,status,immediate_correction,root_cause,
+            corrective_action,issued_ncr_path,closeout_report_path,created_by FROM capa_records
+            WHERE id=? AND is_deleted=0""",(record_id,)).fetchone()
+        reviewer_id=request.form.get("reviewer_user_id",type=int)
+        reviewer=connection.execute("""SELECT u.full_name FROM users u JOIN roles r ON r.id=u.role_id
+            WHERE u.id=? AND u.is_active=1 AND r.name IN ('Chief Meteorologist','Administrator')""",(reviewer_id,)).fetchone()
+        if not row or row[1] not in {"Open","Reverted"}: raise ValueError("This NCR is not ready for closure submission.")
+        if not all(row[index] for index in range(2,7)): raise ValueError("Correction, root cause, corrective action, issued NCR and close-out report are mandatory.")
+        if not reviewer: raise ValueError("Select a Chief Meteorologist or Administrator to review closure.")
+        connection.execute("""UPDATE capa_records SET status='Submitted for Closure Review',
+            assigned_reviewer_id=?,submitted_by=?,submitted_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?""",
+            (reviewer_id,current_actor(),record_id))
+        connection.execute("""INSERT INTO workflow_tasks(entity_type,entity_id,task_type,status,
+            submitted_by,assigned_to,submitted_user_id,assigned_user_id,priority,due_date)
+            VALUES (?,?,?,'Pending',?,?,?,?,?,(SELECT target_close_date FROM capa_records WHERE id=?))""",
+            ("capa",record_id,"CAPA Closure Review",current_actor(),reviewer[0],session.get("user_id"),reviewer_id,"High",record_id))
+        audit_change(connection,"capa",record_id,"submit",after={"status":"Submitted for Closure Review","reviewer":reviewer[0]})
+        connection.commit();flash("NCR closure submitted for Chief/Admin review.","success")
+    except ValueError as error: connection.rollback();flash(str(error),"error")
+    finally: connection.close()
+    return redirect(url_for("capa_detail",record_id=record_id))
+
+
+@app.post("/capa/<int:record_id>/workflow")
+def capa_workflow(record_id):
+    if not workflow_authority(): abort(403)
+    action=request.form.get("action");comment=request.form.get("comment","").strip()
+    connection=get_connection()
+    try:
+        row=connection.execute("SELECT status,created_by FROM capa_records WHERE id=? AND is_deleted=0",(record_id,)).fetchone()
+        if not row or row[0]!="Submitted for Closure Review": raise ValueError("This NCR is not awaiting closure review.")
+        if action=="revert":
+            if not comment: raise ValueError("A review comment is required when reverting closure.")
+            status="Reverted";connection.execute("""UPDATE capa_records SET status=?,review_comment=?,updated_at=CURRENT_TIMESTAMP WHERE id=?""",(status,comment,record_id))
+        elif action=="approve":
+            status="Closed";connection.execute("""UPDATE capa_records SET status=?,approved_by=?,approved_at=CURRENT_TIMESTAMP,
+                closed_at=CURRENT_TIMESTAMP,review_comment=?,updated_at=CURRENT_TIMESTAMP WHERE id=?""",(status,current_actor(),comment,record_id))
+        else: raise ValueError("Select Approve Closure or Revert.")
+        connection.execute("""UPDATE workflow_tasks SET status='Completed',reviewed_at=CURRENT_TIMESTAMP,
+            decision=?,comment=? WHERE entity_type='capa' AND entity_id=? AND status='Pending'""",(action,comment,record_id))
+        creator_id=user_id_for_actor(connection,row[1]);add_notification(connection,creator_id,
+            f"NCR closure {status.lower()}",comment or f"Decision by {current_actor()}.",url_for("capa_detail",record_id=record_id),"capa",record_id)
+        audit_change(connection,"capa",record_id,action,after={"status":status,"comment":comment})
+        connection.commit();flash(f"NCR status changed to {status}.","success")
+    except ValueError as error: connection.rollback();flash(str(error),"error")
+    finally: connection.close()
+    return redirect(url_for("capa_detail",record_id=record_id))
+
+
+@app.get("/capa/<int:record_id>/file/<kind>")
+def capa_file(record_id,kind):
+    column="issued_ncr_path" if kind=="issued" else "closeout_report_path" if kind=="closeout" else None
+    if not column: abort(404)
+    rows=query(f"SELECT {column} FROM capa_records WHERE id=? AND is_deleted=0",(record_id,))
+    if not rows or not rows[0][0] or not Path(rows[0][0]).is_file(): abort(404)
+    return send_file(Path(rows[0][0]).resolve(),as_attachment=False)
 
 
 @app.route("/api/drafts/<path:draft_key>", methods=["GET", "POST", "DELETE"])
@@ -627,7 +826,7 @@ WORKSPACES = {
             ("uncertainty", "Uncertainty Management", "Measurement budgets, CMC, approvals and retained records.", "uncertainty"),
             ("calibration-programme", "Calibration Programme", "Master equipment lifecycle and uncertainty source.", "equipment"),
             ("traceability", "Traceability Register", "Equipment, certificate, calibration chain and evidence."),
-            ("capa", "CAPA", "Nonconformity through effectiveness review and closure."),
+            ("capa", "CAPA", "Nonconformity through effectiveness review and closure.", "capa"),
             ("audit-pt", "Audit & PT Programme", "Schedule audits, PT and ILC; capture findings."),
             ("methods", "Methods & Validation", "Controlled revisions, verification and approval."),
             ("personnel", "Personnel & Competence", "Training, assessment and authorization records."),
@@ -1068,7 +1267,8 @@ def job_detail(job_id):
         abort(404)
     calculations = query("""SELECT id,calculation_uid,method_name,status,revision,calculated_at,
         expanded_uncertainty,approved_by,approved_at FROM uncertainty_calculations
-        WHERE job_id=? ORDER BY revision DESC,id DESC""", (job_id,))
+        WHERE job_id=? AND (status NOT IN ('Draft','Reverted') OR calculated_by=?)
+        ORDER BY revision DESC,id DESC""", (job_id,current_actor()))
     approved_uncertainty_rows = query("""SELECT id,calculation_uid,method_name,status,revision,
         calculated_at,expanded_uncertainty,approved_by,approved_at
         FROM uncertainty_calculations WHERE job_id=? AND status='Approved'
@@ -2265,6 +2465,8 @@ def uncertainty_api_save():
     connection = get_connection()
     try:
         payload = request.get_json(force=True) or {}
+        if payload.get("standalone"):
+            raise ValueError("Standalone Tool calculations are not retained. Start from a Project Job to create a controlled record.")
         result = calculate_payload(connection, payload)
         saved = save_cmc(connection, payload, result, current_actor()) if result["isCmc"] else \
             save_calculation(connection, payload, result, current_actor())
@@ -2285,7 +2487,10 @@ def uncertainty_api_autosave():
     require_permission("uncertainty_save")
     connection = get_connection()
     try:
-        saved = save_partial_draft(connection, request.get_json(silent=True) or {}, current_actor())
+        payload=request.get_json(silent=True) or {}
+        if payload.get("standalone"):
+            raise ValueError("Standalone Tool calculations are not retained.")
+        saved = save_partial_draft(connection,payload,current_actor())
         connection.commit()
         return jsonify(ok=True, record=saved)
     except ValueError as error:
@@ -2573,6 +2778,7 @@ def uncertainty_csv(record_id):
 
 @app.get("/uncertainty")
 def uncertainty():
+    standalone = request.args.get("standalone") == "1"
     requested_job = request.args.get("job", type=int)
     requested_record = request.args.get("record", type=int)
     connection = get_connection()
@@ -2583,7 +2789,7 @@ def uncertainty():
                 ORDER BY updated_at DESC,id DESC LIMIT 1""",
                 (requested_job,current_actor())).fetchone()
             requested_record = unfinished[0] if unfinished else None
-        jobs = connection.execute("""SELECT j.id,j.job_number,c.customer_name,
+        jobs = [] if standalone else connection.execute("""SELECT j.id,j.job_number,c.customer_name,
             COALESCE(j.mut_description,e.equipment_name,''),COALESCE(j.mut_serial_number,e.serial_number,''),
             COALESCE(j.model_number,e.model,''),COALESCE(m.method_name,''),COALESCE(j.meter_type,''),j.status,
             COALESCE(p.project_number,''),COALESCE(p.project_name,''),COALESCE(j.mut_asset_id,e.asset_number,''),
@@ -2602,7 +2808,7 @@ def uncertainty():
         uncertainty_approvers = connection.execute("""SELECT u.id,u.full_name,r.name FROM users u
             JOIN roles r ON r.id=u.role_id WHERE u.is_active=1 AND r.name IN
             ('Chief Meteorologist','Supervisor','Administrator','HOD') ORDER BY u.full_name""").fetchall()
-        records = connection.execute("""SELECT u.id,u.calculation_uid,j.job_number,c.customer_name,
+        records = [] if standalone else connection.execute("""SELECT u.id,u.calculation_uid,j.job_number,c.customer_name,
             COALESCE(j.mut_description,e.equipment_name,''),u.method_name,u.calculation_type,
             u.calculated_at,u.analyst,u.status,u.revision,COALESCE(p.project_number,''),
             COALESCE(p.project_name,''),j.flow_range,u.calculated_by,u.expanded_uncertainty,
@@ -2625,10 +2831,17 @@ def uncertainty():
             records=records, cmc_records=cmc_records, audit_records=audit_records,
             uncertainty_reviewers=uncertainty_reviewers, uncertainty_approvers=uncertainty_approvers,
             source_templates=SOURCE_TEMPLATES, preselected_job_id=None if requested_record else requested_job,
-            preselected_record_id=requested_record, page_title="Uncertainty Management",
-            page_subtitle="Measurement uncertainty budgets and laboratory CMC", active_nav="iso17025")
+            preselected_record_id=requested_record,standalone=standalone,
+            page_title="Uncertainty Calculator" if standalone else "Uncertainty Management",
+            page_subtitle="Standalone calculation tool — results are not retained" if standalone else "Measurement uncertainty budgets and laboratory CMC",
+            active_nav="tools" if standalone else "iso17025")
     finally:
         connection.close()
+
+
+@app.get("/tools")
+def tools_uncertainty():
+    return redirect(url_for("uncertainty",standalone=1))
     uncertainty_repository = UncertaintyRepository()
     uncertainty_nav = (
         ("Overview", (("dashboard", "Dashboard"),)),

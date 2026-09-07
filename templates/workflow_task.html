@@ -1,0 +1,9 @@
+{% extends 'base.html' %}
+{% block content %}
+<nav class="breadcrumbs"><a href="{{url_for('reminders')}}">Approval Tasks</a><span>›</span><span>{{title}}</span></nav>
+<section class="panel"><div class="panel-head"><div><span class="eyebrow">{{task[3]}}</span><h3>{{title}}</h3><small>Submitted by {{task[5]}} · <span data-local-datetime="{{task[6]}}">{{task[6]}}</span></small></div><span class="pill due">{{task[8] or 'Normal'}}</span></div>
+  <div class="detail-grid">{% for label,value in facts %}<div><span>{{label}}</span><strong>{{value if value not in (None,'') else '—'}}</strong></div>{% endfor %}<div><span>Assigned to</span><strong>{{task[7]}}</strong></div><div><span>Task status</span><strong>{{task[4]}}</strong></div></div>
+</section>
+{% if files %}<section class="panel"><div class="panel-head"><h3>Associated Documents</h3></div><div class="files-list">{% for label,url in files %}<a href="{{url}}" target="_blank" rel="noopener noreferrer"><span>{{label}}</span><b>View document ↗</b></a>{% endfor %}</div></section>{% endif %}
+<section class="panel"><div class="panel-head"><div><h3>Review and Decision</h3><small>Open the complete originating record to review its data, evidence, audit trail, and available approve or revert controls.</small></div></div><a class="button" href="{{destination}}">Open Complete Record →</a></section>
+{% endblock %}

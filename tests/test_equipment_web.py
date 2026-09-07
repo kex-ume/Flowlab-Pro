@@ -259,6 +259,36 @@ class FreshDatabaseWebTests(unittest.TestCase):
         self.assertTrue(record[3]); self.assertTrue(record[4])
         self.assertEqual([item[0] for item in history], ["submit","auto_approve"])
 
+    def test_capa_requires_both_documents_and_chief_closure_approval(self):
+        connection=database.get_connection()
+        admin_role=connection.execute("SELECT id FROM roles WHERE name='Administrator'").fetchone()[0]
+        admin_id=connection.execute("""INSERT INTO users(username,password_hash,full_name,role_id,is_active)
+            VALUES ('capa-admin',?,'CAPA Administrator',?,1)""",(AuthService.hash_password("AdminPassword1"),admin_role)).lastrowid
+        connection.commit();connection.close()
+        with self.client.session_transaction() as login:
+            login.update(user_id=admin_id,username="capa-admin",full_name="CAPA Administrator",role_name="Administrator")
+        response=self.client.post("/capa",data={"ncr_number":"NCR-TEST-001","title":"Test NCR",
+            "source":"Internal audit","clause_reference":"7.10","description":"Observed nonconforming work",
+            "owner":"Quality Officer","issued_date":"2026-09-01","target_close_date":"2026-09-30",
+            "issued_ncr":(io.BytesIO(b"%PDF-1.4 issued"),"issued.pdf")},content_type="multipart/form-data")
+        self.assertEqual(response.status_code,302)
+        connection=database.get_connection();record_id=connection.execute(
+            "SELECT id FROM capa_records WHERE ncr_number='NCR-TEST-001'").fetchone()[0];connection.close()
+        self.client.post(f"/capa/{record_id}",data={"immediate_correction":"Stopped work",
+            "root_cause":"Procedure gap","corrective_action":"Procedure revised","owner":"Quality Officer",
+            "target_close_date":"2026-09-30","closeout_report":(io.BytesIO(b"%PDF-1.4 closeout"),"closeout.pdf")},
+            content_type="multipart/form-data")
+        self.client.post(f"/capa/{record_id}/submit",data={"reviewer_user_id":admin_id})
+        connection=database.get_connection();status=connection.execute(
+            "SELECT status FROM capa_records WHERE id=?",(record_id,)).fetchone()[0];task_count=connection.execute(
+            "SELECT COUNT(*) FROM workflow_tasks WHERE entity_type='capa' AND status='Pending'").fetchone()[0]
+        connection.close();self.assertEqual((status,task_count),("Submitted for Closure Review",1))
+        self.client.post(f"/capa/{record_id}/workflow",data={"action":"approve","comment":"Evidence accepted"})
+        connection=database.get_connection();status=connection.execute(
+            "SELECT status FROM capa_records WHERE id=?",(record_id,)).fetchone()[0];task_count=connection.execute(
+            "SELECT COUNT(*) FROM workflow_tasks WHERE entity_type='capa' AND status='Pending'").fetchone()[0]
+        connection.close();self.assertEqual((status,task_count),("Closed",0))
+
     def test_forgot_password_requires_temporary_password_and_new_password(self):
         connection = database.get_connection()
         chief_role = connection.execute(

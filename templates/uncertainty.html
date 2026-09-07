@@ -4,18 +4,18 @@
 <link rel="stylesheet" href="{{ url_for('static',filename='uncertainty.css') }}">
 <link rel="stylesheet" href="{{ url_for('static',filename='records.css') }}">
 <style>.gum-app [hidden]{display:none!important}.confirm-card{max-width:460px}.gum-modal pre{white-space:pre-wrap;overflow:auto;max-height:65vh;font-size:11px}.locked [data-workflow],.locked [data-view-panel="records"] button{pointer-events:auto!important;opacity:1!important}</style>
-<nav class="breadcrumbs"><a href="{{url_for('workspace',section='iso17025')}}">ISO 17025</a><span>›</span><span>Uncertainty Management</span></nav>
-<div class="gum-app" id="gumApp" data-current-actor="{{ (session.get('full_name') or session.get('username') or '')|e }}" data-current-role="{{ (session.get('role_name') or '')|e }}" data-can-save="{{ '1' if can('uncertainty_save') else '0' }}" data-can-review="{{ '1' if can('record_review') else '0' }}" data-can-approve="{{ '1' if can('uncertainty_approve') else '0' }}">
+<nav class="breadcrumbs"><a href="{{url_for('dashboard')}}">{{'Tools' if standalone else 'ISO 17025'}}</a><span>›</span><span>{{'Standalone Uncertainty Calculator' if standalone else 'Uncertainty Management'}}</span></nav>
+<div class="gum-app" id="gumApp" data-standalone="{{'1' if standalone else '0'}}" data-current-actor="{{ (session.get('full_name') or session.get('username') or '')|e }}" data-current-role="{{ (session.get('role_name') or '')|e }}" data-can-save="{{ '0' if standalone else ('1' if can('uncertainty_save') else '0') }}" data-can-review="{{ '1' if can('record_review') else '0' }}" data-can-approve="{{ '1' if can('uncertainty_approve') else '0' }}">
   <header class="gum-topbar">
     <div><span class="gum-mark">U</span><div><h1>Uncertainty Management <button class="info-tip" type="button" data-info="Calculations follow the applicable Guide to the Expression of Uncertainty in Measurement (GUM/JCGM) methodology. Drafts are stored in the FlowLab Pro database and retrieved from Records using the Calculation ID.">ⓘ</button></h1><small>ISO/IEC 17025</small></div></div>
     <div class="gum-status"><span class="gum-pill" id="recordIdPill">New calculation</span><span class="gum-pill draft" id="statusPill">DRAFT</span></div>
-    <div class="gum-actions"><span id="workflowActions"></span><button type="button" class="gum-btn secondary" id="newBtn">New</button><button type="button" class="gum-btn" id="saveBtn">Save Draft</button></div>
+    <div class="gum-actions"><span id="workflowActions"></span><button type="button" class="gum-btn secondary" id="newBtn">New</button><button type="button" class="gum-btn" id="saveBtn" {% if standalone %}hidden{% endif %}>Save Draft</button>{% if standalone %}<span class="gum-pill">Not retained</span>{% endif %}</div>
   </header>
   <div class="gum-shell">
     <aside class="gum-nav" aria-label="Uncertainty module">
       <button type="button" class="active" data-view="calculator"><b>∑</b><span><strong>Budget Calculator</strong><small>Type A, Type B & combined result</small></span></button>
       <button type="button" data-view="comparison"><b>↔</b><span><strong>CMC Comparison</strong><small>MUT result vs lab capability</small></span></button>
-      <button type="button" data-view="records"><b>▤</b><span><strong>Records</strong><small>Versioned retained calculations</small></span></button>
+      <button type="button" data-view="records" {% if standalone %}hidden{% endif %}><b>▤</b><span><strong>Records</strong><small>Versioned retained calculations</small></span></button>
       <button type="button" data-view="method"><b>ƒ</b><span><strong>Method & Rules</strong><small>Models, distributions, controls</small></span></button>
     </aside>
     <main class="gum-main">

@@ -20,6 +20,7 @@
     return {recordId:null,calculationId:newCalculationId(),revision:0,status:'Draft',calculationType:'mutGrav',jobId:'',jobNumber:'',jobStatus:'',projectNumber:'',projectName:'',customer:'',mut:'',mutAssetId:'',serialNumber:'',manufacturer:'',model:'',meterType:'',rangeMin:'',rangeMax:'',rangeUnit:'',flowPointCount:1,jobMethod:'',analyst:value('#analyst'),calcDate:new Date().toISOString().slice(0,10),fluid:'',quantity:'mass',points:[blankPoint()],activePoint:0,isCmc:false,cmcComparison:[]};
   }
   let state = initialState();
+  state.standalone=$('#gumApp').dataset.standalone==='1';
   let equipmentSourceIndex = null;
   let draftDirty = false, draftTimer = null;
 
@@ -64,7 +65,7 @@
   }
   async function discardDraft() {
     if(!state.recordId||!confirm('Discard this Draft and remove its in-progress data?'))return;
-    try{const type=state.isCmc?'cmc':'calculation';await requestJson(`/uncertainty/api/records/${type}/${state.recordId}/discard`,{method:'POST',body:'{}'});draftDirty=false;state=initialState();renderAll();setMessage('Draft discarded.');}catch(error){setMessage(error.message,'validation-error');}
+    try{const type=state.isCmc?'cmc':'calculation';await requestJson(`/uncertainty/api/records/${type}/${state.recordId}/discard`,{method:'POST',body:'{}'});draftDirty=false;state=initialState();state.standalone=$('#gumApp').dataset.standalone==='1';renderAll();setMessage('Draft discarded.');}catch(error){setMessage(error.message,'validation-error');}
   }
 
   function renderMeta() {
@@ -234,7 +235,7 @@
   $('#calculatePointBtn').addEventListener('click',()=>calculate([currentPoint()],true).catch(()=>{})); $('#calculateBtn').addEventListener('click',()=>calculate().catch(()=>{})); $('#saveBtn').addEventListener('click',save);
   $('#newBtn').addEventListener('click',()=>{$('#newCalculationModal').hidden=false;});
   $('#cancelNewCalculation').addEventListener('click',()=>{$('#newCalculationModal').hidden=true;});
-  $('#confirmNewCalculation').addEventListener('click',async()=>{await autosaveDraft();$('#newCalculationModal').hidden=true;state=initialState();draftDirty=false;$('#jobSearch').value='';renderAll();setMessage('New calculation ready. Select a Job.');});
+  $('#confirmNewCalculation').addEventListener('click',async()=>{await autosaveDraft();$('#newCalculationModal').hidden=true;state=initialState();state.standalone=$('#gumApp').dataset.standalone==='1';draftDirty=false;$('#jobSearch').value='';renderAll();setMessage(state.standalone?'New standalone calculation ready. Results will not be retained.':'New calculation ready. Select a Job.');});
   $('#workflowActions').addEventListener('click',event=>{const discard=event.target.closest('[data-discard-draft]');if(discard){discardDraft();return;}const button=event.target.closest('[data-workflow]');if(button)workflowAction(button.dataset.workflow);});
   $('#closeReviewAssignment').addEventListener('click',()=>{$('#reviewAssignmentModal').hidden=true;});
   $('#cancelReviewAssignment').addEventListener('click',()=>{$('#reviewAssignmentModal').hidden=true;});
@@ -248,6 +249,15 @@
   $('#gumApp').addEventListener('input',markDraftDirty);$('#gumApp').addEventListener('change',markDraftDirty);
   window.addEventListener('pagehide',()=>{if(!draftDirty||!canAutoSave())return;try{navigator.sendBeacon('/uncertainty/api/autosave',new Blob([JSON.stringify(payload())],{type:'application/json'}));}catch(error){}});
   document.addEventListener('keydown',event=>{if(event.key==='Escape'){$('#infoPopover').hidden=true;$('#recordDetailModal').hidden=true;$('#newCalculationModal').hidden=true;}});
+  if(state.standalone){
+    $('#jobId').closest('label').hidden=true;
+    ['#customer','#mut','#mutAssetId','#serialNumber','#manufacturer','#model','#meterType','#fluid'].forEach(id=>$(id).readOnly=false);
+    $('#quantity').disabled=false;
+    $('#jobMethod').closest('label').hidden=true;
+    $('#jobRange').closest('label').hidden=true;
+    $('#project').closest('label').hidden=true;
+    $('#workflowActions').hidden=true;
+  }
   renderAll();
   if(config.preselectedRecordId)loadRecord('calculation',config.preselectedRecordId);
   else if(config.preselectedJobId){$('#jobId').value=String(config.preselectedJobId);$('#jobId').dispatchEvent(new Event('change'));}

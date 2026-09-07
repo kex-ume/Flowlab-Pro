@@ -241,7 +241,7 @@ def calculate_payload(connection, payload):
         raise ValueError("Select one of the four supported calculation types.")
     type_label, method, is_cmc = CALCULATION_TYPES[calculation_type]
     job_row = None
-    if not is_cmc:
+    if not is_cmc and not payload.get("standalone"):
         job_row = hydrate_job_metadata(connection, payload)
     quantity = payload.get("quantity", "mass")
     points = payload.get("points") or []

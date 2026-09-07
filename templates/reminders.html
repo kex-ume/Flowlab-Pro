@@ -2,9 +2,9 @@
 {% block content %}
 <div class="reminder-grid">
   <section class="panel reminder-panel wide">
-    <div class="panel-head"><div><h3>Actionable tasks</h3><small>{% if has_workflow_authority %}All pending laboratory tasks available under your authority{% else %}Reviews and approvals assigned to you{% endif %}</small></div><span class="meta-pill">{{ tasks|length }}</span></div>
+    <div class="panel-head"><div><h3>Actionable tasks</h3><small>{% if has_workflow_authority %}Records requiring action by Chief Meteorologist or Administrator{% else %}Reviews and approvals assigned to you{% endif %}</small></div><span class="meta-pill">{{ tasks|length }}</span></div>
     <div class="task-list">
-      {% for task in tasks %}<a class="task-row" href="{{task.url}}">
+      {% for task in tasks %}<a class="task-row" href="{{url_for('workflow_task_overview',task_id=task.id)}}">
         <span class="task-kind">{{task.task_type}}</span>
         <span><b>{{task.entity_type|replace('_',' ')|title}} · Record {{task.entity_id}}</b><small>Submitted by {{task.submitted_by}} · <span data-local-datetime="{{task.submitted_at}}">{{task.submitted_at}}</span></small></span>
         <span><small>Assigned to</small><b>{{task.assigned_to}}</b></span>
@@ -13,27 +13,27 @@
       </a>{% else %}<div class="table-empty"><span>No pending tasks require action.</span></div>{% endfor %}
     </div>
   </section>
-  <section class="panel reminder-panel">
+  {% if not has_workflow_authority %}<section class="panel reminder-panel">
     <div class="panel-head"><h3>My notifications</h3><span class="meta-pill">{{ notifications|length }}</span></div>
     <div class="notification-list">
       {% for n in notifications %}<a class="notification-row {{'unread' if not n[7]}}" href="{{url_for('notification_open',notification_id=n[0])}}">
         <span class="notification-mark"></span><div><b>{{n[2]}}</b><p>{{n[3]}}</p><small>{{n[1]}} · <span data-local-datetime="{{n[8]}}">{{n[8]}}</span></small></div>
       </a>{% else %}<div class="table-empty"><span>You have no workflow notifications.</span></div>{% endfor %}
     </div>
-  </section>
-  <section class="panel reminder-panel">
+  </section>{% endif %}
+  {% if not has_workflow_authority %}<section class="panel reminder-panel">
     <div class="panel-head"><h3>Equipment calibration reminders</h3><span class="meta-pill">30-day window</span></div>
     <div class="table-scroll"><table><thead><tr><th>Asset</th><th>Equipment</th><th>Due date</th><th>Status</th></tr></thead><tbody>
       {% for r in equipment_reminders %}<tr><td><a class="mono" href="{{url_for('equipment_detail',equipment_id=r[0])}}">{{r[1]}}</a></td><td>{{r[2]}}</td><td data-local-date="{{r[3]}}">{{r[3]}}</td><td><span class="pill {{'expired' if r[4]=='Expired' else 'due'}}">{{r[4]}}</span></td></tr>
       {% else %}<tr><td colspan="4"><div class="table-empty"><span>No equipment is due within 30 days.</span></div></td></tr>{% endfor %}
     </tbody></table></div>
-  </section>
-  <section class="panel reminder-panel wide">
+  </section>{% endif %}
+  {% if not has_workflow_authority %}<section class="panel reminder-panel wide">
     <div class="panel-head"><h3>Scheduled Jobs</h3><span class="meta-pill">14-day window</span></div>
     <div class="table-scroll"><table><thead><tr><th>Job</th><th>Title</th><th>Planned start</th><th>Due</th><th>Assigned to</th><th>Status</th></tr></thead><tbody>
       {% for r in job_reminders %}<tr><td><a class="mono" href="{{url_for('job_detail',job_id=r[0])}}">{{r[1]}}</a></td><td>{{r[2]}}</td><td data-local-date="{{r[3]}}">{{r[3]}}</td><td data-local-date="{{r[4]}}">{{r[4]}}</td><td>{{r[6]}}</td><td><span class="pill due">{{r[5]}}</span></td></tr>
       {% else %}<tr><td colspan="6"><div class="table-empty"><span>No assigned Jobs are scheduled within 14 days.</span></div></td></tr>{% endfor %}
     </tbody></table></div>
-  </section>
+  </section>{% endif %}
 </div>
 {% endblock %}

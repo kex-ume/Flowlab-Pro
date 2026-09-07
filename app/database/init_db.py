@@ -32,6 +32,16 @@ def initialize_database():
                 VALUES ('admin_recovery_email','ikechukwuumezulike@gmail.com','email',
                     'System configuration',CURRENT_TIMESTAMP)
                 ON CONFLICT(setting_key) DO NOTHING""")
+            conn.execute("""CREATE TABLE IF NOT EXISTS capa_records (
+                id BIGSERIAL PRIMARY KEY,ncr_number TEXT NOT NULL UNIQUE,title TEXT NOT NULL,
+                source TEXT NOT NULL,clause_reference TEXT,description TEXT NOT NULL,
+                immediate_correction TEXT,root_cause TEXT,corrective_action TEXT,owner TEXT NOT NULL,
+                issued_date DATE NOT NULL,target_close_date DATE NOT NULL,status TEXT NOT NULL DEFAULT 'Draft',
+                issued_ncr_path TEXT NOT NULL,closeout_report_path TEXT,created_by TEXT NOT NULL,
+                assigned_reviewer_id BIGINT REFERENCES users(id),submitted_by TEXT,submitted_at TIMESTAMP,
+                review_comment TEXT,approved_by TEXT,approved_at TIMESTAMP,closed_at TIMESTAMP,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                is_deleted INTEGER NOT NULL DEFAULT 0)""")
             conn.commit()
             _postgres_schema_verified = True
         finally:
@@ -1109,6 +1119,16 @@ def initialize_database():
             updated_at TEXT DEFAULT CURRENT_TIMESTAMP
         )
     """)
+    cursor.execute("""CREATE TABLE IF NOT EXISTS capa_records (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,ncr_number TEXT NOT NULL UNIQUE,title TEXT NOT NULL,
+        source TEXT NOT NULL,clause_reference TEXT,description TEXT NOT NULL,
+        immediate_correction TEXT,root_cause TEXT,corrective_action TEXT,owner TEXT NOT NULL,
+        issued_date TEXT NOT NULL,target_close_date TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'Draft',
+        issued_ncr_path TEXT NOT NULL,closeout_report_path TEXT,created_by TEXT NOT NULL,
+        assigned_reviewer_id INTEGER,submitted_by TEXT,submitted_at TEXT,review_comment TEXT,
+        approved_by TEXT,approved_at TEXT,closed_at TEXT,created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP,is_deleted INTEGER NOT NULL DEFAULT 0,
+        FOREIGN KEY(assigned_reviewer_id) REFERENCES users(id))""")
 
     # ------------------------------------------------------------------
     # Controlled Knowledge and Audit Trail (SDS Sections 16, 17)
