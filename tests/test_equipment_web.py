@@ -247,6 +247,24 @@ class FreshDatabaseWebTests(unittest.TestCase):
         connection.close()
         self.assertEqual((assessment_status,evidence_status),("Approved","Approved"))
 
+    def test_iso_workspace_and_coveter_render_for_authorized_profiles(self):
+        iso_page=self.client.get("/workspace/iso17025")
+        self.assertEqual(iso_page.status_code,200)
+        self.assertNotIn("Accreditation Scope &amp; Clause Applicability",iso_page.get_data(as_text=True))
+        with self.client.session_transaction() as login:
+            login.update(user_id=1,username="chief",full_name="Chief Metrologist",
+                role_name="Chief Meteorologist")
+        iso_page=self.client.get("/workspace/iso17025")
+        self.assertEqual(iso_page.status_code,200)
+        self.assertIn("Accreditation Scope &amp; Clause Applicability",iso_page.get_data(as_text=True))
+        tools=self.client.get("/tools").get_data(as_text=True)
+        self.assertIn("Coveter",tools);self.assertIn("Uncertainty Calculator",tools)
+        converter=self.client.get("/tools/coveter")
+        self.assertEqual(converter.status_code,200)
+        page=converter.get_data(as_text=True)
+        for unit in ("L/min","m³/h","US gal/min (GPM)","bbl/day (BPD)","ft³/min (CFM)"):
+            self.assertIn(unit,page)
+
     def test_fresh_database_has_zero_counts_and_real_empty_states(self):
         connection = database.get_connection()
         operational_counts = {

@@ -890,14 +890,13 @@ def workspace(section):
         require_permission("user_management")
     workspace_data = WORKSPACES[section]
     modules = []
-    icons = ("01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12")
     for index, item in enumerate(workspace_data["modules"]):
         slug, title, description, *endpoint = item
         if slug == "clause-scope" and session.get("role_name") != "Chief Meteorologist":
             continue
         target = url_for(endpoint[0]) if endpoint else url_for("module_page", section=section, module=slug)
         modules.append({"title": title, "description": description, "url": target,
-            "icon": icons[index], "action": "Open module"})
+            "icon": f"{index + 1:02d}", "action": "Open module"})
     return render_template("workspace.html", page_title=workspace_data["title"],
         page_subtitle=workspace_data["description"], description=workspace_data["description"],
         active_nav=section, modules=modules, eyebrow="Functional workspace")
@@ -3180,7 +3179,28 @@ def uncertainty():
 
 @app.get("/tools")
 def tools_uncertainty():
-    return redirect(url_for("uncertainty",standalone=1))
+    modules=(
+        {"title":"Uncertainty Calculator","description":"Run standalone flow measurement uncertainty calculations without creating a Job record.","url":url_for("uncertainty",standalone=1),"icon":"01","action":"Open calculator"},
+        {"title":"Coveter","description":"Convert volumetric flow rates between SI, litre, US gallon, Imperial gallon, cubic-foot and petroleum barrel units.","url":url_for("flow_converter"),"icon":"02","action":"Open converter"},
+    )
+    return render_template("workspace.html",modules=modules,eyebrow="Engineering utilities",
+        description="Independent calculation utilities that do not create controlled laboratory records.",
+        page_title="Tools",page_subtitle="Standalone laboratory utilities",active_nav="tools")
+
+
+@app.get("/tools/coveter")
+def flow_converter():
+    units=(
+        ("m3_s","m³/s"),("m3_min","m³/min"),("m3_h","m³/h"),("m3_d","m³/day"),
+        ("l_s","L/s"),("l_min","L/min"),("l_h","L/h"),("l_d","L/day"),
+        ("ml_s","mL/s"),("cm3_s","cm³/s"),("ft3_s","ft³/s"),("ft3_min","ft³/min (CFM)"),
+        ("ft3_h","ft³/h"),("usgal_s","US gal/s"),("usgal_min","US gal/min (GPM)"),
+        ("usgal_h","US gal/h"),("impgal_s","Imp gal/s"),("impgal_min","Imp gal/min"),
+        ("impgal_h","Imp gal/h"),("bbl_s","bbl/s"),("bbl_h","bbl/h"),
+        ("bbl_d","bbl/day (BPD)"),("ml_d","ML/day"),
+    )
+    return render_template("converter.html",units=units,page_title="Coveter",
+        page_subtitle="Volumetric flow-rate unit conversion",active_nav="tools")
     uncertainty_repository = UncertaintyRepository()
     uncertainty_nav = (
         ("Overview", (("dashboard", "Dashboard"),)),

@@ -1,0 +1,7 @@
+(()=>{
+  const factors={m3_s:1,m3_min:1/60,m3_h:1/3600,m3_d:1/86400,l_s:0.001,l_min:0.001/60,l_h:0.001/3600,l_d:0.001/86400,ml_s:1e-6,cm3_s:1e-6,ft3_s:0.028316846592,ft3_min:0.028316846592/60,ft3_h:0.028316846592/3600,usgal_s:0.003785411784,usgal_min:0.003785411784/60,usgal_h:0.003785411784/3600,impgal_s:0.00454609,impgal_min:0.00454609/60,impgal_h:0.00454609/3600,bbl_s:0.158987294928,bbl_h:0.158987294928/3600,bbl_d:0.158987294928/86400,ml_d:1000/86400};
+  const value=document.getElementById('converterValue'),from=document.getElementById('converterFrom'),to=document.getElementById('converterTo'),result=document.getElementById('converterResult'),equation=document.getElementById('converterEquation');
+  const format=number=>new Intl.NumberFormat(undefined,{maximumSignificantDigits:12}).format(number);
+  const calculate=()=>{const input=Number(value.value);if(value.value===''||!Number.isFinite(input)){result.textContent='—';equation.textContent='Enter a value to convert.';return;}const converted=input*factors[from.value]/factors[to.value];result.textContent=`${format(converted)} ${to.selectedOptions[0].textContent}`;equation.textContent=`${format(input)} ${from.selectedOptions[0].textContent} = ${format(converted)} ${to.selectedOptions[0].textContent}`;};
+  [value,from,to].forEach(control=>control.addEventListener('input',calculate));document.getElementById('swapConversion').addEventListener('click',()=>{const previous=from.value;from.value=to.value;to.value=previous;calculate();});calculate();
+})();
