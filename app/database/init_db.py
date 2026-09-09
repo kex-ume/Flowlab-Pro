@@ -33,36 +33,63 @@ ISO_CLAUSES = (
     ("8.9", "Management reviews", "Management system", "Planned review inputs, decisions, actions and records"),
 )
 
-ISO_EVIDENCE_REQUIREMENTS = {
-    "4.1": ("Impartiality risk register", "Conflict-of-interest declarations"),
-    "4.2": ("Confidentiality policy or agreement",),
-    "5": ("Organization chart", "Roles and responsibility matrix"),
-    "6.2": ("Competence and authorization records",),
-    "6.3": ("Environmental monitoring and excursion records",),
-    "6.4": ("Equipment records",),
-    "6.5": ("Traceability evidence",),
-    "6.6": ("Approved supplier evaluation records",),
-    "7.1": ("Contract or request review records",),
-    "7.2": ("Method verification or validation evidence",),
-    "7.3": ("Sampling plan and records",),
-    "7.4": ("Item receipt and handling records",),
-    "7.5": ("Technical records",),
-    "7.6": ("Approved uncertainty evidence",),
-    "7.7": ("Validity monitoring or PT/ILC evidence",),
-    "7.8": ("Approved report or certificate evidence",),
-    "7.9": ("Complaint records",),
-    "7.10": ("Nonconforming-work records",),
-    "7.11": ("System validation and backup evidence",),
-    "8.1": ("Management system option declaration",),
-    "8.2": ("Management system policy and objectives",),
-    "8.3": ("Master document register",),
-    "8.4": ("Record retention schedule",),
-    "8.5": ("Risk and opportunity register",),
-    "8.6": ("Improvement or customer-feedback records",),
-    "8.7": ("Corrective-action records",),
-    "8.8": ("Internal audit programme and reports",),
-    "8.9": ("Management review minutes and action records",),
-}
+ISO_EVIDENCE_REQUIREMENTS = (
+    ("4.1","Impartiality policy","All activities","Always","Document number; revision; approver; effective date; impartiality commitment"),
+    ("4.1","Impartiality risk register","Laboratory and field","Always","Risk source; relationship; likelihood; impact; safeguard; owner; review date; residual risk"),
+    ("4.1","Conflict-of-interest declaration register","Laboratory and field","Always","Person; role; project/customer interest; declaration date; decision; authorization"),
+    ("4.2","Confidentiality policy and personnel undertaking","All activities","Always","Person/party; obligation; controlled information; signature/approval; effective date"),
+    ("4.2","Customer information release or disclosure record","Laboratory and field","When information is released or disclosure is legally required","Customer; information; recipient; authority/consent; notification; date; officer"),
+    ("5","Legal identity and accreditation scope file","Management system","Always","Legal entity; registration; laboratory address; accredited activities; ranges; CMC; field locations"),
+    ("5","Organization chart and responsibility matrix","Management system","Always","Reporting lines; laboratory management; technical authority; deputies; quality responsibilities"),
+    ("5","Appointment and authorization letters","Laboratory and field","Always","Appointee; role; authority; limitations; effective date; approver"),
+    ("6.1","Resource and capability plan","Laboratory and field","Always","Activity; personnel; equipment; facility; method; workload; identified gap; action"),
+    ("6.2","Personnel competence matrix","Laboratory and field","Always","Person; role; flow method/range; required competence; evidence; assessment; status; expiry"),
+    ("6.2","Training, supervision and competence assessment record","Laboratory and field","Always","Person; training; supervisor; observed task; criteria; result; gaps; reassessment"),
+    ("6.2","Method and activity authorization register","Laboratory and field","Always","Person; gravimetric/master-meter method; laboratory/field scope; range; allowed actions; authorizer; validity"),
+    ("6.3","Facility and environmental requirements register","Laboratory and field","Always","Location/activity; parameter; limit; monitoring frequency; instrument; responsibility; action limit"),
+    ("6.3","Environmental monitoring and excursion record","Laboratory and field","Always","Location; date/time; temperature; pressure; humidity where relevant; limits; affected work; investigation; authorization"),
+    ("6.3","Field-site suitability and pre-job assessment","Field","For every field activity","Project/job; site; utilities; installation; ambient limits; hazards; contamination; acceptance; assessor"),
+    ("6.4","Equipment master register and calibration programme","Laboratory and field","Always","Asset ID; identity; serial/model; location; range; accuracy; status; calibration/validity; custodian"),
+    ("6.4","Equipment calibration, verification and intermediate-check records","Laboratory and field","Always","Asset; method; date; results; uncertainty; acceptance criteria; adjustment; next due date; certificate"),
+    ("6.4","Equipment maintenance, damage and repair history","Laboratory and field","When applicable","Asset; event; work/repair; damage; metrological impact; verification; return-to-service approval"),
+    ("6.5","Metrological traceability chain","Flow calibration","Always","Measurand; reference standard; certificate; calibration provider; uncertainty; SI link; validity; chain level"),
+    ("6.5","Reference-standard calibration certificates","Flow calibration","Always","Asset; provider; accreditation/scope; certificate; result; uncertainty; coverage; date; validity"),
+    ("6.6","Approved external provider register and evaluations","Laboratory and field","When external products/services affect results","Provider; service/product; criteria; scope/accreditation; evaluation; approval; re-evaluation"),
+    ("6.6","Purchased service/product acceptance record","Laboratory and field","When externally provided items affect results","Purchase/PO; provider; item/service; specification; inspection; certificate; acceptance; receiver"),
+    ("7.1","Request, tender and contract review record","Projects and jobs","For every calibration/field job","Customer; project/job; measurand; range; method; capability; CMC; location; turnaround; decision rule; approver"),
+    ("7.1","Contract amendment and customer agreement record","Projects and jobs","When requirements or PO change","Project/job; original terms; amendment/PO; technical impact; customer agreement; approver; date"),
+    ("7.2","Controlled flow calibration method or procedure","Flow calibration","For each method","Method ID; revision; measurand; range; apparatus; conditions; steps; calculations; QC; reporting; approval"),
+    ("7.2","Method verification or validation report","Flow calibration","Before use and after significant change","Method; scope/range; performance characteristics; raw data; uncertainty; acceptance criteria; result; authorization"),
+    ("7.2","Method deviation authorization record","Laboratory and field","When a method deviation occurs","Project/job; clause/step; deviation; technical justification; impact; customer consent; authorization"),
+    ("7.3","Sampling plan and sampling procedure","Field","Only when the laboratory is responsible for sampling","Purpose; location; selection method; frequency; equipment; environmental factors; records; approval"),
+    ("7.3","Sampling or field observation record","Field","For each applicable sampling activity","Project/job; date/time; location; sample/item ID; method; personnel; conditions; deviations; diagrams/photos"),
+    ("7.4","Calibration item receipt, inspection and identification record","Laboratory and field","For every item","Project/job; customer; item/MUT ID; condition; accessories; anomalies; receipt/date; custodian"),
+    ("7.4","Item storage, handling, transport and return record","Laboratory and field","For every item","Item; storage/transport condition; movements; protection; damage; return/release; dates; personnel"),
+    ("7.5","Technical and raw observation record","Flow calibration","For every calibration","Project/job; method/revision; personnel; equipment; conditions; flow points; observations; units; timestamps; amendments"),
+    ("7.5","Calculation and data-review record","Flow calibration","For every calibration","Project/job; source data; equations/software; conversions; corrections; reviewer; amendments; traceability"),
+    ("7.6","Measurement uncertainty procedure and approved budgets","Flow calibration","For each method and range","Measurand/model; sources; distributions; sensitivities; correlations; degrees of freedom; coverage; CMC; approval"),
+    ("7.7","Validity-of-results plan","Flow calibration","Always","Method/range; QC activity; frequency; acceptance criteria; trend rule; responsibility; escalation"),
+    ("7.7","PT/ILC participation plan and result evaluation","Flow calibration","According to the laboratory PT strategy","Scheme; measurand/range; provider/participants; result; score; acceptance; investigation; action"),
+    ("7.7","Intermediate check, control chart or replicate-check record","Laboratory and field","According to validity plan","Standard/check; date; result; limit; trend; status; affected work; action; reviewer"),
+    ("7.8","Approved calibration certificate template","Flow calibration","Always","Required report fields; accreditation mark control; results; uncertainty; conditions; traceability; authorization"),
+    ("7.8","Issued calibration certificate/report register","Projects and jobs","For every reported result","Report ID; customer; item; method; results; uncertainty; statement; issuer; approver; issue/amendment date"),
+    ("7.8","Decision rule and statement-of-conformity agreement","Projects and jobs","When conformity is reported","Specification; decision rule; uncertainty treatment; risk basis; customer agreement; reported statement"),
+    ("7.9","Complaint register and investigation file","Laboratory and field","When a complaint is received","Complainant; subject; acknowledgement; independent investigator; evidence; decision; response; closure"),
+    ("7.10","Nonconforming work report and impact assessment","Laboratory and field","When nonconforming work occurs","Event; affected projects/jobs/results; significance; stop/hold decision; customer notification; recall; disposition"),
+    ("7.10","Authorization to resume work","Laboratory and field","After significant nonconforming work","NCR; correction; verification; residual risk; authorized person; restart scope/date"),
+    ("7.11","Laboratory information system and spreadsheet validation register","All activities","Always","System/file; version; intended use; validation tests; result; access; change approval; review"),
+    ("7.11","Access, backup, recovery and data-integrity records","All activities","Always","System; user/access review; backup schedule/result; restore test; incident; correction; authorization"),
+    ("8.1","Management system option and scope declaration","Management system","Always","Option A/B; included locations; activities; interfaces; exclusions/justification; approval"),
+    ("8.2","Quality policy, objectives and management system manual","Management system","Always","Policy; measurable objectives; responsibilities; system processes; approval; communication; review"),
+    ("8.3","Master controlled-document register","Management system","Always","Document ID; title; owner; revision; approval; effective date; distribution; review; superseded status"),
+    ("8.3","External standards and methods register","Flow calibration","Always","External document; edition; source; applicability; access; change monitoring; review"),
+    ("8.4","Record control and retention schedule","Management system","Always","Record class; owner; storage; access; retention; protection; retrieval; disposal approval"),
+    ("8.5","Risk and opportunity register","Laboratory and field","Always","Process/activity; risk/opportunity; cause; consequence; rating; action; owner; residual rating; review"),
+    ("8.6","Customer feedback and improvement register","Laboratory and field","Always","Source; feedback/opportunity; evaluation; action; owner; due date; effectiveness; closure"),
+    ("8.7","Corrective action and effectiveness records","Management system","When a nonconformity requires corrective action","NCR; correction; root cause; action; owner; due date; evidence; effectiveness; approval"),
+    ("8.8","Internal audit programme, plan, report and findings","Management system","Always","Cycle; scope; criteria; auditor independence; schedule; evidence; findings; correction; follow-up"),
+    ("8.9","Management review agenda, inputs, minutes and action register","Management system","Always","Date; attendees; required inputs; performance data; decisions; resources; actions; owners; closure"),
+)
 
 
 def _create_iso_checklist_schema(conn, postgres=False):
@@ -74,7 +101,8 @@ def _create_iso_checklist_schema(conn, postgres=False):
         category TEXT NOT NULL, guidance TEXT, sort_order INTEGER NOT NULL, is_active INTEGER NOT NULL DEFAULT 1)""")
     conn.execute(f"""CREATE TABLE IF NOT EXISTS iso_clause_assessments (
         id {identity} {primary}, clause_id {user_type} NOT NULL UNIQUE REFERENCES iso_clauses(id),
-        applicability TEXT NOT NULL DEFAULT 'Applicable', applicability_reason TEXT,
+        applicability TEXT NOT NULL DEFAULT 'Pending determination', applicability_reason TEXT,
+        applicability_set_by TEXT, applicability_set_at TIMESTAMP,
         compliance_status TEXT NOT NULL DEFAULT 'Not Assessed', owner_user_id {user_type} REFERENCES users(id),
         finding TEXT, planned_action TEXT, target_date DATE, last_review_date DATE, next_review_date DATE,
         status TEXT NOT NULL DEFAULT 'Draft', created_by TEXT NOT NULL, updated_by TEXT,
@@ -84,23 +112,49 @@ def _create_iso_checklist_schema(conn, postgres=False):
     conn.execute(f"""CREATE TABLE IF NOT EXISTS iso_clause_evidence_requirements (
         id {identity} {primary}, clause_id {user_type} NOT NULL REFERENCES iso_clauses(id),
         evidence_name TEXT NOT NULL, is_required INTEGER NOT NULL DEFAULT 1,
+        activity_scope TEXT, applicability_rule TEXT, required_fields TEXT, is_active INTEGER NOT NULL DEFAULT 1,
         UNIQUE(clause_id,evidence_name))""")
     conn.execute(f"""CREATE TABLE IF NOT EXISTS iso_clause_evidence (
         id {identity} {primary}, clause_id {user_type} NOT NULL REFERENCES iso_clauses(id),
         requirement_id {user_type} REFERENCES iso_clause_evidence_requirements(id),
         title TEXT NOT NULL, document_number TEXT, revision TEXT, effective_date DATE,
-        review_date DATE, retention_until DATE, file_name TEXT NOT NULL, file_path TEXT NOT NULL,
+        review_date DATE, retention_until DATE, document_owner TEXT, file_name TEXT NOT NULL, file_path TEXT NOT NULL,
         status TEXT NOT NULL DEFAULT 'Draft', uploaded_by TEXT NOT NULL,
         assigned_reviewer_id {user_type} REFERENCES users(id), submitted_at TIMESTAMP,
         review_comment TEXT, approved_by TEXT, approved_at TIMESTAMP,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, is_deleted INTEGER NOT NULL DEFAULT 0)""")
+    if postgres:
+        for column, definition in (("applicability_set_by","TEXT"),("applicability_set_at","TIMESTAMP")):
+            conn.execute(f"ALTER TABLE iso_clause_assessments ADD COLUMN IF NOT EXISTS {column} {definition}")
+        conn.execute("ALTER TABLE iso_clause_evidence ADD COLUMN IF NOT EXISTS document_owner TEXT")
+        for column, definition in (("activity_scope","TEXT"),("applicability_rule","TEXT"),
+                ("required_fields","TEXT"),("is_active","INTEGER NOT NULL DEFAULT 1")):
+            conn.execute(f"ALTER TABLE iso_clause_evidence_requirements ADD COLUMN IF NOT EXISTS {column} {definition}")
+    else:
+        assessment_columns={row[1] for row in conn.execute("PRAGMA table_info(iso_clause_assessments)").fetchall()}
+        for column, definition in (("applicability_set_by","TEXT"),("applicability_set_at","TIMESTAMP")):
+            if column not in assessment_columns: conn.execute(f"ALTER TABLE iso_clause_assessments ADD COLUMN {column} {definition}")
+        evidence_columns={row[1] for row in conn.execute("PRAGMA table_info(iso_clause_evidence)").fetchall()}
+        if "document_owner" not in evidence_columns: conn.execute("ALTER TABLE iso_clause_evidence ADD COLUMN document_owner TEXT")
+        columns={row[1] for row in conn.execute("PRAGMA table_info(iso_clause_evidence_requirements)").fetchall()}
+        for column, definition in (("activity_scope","TEXT"),("applicability_rule","TEXT"),
+                ("required_fields","TEXT"),("is_active","INTEGER NOT NULL DEFAULT 1")):
+            if column not in columns: conn.execute(f"ALTER TABLE iso_clause_evidence_requirements ADD COLUMN {column} {definition}")
     for order, (code, title, category, guidance) in enumerate(ISO_CLAUSES, 1):
         conn.execute("""INSERT INTO iso_clauses(clause_code,title,category,guidance,sort_order)
             VALUES (?,?,?,?,?) ON CONFLICT(clause_code) DO NOTHING""", (code,title,category,guidance,order))
+    detailed_names={item[1] for item in ISO_EVIDENCE_REQUIREMENTS}
+    conn.execute("UPDATE iso_clause_evidence_requirements SET is_active=0 WHERE evidence_name NOT IN ("+
+        ",".join("?" for _ in detailed_names)+")",tuple(detailed_names))
+    for code,evidence_name,scope,applicability,fields in ISO_EVIDENCE_REQUIREMENTS:
         clause = conn.execute("SELECT id FROM iso_clauses WHERE clause_code=?", (code,)).fetchone()
-        for evidence_name in ISO_EVIDENCE_REQUIREMENTS.get(code, ()):
-            conn.execute("""INSERT INTO iso_clause_evidence_requirements(clause_id,evidence_name)
-                VALUES (?,?) ON CONFLICT(clause_id,evidence_name) DO NOTHING""", (clause[0],evidence_name))
+        required = int(applicability == "Always")
+        conn.execute("""INSERT INTO iso_clause_evidence_requirements
+            (clause_id,evidence_name,activity_scope,applicability_rule,required_fields,is_required,is_active)
+            VALUES (?,?,?,?,?,?,1) ON CONFLICT(clause_id,evidence_name) DO UPDATE SET
+            activity_scope=excluded.activity_scope,applicability_rule=excluded.applicability_rule,
+            required_fields=excluded.required_fields,is_required=excluded.is_required,is_active=1""",
+            (clause[0],evidence_name,scope,applicability,fields,required))
 
 
 _postgres_schema_verified = False

@@ -200,14 +200,23 @@ class FreshDatabaseWebTests(unittest.TestCase):
         self.assertEqual(landing.status_code, 200)
         page = landing.get_data(as_text=True)
         self.assertIn("ISO/IEC 17025 Clause Checklist", page)
-        self.assertIn("29 clauses", page)
+        self.assertIn("0 applicable clauses", page)
         connection = database.get_connection()
         clause_id = connection.execute(
             "SELECT id FROM iso_clauses WHERE clause_code='4.2'").fetchone()[0]
         connection.close()
+        self.assertEqual(self.client.get("/iso17025/clause-scope").status_code,403)
+        self.assertEqual(self.client.get(
+            f"/iso17025/clause-checklist/{clause_id}").status_code,404)
         with self.client.session_transaction() as login:
             login.update(user_id=1, username="chief", full_name="Chief Metrologist",
                 role_name="Chief Meteorologist")
+        response = self.client.post("/iso17025/clause-scope", data={
+            f"decision_{clause_id}":"Applicable",
+            f"justification_{clause_id}":"Confidentiality applies to all laboratory and field work"})
+        self.assertEqual(response.status_code,302)
+        self.assertIn("Confidentiality", self.client.get(
+            "/iso17025/clause-checklist").get_data(as_text=True))
         response = self.client.post(f"/iso17025/clause-checklist/{clause_id}", data={
             "applicability":"Applicable", "compliance_status":"Compliant",
             "finding":"Confidentiality arrangements reviewed", "last_review_date":"2026-09-09",
@@ -223,6 +232,8 @@ class FreshDatabaseWebTests(unittest.TestCase):
         response = self.client.post(f"/iso17025/clause-checklist/{clause_id}/evidence", data={
             "requirement_id":str(requirement_id), "title":"Confidentiality agreement",
             "document_number":"POL-004", "revision":"1",
+            "document_owner":"Quality Manager", "effective_date":"2026-09-09",
+            "retention_until":"2030-09-09",
             "evidence_file":(io.BytesIO(b"%PDF-1.4 evidence"),"confidentiality.pdf")},
             content_type="multipart/form-data")
         self.assertEqual(response.status_code, 302)
