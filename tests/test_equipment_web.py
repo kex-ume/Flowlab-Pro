@@ -224,7 +224,13 @@ class FreshDatabaseWebTests(unittest.TestCase):
         self.assertEqual(response.status_code, 302)
         response = self.client.post(f"/iso17025/clause-checklist/{clause_id}/workflow",
             data={"action":"submit"}, follow_redirects=True)
-        self.assertIn("required evidence item", response.get_data(as_text=True))
+        self.assertIn("Approval is blocked", response.get_data(as_text=True))
+        connection = database.get_connection()
+        connection.execute("UPDATE iso_clause_assessments SET compliance_status='Partially Compliant' WHERE clause_id=?", (clause_id,))
+        connection.commit(); connection.close()
+        response = self.client.post(f"/iso17025/clause-checklist/{clause_id}/workflow",
+            data={"action":"submit"}, follow_redirects=True)
+        self.assertIn("Approval is blocked", response.get_data(as_text=True))
         connection = database.get_connection()
         requirement_id = connection.execute("""SELECT id FROM iso_clause_evidence_requirements
             WHERE clause_id=?""", (clause_id,)).fetchone()[0]

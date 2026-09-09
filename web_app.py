@@ -1213,8 +1213,10 @@ def iso_clause_detail(clause_id):
         reviewers = [row for row in users if row[2] in {"Chief Meteorologist","Administrator","Supervisor"}]
         capas = connection.execute("SELECT id,ncr_number,title,status FROM capa_records WHERE is_deleted=0 ORDER BY id DESC").fetchall()
         applicability = assessment[1] if assessment and assessment[18] else "Pending determination"
+        missing_required = sum(1 for requirement in requirements if requirement[2] and not requirement[3])
         return render_template("clause_detail.html",clause=clause,assessment=assessment,
             requirements=requirements,evidence=evidence,users=users,reviewers=reviewers,capas=capas,
+            missing_required=missing_required,
             applicability=applicability,can_set_applicability=session.get("role_name")=="Chief Meteorologist",
             page_title=f"Clause {clause[1]} · {clause[2]}",page_subtitle=clause[4],active_nav="iso17025")
     except ValueError as error:
@@ -1319,11 +1321,15 @@ def iso_clause_assessment_workflow(clause_id):
         row=connection.execute("SELECT id,status,compliance_status,created_by FROM iso_clause_assessments WHERE clause_id=?",(clause_id,)).fetchone()
         if not row: raise ValueError("Save the clause assessment before submitting it.")
         action=request.form.get("action");comment=request.form.get("comment","").strip()
-        if action=="submit":
-            missing=connection.execute("""SELECT COUNT(*) FROM iso_clause_evidence_requirements r
+        if action in {"submit", "approve"}:
+            missing_rows=connection.execute("""SELECT r.evidence_name FROM iso_clause_evidence_requirements r
                 WHERE r.clause_id=? AND r.is_required=1 AND r.is_active=1 AND NOT EXISTS (SELECT 1 FROM iso_clause_evidence e
-                WHERE e.requirement_id=r.id AND e.status='Approved' AND e.is_deleted=0)""",(clause_id,)).fetchone()[0]
-            if row[2]=="Compliant" and missing: raise ValueError(f"{missing} required evidence item(s) must be approved before this clause can be submitted as Compliant.")
+                WHERE e.requirement_id=r.id AND e.status='Approved' AND e.is_deleted=0)
+                ORDER BY r.id""",(clause_id,)).fetchall()
+            if missing_rows:
+                missing_names=", ".join(item[0] for item in missing_rows)
+                raise ValueError(f"Approval is blocked. Upload and approve all required evidence first: {missing_names}.")
+        if action=="submit":
             if chief_auto_approval():
                 status="Approved";connection.execute("UPDATE iso_clause_assessments SET status=?,approved_by=?,approved_at=CURRENT_TIMESTAMP WHERE id=?",(status,current_actor(),row[0]))
             else:
