@@ -2,7 +2,7 @@
 {% block content %}
 <div class="clause-workspace gum-app">
 <nav class="breadcrumbs"><a href="{{url_for('workspace',section='iso17025')}}">ISO 17025</a><span>›</span><span>Clause Checklist</span></nav>
-<section class="module-intro"><div><span class="eyebrow">Compliance control</span><h1>ISO/IEC 17025 Clause Checklist</h1><p>Only clauses released by the Chief Meteorologist appear here, together with their flow-laboratory and field-activity evidence requirements.</p></div><div>{% if can_manage_scope %}<a class="button secondary" href="{{url_for('iso_clause_scope')}}">Manage Scope & Applicability</a>{% endif %}<span class="module-count">{{totals.total}} applicable clauses</span></div></section>
+<section class="module-intro"><div><span class="eyebrow">Compliance control</span><h1>ISO/IEC 17025 Clause Checklist <button type="button" class="info-tip" data-info="Only clauses released by the Chief Meteorologist appear here, together with their flow-laboratory and field-activity evidence requirements."></button></h1></div><div>{% if can_manage_scope %}<a class="button secondary" href="{{url_for('iso_clause_scope')}}">Manage Scope & Applicability</a>{% endif %}<span class="module-count">{{totals.total}} applicable clauses</span></div></section>
 <section class="clause-summary">
   <article><span>Total</span><strong>{{totals.total}}</strong></article><article class="positive"><span>Compliant</span><strong>{{totals.compliant}}</strong></article><article><span>Partially compliant</span><strong>{{totals.partial}}</strong></article><article class="negative"><span>Nonconforming</span><strong>{{totals.nonconforming}}</strong></article><article><span>Not assessed</span><strong>{{totals.not_assessed}}</strong></article>
 </section>
