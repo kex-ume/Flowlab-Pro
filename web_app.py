@@ -413,7 +413,10 @@ def change_password():
     if request.method == "POST":
         password = request.form.get("password", "")
         confirmation = request.form.get("password_confirmation", "")
-        if len(password) < 10:
+        recovery_email = request.form.get("recovery_email", "").strip()
+        if not valid_email(recovery_email):
+            flash("Enter a valid recovery email address.", "error")
+        elif len(password) < 10:
             flash("Create a password of at least 10 characters.", "error")
         elif password != confirmation:
             flash("Password confirmation does not match.", "error")
@@ -425,17 +428,20 @@ def change_password():
             if existing and existing[0] == password_hash:
                 connection.close(); flash("Create a password different from the temporary password.", "error")
             else:
-                connection.execute("""UPDATE users SET password_hash=?,must_change_password=0
-                    WHERE id=?""", (password_hash, session["user_id"]))
+                connection.execute("""UPDATE users SET password_hash=?,email=?,must_change_password=0
+                    WHERE id=?""", (password_hash,recovery_email,session["user_id"]))
                 connection.execute("""UPDATE password_reset_requests SET status='Completed',
                     resolved_by=?,resolved_at=CURRENT_TIMESTAMP WHERE user_id=? AND status='Resolved'""",
                     (current_actor(),session["user_id"]))
                 audit_change(connection, "user", session["user_id"], "password_change",
-                    after={"username": session.get("username"), "must_change_password": 0})
+                    after={"username": session.get("username"), "recovery_email":recovery_email,
+                        "must_change_password": 0})
                 connection.commit(); connection.close(); session.clear()
                 flash("Your new password has been created. Sign in with it to continue.", "success")
                 return redirect(url_for("login"))
-    return render_template("change_password.html", page_title="Create New Password")
+    recovery_email=query("SELECT COALESCE(email,'') FROM users WHERE id=?",(session["user_id"],))[0][0]
+    return render_template("change_password.html", page_title="Create New Password",
+        recovery_email=recovery_email)
 
 
 @app.route("/setup", methods=["GET", "POST"])
@@ -1093,17 +1099,19 @@ def iso_clause_scope():
                 existing=connection.execute("SELECT id,applicability FROM iso_clause_assessments WHERE clause_id=?",(clause_id,)).fetchone()
                 set_by=current_actor() if decision!="Pending determination" else None
                 if existing:
-                    connection.execute("""UPDATE iso_clause_assessments SET applicability=?,applicability_reason=?,
-                        applicability_set_by=?,applicability_set_at=CASE WHEN ? IS NULL THEN NULL ELSE CURRENT_TIMESTAMP END,
-                        updated_by=?,updated_at=CURRENT_TIMESTAMP WHERE clause_id=?""",
-                        (decision,justification or None,set_by,set_by,current_actor(),clause_id))
+                    timestamp_sql="NULL" if decision=="Pending determination" else "CURRENT_TIMESTAMP"
+                    connection.execute(f"""UPDATE iso_clause_assessments SET applicability=?,applicability_reason=?,
+                        applicability_set_by=?,applicability_set_at={timestamp_sql},updated_by=?,
+                        updated_at=CURRENT_TIMESTAMP WHERE clause_id=?""",
+                        (decision,justification or None,set_by,current_actor(),clause_id))
                     assessment_id=existing[0]
                 else:
-                    assessment_id=connection.execute("""INSERT INTO iso_clause_assessments
+                    timestamp_sql="NULL" if decision=="Pending determination" else "CURRENT_TIMESTAMP"
+                    assessment_id=connection.execute(f"""INSERT INTO iso_clause_assessments
                         (clause_id,applicability,applicability_reason,applicability_set_by,applicability_set_at,
-                        compliance_status,status,created_by,updated_by) VALUES (?,?,?,?,CASE WHEN ? IS NULL THEN NULL
-                        ELSE CURRENT_TIMESTAMP END,'Not Assessed','Draft',?,?)""",
-                        (clause_id,decision,justification or None,set_by,set_by,current_actor(),current_actor())).lastrowid
+                        compliance_status,status,created_by,updated_by) VALUES (?,?,?,?,{timestamp_sql},
+                        'Not Assessed','Draft',?,?)""",
+                        (clause_id,decision,justification or None,set_by,current_actor(),current_actor())).lastrowid
                 audit_change(connection,"iso_clause_assessment",assessment_id,"set_applicability",
                     after={"clause":code,"decision":decision,"justification":justification or None})
             connection.commit();flash("Accreditation scope and clause applicability updated.","success")

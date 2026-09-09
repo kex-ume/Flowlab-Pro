@@ -411,7 +411,7 @@ class FreshDatabaseWebTests(unittest.TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertTrue(response.headers["Location"].endswith("/change-password"))
         response = self.client.post("/change-password", data={"password":"NewPassword123",
-            "password_confirmation":"NewPassword123"})
+            "password_confirmation":"NewPassword123","recovery_email":"technician@example.com"})
         self.assertEqual(response.status_code, 302)
         connection = database.get_connection()
         password_row = connection.execute("SELECT password_hash,must_change_password FROM users WHERE id=?",
