@@ -264,6 +264,11 @@ class FreshDatabaseWebTests(unittest.TestCase):
         page=converter.get_data(as_text=True)
         for unit in ("L/min","m³/h","US gal/min (GPM)","bbl/day (BPD)","ft³/min (CFM)"):
             self.assertIn(unit,page)
+        self.assertIn('id="conversionBasisEquation"',page)
+        self.assertIn('id="converterBasisInline"',page)
+        converter_script=(Path("static")/"converter.js").read_text(encoding="utf-8")
+        self.assertIn("updateBasis",converter_script)
+        self.assertIn("1 petroleum barrel = 0.158987294928 m³",converter_script)
 
     def test_fresh_database_has_zero_counts_and_real_empty_states(self):
         connection = database.get_connection()
