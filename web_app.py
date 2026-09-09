@@ -154,6 +154,12 @@ def task_destination(connection, entity_type, entity_id, stored_link=None):
         return url_for("uncertainty")
     if entity_type == "capa":
         return url_for("capa_detail",record_id=entity_id)
+    if entity_type in {"iso_clause_assessment", "iso_clause_evidence"}:
+        if entity_type == "iso_clause_evidence":
+            clause = connection.execute(
+                "SELECT clause_id FROM iso_clause_evidence WHERE id=?", (entity_id,)).fetchone()
+            entity_id = clause[0] if clause else entity_id
+        return url_for("iso_clause_detail", clause_id=entity_id)
     if entity_type == "controlled_document":
         return url_for("documents")
     if entity_type == "quality_record":
@@ -619,6 +625,21 @@ def workflow_task_overview(task_id):
                     ("Status",row[4]),("Target close-out",row[5])]
                 files=[("Issued NCR",url_for("capa_file",record_id=entity_id,kind="issued"))]
                 if row[7]: files.append(("Close-out report",url_for("capa_file",record_id=entity_id,kind="closeout")))
+        elif entity_type == "iso_clause_assessment":
+            row=connection.execute("""SELECT c.clause_code,c.title,a.compliance_status,a.status,
+                COALESCE(a.finding,''),COALESCE(a.planned_action,'') FROM iso_clause_assessments a
+                JOIN iso_clauses c ON c.id=a.clause_id WHERE c.id=?""",(entity_id,)).fetchone()
+            if row:
+                title=f"Clause {row[0]} · {row[1]}";facts=[("Compliance",row[2]),("Status",row[3]),
+                    ("Finding",row[4] or "—"),("Planned action",row[5] or "—")]
+        elif entity_type == "iso_clause_evidence":
+            row=connection.execute("""SELECT c.clause_code,c.title,e.title,e.document_number,e.revision,
+                e.status,e.file_name FROM iso_clause_evidence e JOIN iso_clauses c ON c.id=e.clause_id
+                WHERE e.id=? AND e.is_deleted=0""",(entity_id,)).fetchone()
+            if row:
+                title=f"Clause {row[0]} · {row[2]}";facts=[("Requirement area",row[1]),
+                    ("Document number",row[3] or "—"),("Revision",row[4] or "—"),("Status",row[5])]
+                files=[(row[6],url_for("iso_clause_evidence_file",evidence_id=entity_id))]
         destination=task_destination(connection,entity_type,entity_id)
         return render_template("workflow_task.html",task=task,title=title,facts=facts,files=files,
             destination=destination,page_title="Approval Task",page_subtitle="Review the record and its evidence before deciding",active_nav="database")
@@ -977,6 +998,8 @@ def users():
 
 @app.route("/workspace/<section>/<module>", methods=["GET", "POST"])
 def module_page(section, module):
+    if section == "iso17025" and module == "clause-checklist":
+        return redirect(url_for("iso_clause_checklist"))
     workspace_data = WORKSPACES.get(section)
     if not workspace_data:
         return redirect(url_for("dashboard"))
@@ -1017,6 +1040,242 @@ def module_page(section, module):
         parent_title=workspace_data["title"], page_title=match[1],
         page_subtitle=match[2], description=match[2], active_nav=section,
         records=records)
+
+
+@app.get("/iso17025/clause-checklist")
+def iso_clause_checklist():
+    status = request.args.get("status", "").strip()
+    category = request.args.get("category", "").strip()
+    sql = """SELECT c.id,c.clause_code,c.title,c.category,c.guidance,
+        COALESCE(a.applicability,'Applicable'),COALESCE(a.compliance_status,'Not Assessed'),
+        COALESCE(a.status,'Draft'),COALESCE(u.full_name,''),a.next_review_date,
+        (SELECT COUNT(*) FROM iso_clause_evidence_requirements r WHERE r.clause_id=c.id AND r.is_required=1),
+        (SELECT COUNT(*) FROM iso_clause_evidence e WHERE e.clause_id=c.id AND e.status='Approved' AND e.is_deleted=0),
+        (SELECT COUNT(*) FROM iso_clause_evidence e WHERE e.clause_id=c.id AND e.is_deleted=0)
+        FROM iso_clauses c LEFT JOIN iso_clause_assessments a ON a.clause_id=c.id
+        LEFT JOIN users u ON u.id=a.owner_user_id WHERE c.is_active=1"""
+    parameters = []
+    if status:
+        sql += " AND COALESCE(a.compliance_status,'Not Assessed')=?"; parameters.append(status)
+    if category:
+        sql += " AND c.category=?"; parameters.append(category)
+    sql += " ORDER BY c.sort_order"
+    clauses = query(sql, tuple(parameters))
+    totals = {"total": len(clauses), "compliant": sum(1 for row in clauses if row[6] == "Compliant"),
+        "partial": sum(1 for row in clauses if row[6] == "Partially Compliant"),
+        "nonconforming": sum(1 for row in clauses if row[6] == "Nonconforming"),
+        "not_assessed": sum(1 for row in clauses if row[6] == "Not Assessed")}
+    return render_template("clause_checklist.html", clauses=clauses, totals=totals,
+        selected_status=status, selected_category=category,
+        page_title="ISO 17025 Clause Checklist", page_subtitle="Clause assessment and objective evidence",
+        active_nav="iso17025")
+
+
+def _save_clause_evidence(upload, clause_code):
+    validate_report(upload)
+    destination = Path("data/documents/iso17025/clause_evidence") / clause_code.replace(".", "-")
+    destination.mkdir(parents=True, exist_ok=True)
+    safe_name = Path(upload.filename).name
+    target = destination / f"{uuid4().hex}_{safe_name}"
+    upload.save(target)
+    return safe_name, str(target)
+
+
+@app.route("/iso17025/clause-checklist/<int:clause_id>", methods=["GET", "POST"])
+def iso_clause_detail(clause_id):
+    connection = get_connection()
+    try:
+        clause = connection.execute("SELECT id,clause_code,title,category,guidance FROM iso_clauses WHERE id=? AND is_active=1", (clause_id,)).fetchone()
+        if not clause: abort(404)
+        if request.method == "POST":
+            require_permission("equipment_edit")
+            applicability = request.form.get("applicability", "Applicable")
+            compliance = request.form.get("compliance_status", "Not Assessed")
+            if applicability not in {"Applicable", "Not Applicable"} or compliance not in {"Not Assessed", "Compliant", "Partially Compliant", "Nonconforming"}:
+                raise ValueError("Select valid applicability and compliance values.")
+            owner_id = request.form.get("owner_user_id", type=int)
+            owner = connection.execute("SELECT 1 FROM users WHERE id=? AND is_active=1", (owner_id,)).fetchone() if owner_id else None
+            if owner_id and not owner: raise ValueError("Select an active responsible officer.")
+            reason = request.form.get("applicability_reason", "").strip()
+            if applicability == "Not Applicable" and not reason:
+                raise ValueError("A justification is required when a clause is marked Not Applicable.")
+            existing = connection.execute("SELECT id,status FROM iso_clause_assessments WHERE clause_id=?", (clause_id,)).fetchone()
+            values = (applicability,reason or None,compliance,owner_id,
+                request.form.get("finding", "").strip() or None,
+                request.form.get("planned_action", "").strip() or None,
+                request.form.get("target_date") or None,request.form.get("last_review_date") or None,
+                request.form.get("next_review_date") or None,current_actor())
+            if existing:
+                if existing[1] == "Approved" and not workflow_authority():
+                    raise ValueError("An approved assessment is locked. Chief/Admin authority is required to revise it.")
+                connection.execute("""UPDATE iso_clause_assessments SET applicability=?,applicability_reason=?,
+                    compliance_status=?,owner_user_id=?,finding=?,planned_action=?,target_date=?,last_review_date=?,
+                    next_review_date=?,updated_by=?,status='Draft',approved_by=NULL,approved_at=NULL,
+                    updated_at=CURRENT_TIMESTAMP WHERE clause_id=?""", (*values,clause_id))
+                assessment_id = existing[0]
+            else:
+                assessment_id = connection.execute("""INSERT INTO iso_clause_assessments
+                    (clause_id,applicability,applicability_reason,compliance_status,owner_user_id,finding,
+                    planned_action,target_date,last_review_date,next_review_date,created_by,updated_by)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""", (clause_id,*values[:-1],current_actor(),current_actor())).lastrowid
+            audit_change(connection,"iso_clause_assessment",assessment_id,"save_draft",
+                after={"clause":clause[1],"compliance_status":compliance,"applicability":applicability})
+            connection.commit(); flash(f"Clause {clause[1]} assessment saved as Draft.","success")
+            return redirect(url_for("iso_clause_detail",clause_id=clause_id))
+        assessment = connection.execute("""SELECT a.id,a.applicability,a.applicability_reason,a.compliance_status,
+            a.owner_user_id,a.finding,a.planned_action,a.target_date,a.last_review_date,a.next_review_date,a.status,
+            a.created_by,a.updated_by,a.submitted_by,a.submitted_at,a.review_comment,a.approved_by,a.approved_at
+            FROM iso_clause_assessments a WHERE a.clause_id=?""", (clause_id,)).fetchone()
+        requirements = connection.execute("""SELECT r.id,r.evidence_name,r.is_required,
+            (SELECT COUNT(*) FROM iso_clause_evidence e WHERE e.requirement_id=r.id AND e.status='Approved' AND e.is_deleted=0)
+            FROM iso_clause_evidence_requirements r WHERE r.clause_id=? ORDER BY r.id""", (clause_id,)).fetchall()
+        evidence = connection.execute("""SELECT e.id,e.title,COALESCE(e.document_number,''),COALESCE(e.revision,''),
+            e.effective_date,e.review_date,e.retention_until,e.file_name,e.status,e.uploaded_by,
+            COALESCE(e.review_comment,''),COALESCE(e.approved_by,''),e.created_at,
+            COALESCE(r.evidence_name,'Additional evidence') FROM iso_clause_evidence e
+            LEFT JOIN iso_clause_evidence_requirements r ON r.id=e.requirement_id
+            WHERE e.clause_id=? AND e.is_deleted=0 ORDER BY e.id DESC""", (clause_id,)).fetchall()
+        users = connection.execute("""SELECT u.id,u.full_name,r.name FROM users u JOIN roles r ON r.id=u.role_id
+            WHERE u.is_active=1 ORDER BY u.full_name""").fetchall()
+        reviewers = [row for row in users if row[2] in {"Chief Meteorologist","Administrator","Supervisor"}]
+        capas = connection.execute("SELECT id,ncr_number,title,status FROM capa_records WHERE is_deleted=0 ORDER BY id DESC").fetchall()
+        return render_template("clause_detail.html",clause=clause,assessment=assessment,
+            requirements=requirements,evidence=evidence,users=users,reviewers=reviewers,capas=capas,
+            page_title=f"Clause {clause[1]} · {clause[2]}",page_subtitle=clause[4],active_nav="iso17025")
+    except ValueError as error:
+        connection.rollback(); flash(str(error),"error")
+        return redirect(url_for("iso_clause_detail",clause_id=clause_id))
+    finally:
+        connection.close()
+
+
+@app.post("/iso17025/clause-checklist/<int:clause_id>/evidence")
+def iso_clause_evidence_upload(clause_id):
+    require_permission("equipment_edit")
+    connection=get_connection()
+    try:
+        clause=connection.execute("SELECT clause_code FROM iso_clauses WHERE id=?",(clause_id,)).fetchone()
+        if not clause: abort(404)
+        upload=request.files.get("evidence_file")
+        title=request.form.get("title","").strip()
+        if not upload or not upload.filename or not title: raise ValueError("Evidence title and file are required.")
+        requirement_id=request.form.get("requirement_id",type=int)
+        if requirement_id and not connection.execute("SELECT 1 FROM iso_clause_evidence_requirements WHERE id=? AND clause_id=?",(requirement_id,clause_id)).fetchone():
+            raise ValueError("Select an evidence requirement belonging to this clause.")
+        file_name,file_path=_save_clause_evidence(upload,clause[0])
+        status="Approved" if chief_auto_approval() else "Draft"
+        evidence_id=connection.execute("""INSERT INTO iso_clause_evidence
+            (clause_id,requirement_id,title,document_number,revision,effective_date,review_date,
+            retention_until,file_name,file_path,status,uploaded_by,approved_by,approved_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,CASE WHEN ?='Approved' THEN CURRENT_TIMESTAMP ELSE NULL END)""",
+            (clause_id,requirement_id,title,request.form.get("document_number","").strip() or None,
+             request.form.get("revision","").strip() or None,request.form.get("effective_date") or None,
+             request.form.get("review_date") or None,request.form.get("retention_until") or None,
+             file_name,file_path,status,current_actor(),current_actor() if status=="Approved" else None,status)).lastrowid
+        audit_change(connection,"iso_clause_evidence",evidence_id,"upload",after={"title":title,"status":status})
+        connection.commit();flash("Evidence uploaded" + (" and approved." if status=="Approved" else " as Draft."),"success")
+    except Exception as error:
+        connection.rollback();flash(str(error),"error")
+    finally: connection.close()
+    return redirect(url_for("iso_clause_detail",clause_id=clause_id))
+
+
+@app.post("/iso17025/clause-evidence/<int:evidence_id>/workflow")
+def iso_clause_evidence_workflow(evidence_id):
+    connection=get_connection()
+    try:
+        row=connection.execute("SELECT clause_id,status,uploaded_by,title FROM iso_clause_evidence WHERE id=? AND is_deleted=0",(evidence_id,)).fetchone()
+        if not row: abort(404)
+        action=request.form.get("action")
+        comment=request.form.get("comment","").strip()
+        if action=="submit":
+            reviewer_id=request.form.get("reviewer_user_id",type=int)
+            reviewer=connection.execute("""SELECT u.id,u.full_name FROM users u JOIN roles r ON r.id=u.role_id
+                WHERE u.id=? AND u.is_active=1 AND r.name IN ('Chief Meteorologist','Administrator','Supervisor')""",(reviewer_id,)).fetchone()
+            if not reviewer: raise ValueError("Select an authorized reviewer.")
+            connection.execute("UPDATE iso_clause_evidence SET status='Submitted for Review',assigned_reviewer_id=?,submitted_at=CURRENT_TIMESTAMP WHERE id=?",(reviewer_id,evidence_id))
+            connection.execute("""INSERT INTO workflow_tasks(entity_type,entity_id,task_type,status,submitted_by,
+                assigned_to,submitted_user_id,assigned_user_id,priority) VALUES (?,?,?,'Pending',?,?,?,?,?)""",
+                ("iso_clause_evidence",evidence_id,"Clause evidence review",current_actor(),reviewer[1],session.get("user_id"),reviewer_id,"Normal"))
+            add_notification(connection,reviewer_id,"Clause evidence awaiting review",row[3],url_for("iso_clause_detail",clause_id=row[0]),"iso_clause_evidence",evidence_id)
+            status="Submitted for Review"
+        else:
+            require_permission("record_approve")
+            if row[1]!="Submitted for Review": raise ValueError("Only submitted evidence can be reviewed.")
+            if action=="revert" and not comment: raise ValueError("A revert comment is required.")
+            if action not in {"approve","revert"}: raise ValueError("Select Approve or Revert.")
+            status="Approved" if action=="approve" else "Reverted"
+            connection.execute("""UPDATE iso_clause_evidence SET status=?,review_comment=?,approved_by=?,
+                approved_at=CASE WHEN ?='Approved' THEN CURRENT_TIMESTAMP ELSE NULL END WHERE id=?""",
+                (status,comment or None,current_actor() if status=="Approved" else None,status,evidence_id))
+            connection.execute("""UPDATE workflow_tasks SET status='Completed',decision=?,comment=?,reviewed_at=CURRENT_TIMESTAMP
+                WHERE entity_type='iso_clause_evidence' AND entity_id=? AND status='Pending'""",(action,comment or None,evidence_id))
+            submitter_id=user_id_for_actor(connection,row[2])
+            add_notification(connection,submitter_id,f"Clause evidence {status.lower()}",
+                comment or f"{row[3]} was {status.lower()} by {current_actor()}.",
+                url_for("iso_clause_detail",clause_id=row[0]),"iso_clause_evidence",evidence_id)
+        audit_change(connection,"iso_clause_evidence",evidence_id,action,after={"status":status,"comment":comment or None})
+        connection.commit();flash(f"Evidence status changed to {status}.","success")
+    except ValueError as error:
+        connection.rollback();flash(str(error),"error")
+    finally: connection.close()
+    return redirect(url_for("iso_clause_detail",clause_id=row[0] if 'row' in locals() and row else 1))
+
+
+@app.get("/iso17025/clause-evidence/<int:evidence_id>/file")
+def iso_clause_evidence_file(evidence_id):
+    rows=query("SELECT file_path,file_name FROM iso_clause_evidence WHERE id=? AND is_deleted=0",(evidence_id,))
+    if not rows or not Path(rows[0][0]).is_file(): abort(404)
+    return send_file(Path(rows[0][0]).resolve(),download_name=rows[0][1],as_attachment=False)
+
+
+@app.post("/iso17025/clause-checklist/<int:clause_id>/workflow")
+def iso_clause_assessment_workflow(clause_id):
+    connection=get_connection()
+    try:
+        row=connection.execute("SELECT id,status,compliance_status,created_by FROM iso_clause_assessments WHERE clause_id=?",(clause_id,)).fetchone()
+        if not row: raise ValueError("Save the clause assessment before submitting it.")
+        action=request.form.get("action");comment=request.form.get("comment","").strip()
+        if action=="submit":
+            missing=connection.execute("""SELECT COUNT(*) FROM iso_clause_evidence_requirements r
+                WHERE r.clause_id=? AND r.is_required=1 AND NOT EXISTS (SELECT 1 FROM iso_clause_evidence e
+                WHERE e.requirement_id=r.id AND e.status='Approved' AND e.is_deleted=0)""",(clause_id,)).fetchone()[0]
+            if row[2]=="Compliant" and missing: raise ValueError(f"{missing} required evidence item(s) must be approved before this clause can be submitted as Compliant.")
+            if chief_auto_approval():
+                status="Approved";connection.execute("UPDATE iso_clause_assessments SET status=?,approved_by=?,approved_at=CURRENT_TIMESTAMP WHERE id=?",(status,current_actor(),row[0]))
+            else:
+                reviewer_id=request.form.get("reviewer_user_id",type=int)
+                reviewer=connection.execute("""SELECT u.id,u.full_name FROM users u JOIN roles r ON r.id=u.role_id
+                    WHERE u.id=? AND u.is_active=1 AND r.name IN ('Chief Meteorologist','Administrator','Supervisor')""",(reviewer_id,)).fetchone()
+                if not reviewer: raise ValueError("Select an authorized reviewer.")
+                status="Submitted for Review";connection.execute("""UPDATE iso_clause_assessments SET status=?,assigned_reviewer_id=?,submitted_by=?,submitted_at=CURRENT_TIMESTAMP WHERE id=?""",(status,reviewer_id,current_actor(),row[0]))
+                connection.execute("""INSERT INTO workflow_tasks(entity_type,entity_id,task_type,status,submitted_by,assigned_to,
+                    submitted_user_id,assigned_user_id,priority) VALUES (?,?,?,'Pending',?,?,?,?,?)""",
+                    ("iso_clause_assessment",clause_id,"ISO clause assessment review",current_actor(),reviewer[1],session.get("user_id"),reviewer_id,"Normal"))
+                add_notification(connection,reviewer_id,"ISO clause assessment awaiting review",
+                    f"Clause {clause_id} was submitted by {current_actor()}.",
+                    url_for("iso_clause_detail",clause_id=clause_id),"iso_clause_assessment",clause_id)
+        else:
+            require_permission("record_approve")
+            if row[1]!="Submitted for Review": raise ValueError("Only submitted assessments can be reviewed.")
+            if action=="revert" and not comment: raise ValueError("A revert comment is required.")
+            if action not in {"approve","revert"}: raise ValueError("Select Approve or Revert.")
+            status="Approved" if action=="approve" else "Reverted"
+            connection.execute("""UPDATE iso_clause_assessments SET status=?,review_comment=?,approved_by=?,
+                approved_at=CASE WHEN ?='Approved' THEN CURRENT_TIMESTAMP ELSE NULL END WHERE id=?""",
+                (status,comment or None,current_actor() if status=="Approved" else None,status,row[0]))
+            connection.execute("""UPDATE workflow_tasks SET status='Completed',decision=?,comment=?,reviewed_at=CURRENT_TIMESTAMP
+                WHERE entity_type='iso_clause_assessment' AND entity_id=? AND status='Pending'""",(action,comment or None,clause_id))
+            submitter_id=user_id_for_actor(connection,row[3])
+            add_notification(connection,submitter_id,f"ISO clause assessment {status.lower()}",
+                comment or f"The assessment was {status.lower()} by {current_actor()}.",
+                url_for("iso_clause_detail",clause_id=clause_id),"iso_clause_assessment",clause_id)
+        audit_change(connection,"iso_clause_assessment",row[0],action,after={"status":status,"comment":comment or None})
+        connection.commit();flash(f"Assessment status changed to {status}.","success")
+    except ValueError as error:
+        connection.rollback();flash(str(error),"error")
+    finally: connection.close()
+    return redirect(url_for("iso_clause_detail",clause_id=clause_id))
 
 
 @app.post("/quality-records/<int:record_id>/delete")
@@ -1225,7 +1484,7 @@ def project_jobs():
         WHERE u.is_active=1 ORDER BY CASE r.name WHEN 'Chief Meteorologist' THEN 1 WHEN 'Supervisor' THEN 2
         WHEN 'Engineer' THEN 3 WHEN 'Technician' THEN 4 WHEN 'Operator' THEN 5 WHEN 'Guest' THEN 6 ELSE 7 END,u.full_name""")
     selected_project = request.args.get("project", type=int)
-    jobs = query("""SELECT j.id,j.job_number,c.customer_name,j.mut_description,
+    jobs_sql = """SELECT j.id,j.job_number,c.customer_name,j.mut_description,
         COALESCE(j.mut_serial_number,''),m.method_name,j.flow_range,
         COALESCE(j.flow_point_count,1),j.status,j.required_date,COALESCE(j.job_title,''),
         p.project_number,p.project_name,COALESCE(p.purchase_order,''),
@@ -1236,8 +1495,12 @@ def project_jobs():
         FROM calibration_jobs j LEFT JOIN customers c ON c.id=j.customer_id
         LEFT JOIN calibration_methods m ON m.id=j.method_id
         LEFT JOIN project_jobs pj ON pj.job_id=j.id LEFT JOIN projects p ON p.id=pj.project_id
-        WHERE j.is_deleted=0 AND COALESCE(p.is_deleted,0)=0 AND (? IS NULL OR p.id=?) ORDER BY j.id DESC""",
-        (selected_project, selected_project))
+        WHERE j.is_deleted=0 AND COALESCE(p.is_deleted,0)=0"""
+    jobs_parameters = ()
+    if selected_project is not None:
+        jobs_sql += " AND p.id=?"
+        jobs_parameters = (selected_project,)
+    jobs = query(jobs_sql + " ORDER BY j.id DESC", jobs_parameters)
     numbering_connection = get_connection()
     next_job_number = next_reference(numbering_connection, "calibration_jobs", "job_number", "JOB")
     numbering_connection.close()

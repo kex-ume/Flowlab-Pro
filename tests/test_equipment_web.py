@@ -195,6 +195,47 @@ class FreshDatabaseWebTests(unittest.TestCase):
         database.DATABASE_PATH = self.original_path
         self.tempdir.cleanup()
 
+    def test_iso_clause_checklist_retains_evidence_and_controls_assessment(self):
+        landing = self.client.get("/iso17025/clause-checklist")
+        self.assertEqual(landing.status_code, 200)
+        page = landing.get_data(as_text=True)
+        self.assertIn("ISO/IEC 17025 Clause Checklist", page)
+        self.assertIn("29 clauses", page)
+        connection = database.get_connection()
+        clause_id = connection.execute(
+            "SELECT id FROM iso_clauses WHERE clause_code='4.2'").fetchone()[0]
+        connection.close()
+        with self.client.session_transaction() as login:
+            login.update(user_id=1, username="chief", full_name="Chief Metrologist",
+                role_name="Chief Meteorologist")
+        response = self.client.post(f"/iso17025/clause-checklist/{clause_id}", data={
+            "applicability":"Applicable", "compliance_status":"Compliant",
+            "finding":"Confidentiality arrangements reviewed", "last_review_date":"2026-09-09",
+            "next_review_date":"2027-09-09"})
+        self.assertEqual(response.status_code, 302)
+        response = self.client.post(f"/iso17025/clause-checklist/{clause_id}/workflow",
+            data={"action":"submit"}, follow_redirects=True)
+        self.assertIn("required evidence item", response.get_data(as_text=True))
+        connection = database.get_connection()
+        requirement_id = connection.execute("""SELECT id FROM iso_clause_evidence_requirements
+            WHERE clause_id=?""", (clause_id,)).fetchone()[0]
+        connection.close()
+        response = self.client.post(f"/iso17025/clause-checklist/{clause_id}/evidence", data={
+            "requirement_id":str(requirement_id), "title":"Confidentiality agreement",
+            "document_number":"POL-004", "revision":"1",
+            "evidence_file":(io.BytesIO(b"%PDF-1.4 evidence"),"confidentiality.pdf")},
+            content_type="multipart/form-data")
+        self.assertEqual(response.status_code, 302)
+        self.client.post(f"/iso17025/clause-checklist/{clause_id}/workflow",
+            data={"action":"submit"})
+        connection = database.get_connection()
+        assessment_status = connection.execute("""SELECT status FROM iso_clause_assessments
+            WHERE clause_id=?""", (clause_id,)).fetchone()[0]
+        evidence_status = connection.execute("""SELECT status FROM iso_clause_evidence
+            WHERE clause_id=?""", (clause_id,)).fetchone()[0]
+        connection.close()
+        self.assertEqual((assessment_status,evidence_status),("Approved","Approved"))
+
     def test_fresh_database_has_zero_counts_and_real_empty_states(self):
         connection = database.get_connection()
         operational_counts = {

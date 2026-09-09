@@ -1,6 +1,108 @@
 from app.database.database import database_backend, get_connection
 
 
+ISO_CLAUSES = (
+    ("4.1", "Impartiality", "General", "Impartiality risks and safeguards"),
+    ("4.2", "Confidentiality", "General", "Confidentiality commitments and information-release controls"),
+    ("5", "Structural requirements", "Structure", "Legal identity, organization, responsibilities and authority"),
+    ("6.1", "Resources — general", "Resources", "Resource planning and availability"),
+    ("6.2", "Personnel", "Resources", "Competence, training, supervision and authorization"),
+    ("6.3", "Facilities and environmental conditions", "Resources", "Environmental limits, monitoring and excursion control"),
+    ("6.4", "Equipment", "Resources", "Equipment suitability, identification, control and records"),
+    ("6.5", "Metrological traceability", "Resources", "Documented calibration chain and traceability evidence"),
+    ("6.6", "Externally provided products and services", "Resources", "Supplier selection, evaluation and acceptance"),
+    ("7.1", "Review of requests, tenders and contracts", "Process", "Capability, method and customer-requirement review"),
+    ("7.2", "Selection, verification and validation of methods", "Process", "Controlled method selection, verification, validation and deviations"),
+    ("7.3", "Sampling", "Process", "Sampling plans and records where sampling is performed"),
+    ("7.4", "Handling of test or calibration items", "Process", "Receipt, identification, condition, storage and return"),
+    ("7.5", "Technical records", "Process", "Traceable observations, calculations, amendments and responsible personnel"),
+    ("7.6", "Evaluation of measurement uncertainty", "Process", "Approved uncertainty methods, budgets and supporting data"),
+    ("7.7", "Ensuring the validity of results", "Process", "Quality-control planning, monitoring, PT or ILC and investigations"),
+    ("7.8", "Reporting of results", "Process", "Controlled reports, certificates, amendments and authorization"),
+    ("7.9", "Complaints", "Process", "Complaint receipt, independent evaluation, decisions and closure"),
+    ("7.10", "Nonconforming work", "Process", "Control, impact evaluation, notification and authorization to resume"),
+    ("7.11", "Control of data and information management", "Process", "System validation, access, integrity, backup and change control"),
+    ("8.1", "Management system options", "Management system", "Selected management-system option and defined scope"),
+    ("8.2", "Management system documentation", "Management system", "Policies, objectives and accessible management-system documentation"),
+    ("8.3", "Control of management system documents", "Management system", "Approval, revision, distribution and obsolete-document control"),
+    ("8.4", "Control of records", "Management system", "Identification, retention, protection, retrieval and disposition"),
+    ("8.5", "Actions to address risks and opportunities", "Management system", "Risk identification, action, proportionality and effectiveness"),
+    ("8.6", "Improvement", "Management system", "Improvement opportunities and customer feedback"),
+    ("8.7", "Corrective actions", "Management system", "Cause analysis, corrective action and effectiveness review"),
+    ("8.8", "Internal audits", "Management system", "Audit programme, execution, findings and follow-up"),
+    ("8.9", "Management reviews", "Management system", "Planned review inputs, decisions, actions and records"),
+)
+
+ISO_EVIDENCE_REQUIREMENTS = {
+    "4.1": ("Impartiality risk register", "Conflict-of-interest declarations"),
+    "4.2": ("Confidentiality policy or agreement",),
+    "5": ("Organization chart", "Roles and responsibility matrix"),
+    "6.2": ("Competence and authorization records",),
+    "6.3": ("Environmental monitoring and excursion records",),
+    "6.4": ("Equipment records",),
+    "6.5": ("Traceability evidence",),
+    "6.6": ("Approved supplier evaluation records",),
+    "7.1": ("Contract or request review records",),
+    "7.2": ("Method verification or validation evidence",),
+    "7.3": ("Sampling plan and records",),
+    "7.4": ("Item receipt and handling records",),
+    "7.5": ("Technical records",),
+    "7.6": ("Approved uncertainty evidence",),
+    "7.7": ("Validity monitoring or PT/ILC evidence",),
+    "7.8": ("Approved report or certificate evidence",),
+    "7.9": ("Complaint records",),
+    "7.10": ("Nonconforming-work records",),
+    "7.11": ("System validation and backup evidence",),
+    "8.1": ("Management system option declaration",),
+    "8.2": ("Management system policy and objectives",),
+    "8.3": ("Master document register",),
+    "8.4": ("Record retention schedule",),
+    "8.5": ("Risk and opportunity register",),
+    "8.6": ("Improvement or customer-feedback records",),
+    "8.7": ("Corrective-action records",),
+    "8.8": ("Internal audit programme and reports",),
+    "8.9": ("Management review minutes and action records",),
+}
+
+
+def _create_iso_checklist_schema(conn, postgres=False):
+    identity = "BIGSERIAL" if postgres else "INTEGER"
+    primary = "PRIMARY KEY" if postgres else "PRIMARY KEY AUTOINCREMENT"
+    user_type = "BIGINT" if postgres else "INTEGER"
+    conn.execute(f"""CREATE TABLE IF NOT EXISTS iso_clauses (
+        id {identity} {primary}, clause_code TEXT NOT NULL UNIQUE, title TEXT NOT NULL,
+        category TEXT NOT NULL, guidance TEXT, sort_order INTEGER NOT NULL, is_active INTEGER NOT NULL DEFAULT 1)""")
+    conn.execute(f"""CREATE TABLE IF NOT EXISTS iso_clause_assessments (
+        id {identity} {primary}, clause_id {user_type} NOT NULL UNIQUE REFERENCES iso_clauses(id),
+        applicability TEXT NOT NULL DEFAULT 'Applicable', applicability_reason TEXT,
+        compliance_status TEXT NOT NULL DEFAULT 'Not Assessed', owner_user_id {user_type} REFERENCES users(id),
+        finding TEXT, planned_action TEXT, target_date DATE, last_review_date DATE, next_review_date DATE,
+        status TEXT NOT NULL DEFAULT 'Draft', created_by TEXT NOT NULL, updated_by TEXT,
+        submitted_by TEXT, submitted_at TIMESTAMP, assigned_reviewer_id {user_type} REFERENCES users(id),
+        review_comment TEXT, approved_by TEXT, approved_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
+    conn.execute(f"""CREATE TABLE IF NOT EXISTS iso_clause_evidence_requirements (
+        id {identity} {primary}, clause_id {user_type} NOT NULL REFERENCES iso_clauses(id),
+        evidence_name TEXT NOT NULL, is_required INTEGER NOT NULL DEFAULT 1,
+        UNIQUE(clause_id,evidence_name))""")
+    conn.execute(f"""CREATE TABLE IF NOT EXISTS iso_clause_evidence (
+        id {identity} {primary}, clause_id {user_type} NOT NULL REFERENCES iso_clauses(id),
+        requirement_id {user_type} REFERENCES iso_clause_evidence_requirements(id),
+        title TEXT NOT NULL, document_number TEXT, revision TEXT, effective_date DATE,
+        review_date DATE, retention_until DATE, file_name TEXT NOT NULL, file_path TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'Draft', uploaded_by TEXT NOT NULL,
+        assigned_reviewer_id {user_type} REFERENCES users(id), submitted_at TIMESTAMP,
+        review_comment TEXT, approved_by TEXT, approved_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, is_deleted INTEGER NOT NULL DEFAULT 0)""")
+    for order, (code, title, category, guidance) in enumerate(ISO_CLAUSES, 1):
+        conn.execute("""INSERT INTO iso_clauses(clause_code,title,category,guidance,sort_order)
+            VALUES (?,?,?,?,?) ON CONFLICT(clause_code) DO NOTHING""", (code,title,category,guidance,order))
+        clause = conn.execute("SELECT id FROM iso_clauses WHERE clause_code=?", (code,)).fetchone()
+        for evidence_name in ISO_EVIDENCE_REQUIREMENTS.get(code, ()):
+            conn.execute("""INSERT INTO iso_clause_evidence_requirements(clause_id,evidence_name)
+                VALUES (?,?) ON CONFLICT(clause_id,evidence_name) DO NOTHING""", (clause[0],evidence_name))
+
+
 _postgres_schema_verified = False
 
 
@@ -42,6 +144,7 @@ def initialize_database():
                 review_comment TEXT,approved_by TEXT,approved_at TIMESTAMP,closed_at TIMESTAMP,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 is_deleted INTEGER NOT NULL DEFAULT 0)""")
+            _create_iso_checklist_schema(conn, postgres=True)
             conn.commit()
             _postgres_schema_verified = True
         finally:
@@ -50,6 +153,8 @@ def initialize_database():
 
     conn = get_connection()
     cursor = conn.cursor()
+
+    _create_iso_checklist_schema(conn)
 
     def ensure_column(table: str, column: str, definition: str) -> None:
         """Apply additive migrations without disrupting an existing laboratory database."""
