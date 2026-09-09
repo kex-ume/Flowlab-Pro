@@ -1,6 +1,30 @@
 {% extends 'base.html' %}
 {% block content %}
-<div class="equipment-page"><div class="equipment-actions"><button type="button" class="button" data-scroll-to="newNcr" aria-expanded="false">+ Add NCR</button></div>
-<section id="newNcr" class="panel" data-collapsible-form hidden><div class="panel-head"><div><h3>Issue Nonconformance / NCR</h3><small>The issued NCR is mandatory and becomes controlled evidence.</small></div><button type="button" class="button secondary" data-close-form>Close</button></div><form method="post" enctype="multipart/form-data" class="form-grid"><label>NCR number *<input name="ncr_number" required></label><label>Title *<input name="title" required></label><label>Source *<select name="source" required><option value="">Select source</option><option>Internal audit</option><option>External audit</option><option>Customer complaint</option><option>Nonconforming work</option><option>Proficiency testing</option><option>Management review</option><option>Other</option></select></label><label>ISO/IEC 17025 clause<input name="clause_reference" placeholder="e.g. 7.10"></label><label>Owner *<input name="owner" required></label><label>Issued date *<input type="date" name="issued_date" required></label><label>Scheduled close-out date *<input type="date" name="target_close_date" required></label><label>Issued NCR document *<input type="file" name="issued_ncr" accept=".pdf,.docx,.xlsx,.jpg,.jpeg,.png" required></label><label class="wide">Nonconformity description *<textarea name="description" rows="4" required></textarea></label><button>Create NCR</button></form></section>
-<section class="panel"><div class="panel-head"><div><h3>NCR & Corrective Action Register</h3><small>ISO/IEC 17025 control from issue through approved close-out.</small></div><span class="meta-pill">{{records|length}}</span></div><div class="table-scroll"><table><thead><tr><th>NCR</th><th>Title</th><th>Source</th><th>Owner</th><th>Issued</th><th>Target close-out</th><th>Status</th><th>Approved by</th><th>Action</th></tr></thead><tbody>{% for r in records %}<tr><td class="mono">{{r[1]}}</td><td>{{r[2]}}</td><td>{{r[3]}}</td><td>{{r[4]}}</td><td data-local-date="{{r[5]}}">{{r[5]}}</td><td data-local-date="{{r[6]}}">{{r[6]}}</td><td><span class="pill {{r[7]|lower|replace(' ','-')}}">{{r[7]}}</span></td><td>{{r[8] or '—'}}</td><td><a class="button secondary" href="{{url_for('capa_detail',record_id=r[0])}}">Open</a></td></tr>{% else %}<tr><td colspan="9"><div class="table-empty"><span>No NCR records have been raised.</span></div></td></tr>{% endfor %}</tbody></table></div></section></div>
+<div class="equipment-page capa-page">
+  <div class="equipment-actions"><button type="button" class="button" data-scroll-to="newNcr" aria-expanded="false">+ Add NCR</button></div>
+  <section id="newNcr" class="panel" data-collapsible-form hidden>
+    <div class="panel-head"><h3>Issue Nonconformance / NCR <button type="button" class="info-tip" data-info="The issued NCR is mandatory and becomes controlled evidence."></button></h3><button type="button" class="button secondary" data-close-form>Close</button></div>
+    <form method="post" enctype="multipart/form-data" class="form-grid">
+      <label>NCR number *<input name="ncr_number" required></label><label>Title *<input name="title" required></label>
+      <label>Source *<select name="source" required><option value="">Select source</option><option>Internal audit</option><option>External audit</option><option>Customer complaint</option><option>Nonconforming work</option><option>Proficiency testing</option><option>Management review</option><option>Other</option></select></label>
+      <label>ISO/IEC 17025 clause<input name="clause_reference" placeholder="e.g. 7.10"></label><label>Owner *<input name="owner" required></label>
+      <label>Issued date *<input type="date" name="issued_date" required></label><label>Scheduled close-out date *<input type="date" name="target_close_date" required></label>
+      <label>Issued NCR document *<input type="file" name="issued_ncr" accept=".pdf,.docx,.xlsx,.jpg,.jpeg,.png" required></label>
+      <label class="wide">Nonconformity description *<textarea name="description" rows="4" required></textarea></label><button>Create NCR</button>
+    </form>
+  </section>
+  <section class="panel capa-register">
+    <div class="panel-head"><h3>NCR &amp; Corrective Action Register <button type="button" class="info-tip" data-info="ISO/IEC 17025 control from issue through approved close-out."></button></h3><span class="meta-pill">{{records|length}}</span></div>
+    {% if records %}<div class="overview-card-grid">
+      {% for r in records %}<article class="overview-record-card">
+        <div class="overview-record-head"><div><span class="overview-label">NCR</span><strong class="mono">{{r[1]}}</strong></div><span class="pill {{r[7]|lower|replace(' ','-')}}">{{r[7]}}</span></div>
+        <h2>{{r[2]}}</h2><dl class="overview-fact-list">
+          <div><dt>Source</dt><dd>{{r[3]}}</dd></div><div><dt>Owner</dt><dd>{{r[4]}}</dd></div>
+          <div><dt>Issued</dt><dd data-local-date="{{r[5]}}">{{r[5]}}</dd></div><div><dt>Target close-out</dt><dd data-local-date="{{r[6]}}">{{r[6]}}</dd></div>
+          <div><dt>Approved by</dt><dd>{{r[8] or 'Not approved'}}</dd></div>
+        </dl><a class="button secondary" href="{{url_for('capa_detail',record_id=r[0])}}">Open NCR</a>
+      </article>{% endfor %}
+    </div>{% else %}<div class="overview-empty"><span class="overview-empty-mark">NCR</span><h2>No NCR records</h2><p>Create an NCR when a nonconformance requires controlled corrective action.</p><button type="button" class="button" data-scroll-to="newNcr" aria-expanded="false">+ Add First NCR</button></div>{% endif %}
+  </section>
+</div>
 {% endblock %}
