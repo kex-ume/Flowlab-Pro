@@ -2,7 +2,7 @@
 {% block content %}
 <div class="reminder-grid">
   <section class="panel reminder-panel wide">
-    <div class="panel-head"><div><h3>Actionable tasks</h3><small>{% if has_workflow_authority %}Records requiring action by Chief Meteorologist or Administrator{% else %}Reviews and approvals assigned to you{% endif %}</small></div><span class="meta-pill">{{ tasks|length }}</span></div>
+    <div class="panel-head"><h3>Actionable tasks <button type="button" class="info-tip" data-info="{% if has_workflow_authority %}Records requiring action by Chief Meteorologist or Administrator.{% else %}Reviews and approvals assigned to you.{% endif %}"></button></h3><span class="meta-pill">{{ tasks|length }}</span></div>
     <div class="task-list">
       {% for task in tasks %}<a class="task-row" href="{{url_for('workflow_task_overview',task_id=task.id)}}">
         <span class="task-kind">{{task.task_type}}</span>

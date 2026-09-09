@@ -24,7 +24,7 @@
           <div><dt>Approved by</dt><dd>{{r[8] or 'Not approved'}}</dd></div>
         </dl><a class="button secondary" href="{{url_for('capa_detail',record_id=r[0])}}">Open NCR</a>
       </article>{% endfor %}
-    </div>{% else %}<div class="overview-empty"><span class="overview-empty-mark">NCR</span><h2>No NCR records</h2><p>Create an NCR when a nonconformance requires controlled corrective action.</p><button type="button" class="button" data-scroll-to="newNcr" aria-expanded="false">+ Add First NCR</button></div>{% endif %}
+    </div>{% else %}<div class="overview-empty"><span class="overview-empty-mark">NCR</span><h2>No NCR records <button type="button" class="info-tip" data-info="Create an NCR when a nonconformance requires controlled corrective action."></button></h2><button type="button" class="button" data-scroll-to="newNcr" aria-expanded="false">+ Add First NCR</button></div>{% endif %}
   </section>
 </div>
 {% endblock %}
