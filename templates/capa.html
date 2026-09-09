@@ -15,14 +15,11 @@
   </section>
   <section class="panel capa-register">
     <div class="panel-head"><h3>NCR &amp; Corrective Action Register <button type="button" class="info-tip" data-info="ISO/IEC 17025 control from issue through approved close-out."></button></h3><span class="meta-pill">{{records|length}}</span></div>
-    {% if records %}<div class="overview-card-grid">
-      {% for r in records %}<article class="overview-record-card">
-        <div class="overview-record-head"><div><span class="overview-label">NCR</span><strong class="mono">{{r[1]}}</strong></div><span class="pill {{r[7]|lower|replace(' ','-')}}">{{r[7]}}</span></div>
-        <h2>{{r[2]}}</h2><dl class="overview-fact-list">
-          <div><dt>Source</dt><dd>{{r[3]}}</dd></div><div><dt>Owner</dt><dd>{{r[4]}}</dd></div>
-          <div><dt>Issued</dt><dd data-local-date="{{r[5]}}">{{r[5]}}</dd></div><div><dt>Target close-out</dt><dd data-local-date="{{r[6]}}">{{r[6]}}</dd></div>
-          <div><dt>Approved by</dt><dd>{{r[8] or 'Not approved'}}</dd></div>
-        </dl><a class="button secondary" href="{{url_for('capa_detail',record_id=r[0])}}">Open NCR</a>
+    {% if records %}<div class="capa-case-list">
+      {% for r in records %}<article class="capa-case-row capa-state-{{r[7]|lower|replace(' ','-')}}">
+        <div class="capa-case-identity"><span class="overview-label">NCR</span><strong class="mono">{{r[1]}}</strong><span class="pill {{r[7]|lower|replace(' ','-')}}">{{r[7]}}</span></div>
+        <div class="capa-case-summary"><h2>{{r[2]}}</h2><div class="capa-case-meta"><span><b>Source</b>{{r[3]}}</span><span><b>Owner</b>{{r[4]}}</span><span><b>Issued</b><i data-local-date="{{r[5]}}">{{r[5]}}</i></span><span><b>Close-out due</b><i data-local-date="{{r[6]}}">{{r[6]}}</i></span><span><b>Approval</b>{{r[8] or 'Pending'}}</span></div></div>
+        <a class="button secondary capa-case-action" href="{{url_for('capa_detail',record_id=r[0])}}">Open NCR</a>
       </article>{% endfor %}
     </div>{% else %}<div class="overview-empty"><span class="overview-empty-mark">NCR</span><h2>No NCR records <button type="button" class="info-tip" data-info="Create an NCR when a nonconformance requires controlled corrective action."></button></h2><button type="button" class="button" data-scroll-to="newNcr" aria-expanded="false">+ Add First NCR</button></div>{% endif %}
   </section>
