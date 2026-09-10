@@ -43,18 +43,21 @@ REPORT_MAX_BYTES = 10 * 1024 * 1024
 REPORT_EXTENSIONS = {".pdf", ".docx", ".xlsx", ".jpg", ".jpeg", ".png"}
 PERSONNEL_DOCUMENT_TYPES = (
     "Laboratory Role Authorization",
+    "Authorization Letter",
     "Impartiality Assessment",
     "Confidentiality Policy Acknowledgement",
     "Job Description",
 )
 PERSONNEL_DOCUMENT_SUBCLAUSES = {
     "Laboratory Role Authorization":"6.2.6",
+    "Authorization Letter":"6.2.6",
     "Impartiality Assessment":"6.2.1",
     "Confidentiality Policy Acknowledgement":"6.2.1",
     "Job Description":"6.2.2 / 6.2.4",
 }
 PERSONNEL_DOCUMENT_LABELS = {
     "Laboratory Role Authorization":"Lab Role",
+    "Authorization Letter":"Authorization",
     "Impartiality Assessment":"Impartiality",
     "Confidentiality Policy Acknowledgement":"Confidentiality",
     "Job Description":"Job description",
