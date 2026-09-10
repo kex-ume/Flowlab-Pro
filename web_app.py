@@ -53,6 +53,12 @@ PERSONNEL_DOCUMENT_SUBCLAUSES = {
     "Confidentiality Policy Acknowledgement":"6.2.1",
     "Job Description":"6.2.2 / 6.2.4",
 }
+PERSONNEL_DOCUMENT_LABELS = {
+    "Laboratory Role Authorization":"Lab Role",
+    "Impartiality Assessment":"Impartiality",
+    "Confidentiality Policy Acknowledgement":"Confidentiality",
+    "Job Description":"Job description",
+}
 
 
 @app.context_processor
@@ -1399,6 +1405,7 @@ def personnel_clause(clause_id):
             ORDER BY CASE r.name WHEN 'Supervisor' THEN 1 WHEN 'Chief Meteorologist' THEN 2 ELSE 3 END,u.full_name""").fetchall()
         return render_template("personnel_clause.html",clause=clause,personnel=personnel,
             document_types=PERSONNEL_DOCUMENT_TYPES,document_subclauses=PERSONNEL_DOCUMENT_SUBCLAUSES,
+            document_labels=PERSONNEL_DOCUMENT_LABELS,
             subclauses=subclauses_for(clause[1]),selected=selected,reviewers=reviewers,
             can_manage_all=can_manage_all,pending_registrations=pending_registrations,
             page_title="Clause 6.2 · Personnel",page_subtitle=clause[3],active_nav="iso17025")
