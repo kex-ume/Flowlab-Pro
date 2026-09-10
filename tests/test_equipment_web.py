@@ -285,6 +285,71 @@ class FreshDatabaseWebTests(unittest.TestCase):
         self.assertIn("updateBasis",converter_script)
         self.assertIn("1 petroleum barrel = 0.158987294928 m³",converter_script)
 
+    def test_personnel_clause_register_and_controlled_document_approval(self):
+        connection = database.get_connection()
+        clause_id = connection.execute("SELECT id FROM iso_clauses WHERE clause_code='6.2'").fetchone()[0]
+        chief_role = connection.execute("SELECT id FROM roles WHERE name='Chief Meteorologist'").fetchone()[0]
+        supervisor_role = connection.execute("SELECT id FROM roles WHERE name='Supervisor'").fetchone()[0]
+        technician_role = connection.execute("SELECT id FROM roles WHERE name='Technician'").fetchone()[0]
+        chief_id = connection.execute("""INSERT INTO users(username,password_hash,full_name,role_id,is_active)
+            VALUES ('personnelchief','hash','Personnel Chief',?,1)""",(chief_role,)).lastrowid
+        supervisor_id = connection.execute("""INSERT INTO users(username,password_hash,full_name,role_id,is_active)
+            VALUES ('personnelsupervisor','hash','Personnel Supervisor',?,1)""",(supervisor_role,)).lastrowid
+        technician_id = connection.execute("""INSERT INTO users(username,password_hash,full_name,role_id,is_active)
+            VALUES ('personneltech','hash','Personnel Technician',?,1)""",(technician_role,)).lastrowid
+        connection.execute("""INSERT INTO iso_clause_assessments
+            (clause_id,applicability,applicability_set_by,compliance_status,status,created_by)
+            VALUES (?,'Applicable','Personnel Chief','Not Assessed','Draft','Personnel Chief')
+            ON CONFLICT(clause_id) DO UPDATE SET applicability='Applicable',applicability_set_by='Personnel Chief'""",(clause_id,))
+        connection.commit(); connection.close()
+        with self.client.session_transaction() as login:
+            login.update(user_id=technician_id,username="personneltech",full_name="Personnel Technician",role_name="Technician")
+        page = self.client.get(f"/iso17025/clause-checklist/{clause_id}/personnel").get_data(as_text=True)
+        self.assertIn("Personnel Compliance Register",page)
+        self.assertIn("Lab Role",page); self.assertIn("Impartiality",page)
+        self.assertIn("Confidentiality",page); self.assertIn("Job Description",page)
+        response = self.client.post(f"/iso17025/personnel/{technician_id}/documents",data={
+            "document_type":"Impartiality Assessment","document_number":"IMP-001","revision":"1",
+            "issued_date":"2026-09-10","reviewer_user_id":str(supervisor_id),
+            "document_file":(io.BytesIO(b"%PDF-1.4 personnel"),"impartiality.pdf")},
+            content_type="multipart/form-data")
+        self.assertEqual(response.status_code,302)
+        connection = database.get_connection()
+        document_id,status = connection.execute("SELECT id,status FROM personnel_documents").fetchone()
+        task = connection.execute("""SELECT assigned_user_id,status FROM workflow_tasks
+            WHERE entity_type='personnel_document' AND entity_id=?""",(document_id,)).fetchone()
+        connection.close()
+        self.assertEqual(status,"Submitted for Review"); self.assertEqual(task,(supervisor_id,"Pending"))
+        with self.client.session_transaction() as login:
+            login.update(user_id=supervisor_id,username="personnelsupervisor",full_name="Personnel Supervisor",role_name="Supervisor")
+        self.client.post(f"/iso17025/personnel-documents/{document_id}/workflow",data={"action":"approve"})
+        connection = database.get_connection()
+        approved = connection.execute("SELECT status,is_current,approved_by FROM personnel_documents WHERE id=?",(document_id,)).fetchone()
+        connection.close()
+        self.assertEqual(approved,("Approved",1,"Personnel Supervisor"))
+        with self.client.session_transaction() as login:
+            login.update(user_id=chief_id,username="personnelchief",full_name="Personnel Chief",role_name="Chief Meteorologist")
+        self.client.post(f"/iso17025/personnel/{technician_id}/documents",data={
+            "document_type":"Impartiality Assessment","document_number":"IMP-001","revision":"2",
+            "issued_date":"2026-09-11","document_file":(io.BytesIO(b"%PDF-1.4 replacement"),"impartiality-v2.pdf")},
+            content_type="multipart/form-data")
+        connection = database.get_connection()
+        versions = connection.execute("""SELECT revision,status,is_current,superseded_by_id
+            FROM personnel_documents WHERE user_id=? ORDER BY id""",(technician_id,)).fetchall()
+        connection.close()
+        self.assertEqual(versions[0][0:3],("1","Approved",0))
+        self.assertIsNotNone(versions[0][3]); self.assertEqual(versions[1][0:3],("2","Approved",1))
+        with self.client.session_transaction() as login:
+            login.update(user_id=technician_id,username="personneltech",full_name="Personnel Technician",role_name="Technician")
+        self.client.post(f"/iso17025/clause-checklist/{clause_id}/personnel/register",data={
+            "full_name":"New Operator","email":"operator@example.com","requested_role":"Operator"})
+        connection = database.get_connection()
+        registration = connection.execute("SELECT status,assigned_reviewer_id FROM personnel_registrations").fetchone()
+        registration_task = connection.execute("""SELECT assigned_user_id,status FROM workflow_tasks
+            WHERE entity_type='personnel_registration'""").fetchone()
+        connection.close()
+        self.assertEqual(registration,("Pending",chief_id)); self.assertEqual(registration_task,(chief_id,"Pending"))
+
     def test_fresh_database_has_zero_counts_and_real_empty_states(self):
         connection = database.get_connection()
         operational_counts = {

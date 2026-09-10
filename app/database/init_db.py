@@ -190,6 +190,30 @@ def _create_iso_checklist_schema(conn, postgres=False):
             (clause[0],evidence_name,scope,applicability,fields,required,subclause))
 
 
+def _create_personnel_clause_schema(conn, postgres=False):
+    identity = "BIGSERIAL" if postgres else "INTEGER"
+    primary = "PRIMARY KEY" if postgres else "PRIMARY KEY AUTOINCREMENT"
+    user_type = "BIGINT" if postgres else "INTEGER"
+    conn.execute(f"""CREATE TABLE IF NOT EXISTS personnel_registrations (
+        id {identity} {primary}, full_name TEXT NOT NULL, email TEXT, requested_role TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'Pending', initiated_by_user_id {user_type} REFERENCES users(id),
+        initiated_by TEXT NOT NULL, assigned_reviewer_id {user_type} REFERENCES users(id),
+        completed_user_id {user_type} REFERENCES users(id), review_comment TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, reviewed_at TIMESTAMP)""")
+    conn.execute(f"""CREATE TABLE IF NOT EXISTS personnel_documents (
+        id {identity} {primary}, user_id {user_type} NOT NULL REFERENCES users(id),
+        document_type TEXT NOT NULL, document_number TEXT NOT NULL, revision TEXT NOT NULL,
+        issued_date DATE NOT NULL, file_name TEXT NOT NULL, file_path TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'Submitted for Review', uploaded_by_user_id {user_type} NOT NULL REFERENCES users(id),
+        uploaded_by TEXT NOT NULL, assigned_reviewer_id {user_type} REFERENCES users(id),
+        approved_by_user_id {user_type} REFERENCES users(id), approved_by TEXT, approved_at TIMESTAMP,
+        review_comment TEXT, supersedes_id {user_type} REFERENCES personnel_documents(id),
+        superseded_by_id {user_type} REFERENCES personnel_documents(id), is_current INTEGER NOT NULL DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, is_deleted INTEGER NOT NULL DEFAULT 0)""")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_personnel_document_current ON personnel_documents(user_id,document_type,is_current,status)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_personnel_registration_status ON personnel_registrations(status,assigned_reviewer_id)")
+
+
 _postgres_schema_verified = False
 
 
@@ -232,6 +256,7 @@ def initialize_database():
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 is_deleted INTEGER NOT NULL DEFAULT 0)""")
             _create_iso_checklist_schema(conn, postgres=True)
+            _create_personnel_clause_schema(conn, postgres=True)
             conn.commit()
             _postgres_schema_verified = True
         finally:
@@ -242,6 +267,7 @@ def initialize_database():
     cursor = conn.cursor()
 
     _create_iso_checklist_schema(conn)
+    _create_personnel_clause_schema(conn)
 
     def ensure_column(table: str, column: str, definition: str) -> None:
         """Apply additive migrations without disrupting an existing laboratory database."""

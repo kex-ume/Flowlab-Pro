@@ -40,6 +40,12 @@ app.config["SECRET_KEY"] = "flowlab-local-mvp"
 app.config["MAX_CONTENT_LENGTH"] = 32 * 1024 * 1024
 REPORT_MAX_BYTES = 10 * 1024 * 1024
 REPORT_EXTENSIONS = {".pdf", ".docx", ".xlsx", ".jpg", ".jpeg", ".png"}
+PERSONNEL_DOCUMENT_TYPES = (
+    "Laboratory Role Authorization",
+    "Impartiality Assessment",
+    "Confidentiality Policy Acknowledgement",
+    "Job Description",
+)
 
 
 @app.context_processor
@@ -160,6 +166,11 @@ def task_destination(connection, entity_type, entity_id, stored_link=None):
                 "SELECT clause_id FROM iso_clause_evidence WHERE id=?", (entity_id,)).fetchone()
             entity_id = clause[0] if clause else entity_id
         return url_for("iso_clause_detail", clause_id=entity_id)
+    if entity_type == "personnel_registration":
+        return url_for("users", registration_id=entity_id)
+    if entity_type == "personnel_document":
+        owner = connection.execute("SELECT user_id FROM personnel_documents WHERE id=?", (entity_id,)).fetchone()
+        return url_for("personnel_record", user_id=owner[0]) if owner else url_for("iso_clause_checklist")
     if entity_type == "controlled_document":
         return url_for("documents")
     if entity_type == "quality_record":
@@ -938,6 +949,33 @@ def users():
                 audit_change(connection, "user", cursor.lastrowid, "create", after={
                     "username": username, "full_name": full_name, "role": role[1], "is_active": 1})
                 flash(f"User {username} created.", "success")
+            elif action == "approve_personnel":
+                registration_id = request.form.get("registration_id", type=int)
+                registration = connection.execute("""SELECT id,full_name,email,requested_role,status,initiated_by_user_id
+                    FROM personnel_registrations WHERE id=?""", (registration_id,)).fetchone()
+                username = request.form.get("username", "").strip()
+                full_name = request.form.get("full_name", "").strip()
+                email = request.form.get("email", "").strip() or None
+                password = request.form.get("password", "")
+                role_id = request.form.get("role_id", type=int)
+                role = next((item for item in roles if item[0] == role_id), None)
+                if not registration or registration[4] != "Pending": raise ValueError("Pending personnel registration was not found.")
+                if not username or not full_name or len(password) < 10 or not role:
+                    raise ValueError("Complete the username, full name, role and temporary password of at least 10 characters.")
+                if connection.execute("SELECT 1 FROM users WHERE LOWER(username)=LOWER(?)", (username,)).fetchone():
+                    raise ValueError("Username already exists.")
+                user_id = connection.execute("""INSERT INTO users
+                    (username,password_hash,full_name,email,role_id,is_active,must_change_password)
+                    VALUES (?,?,?,?,?,1,1)""", (username,AuthService.hash_password(password),full_name,email,role_id)).lastrowid
+                connection.execute("""UPDATE personnel_registrations SET status='Approved',completed_user_id=?,
+                    review_comment=?,reviewed_at=CURRENT_TIMESTAMP WHERE id=?""",
+                    (user_id,request.form.get("comment","").strip() or None,registration_id))
+                connection.execute("""UPDATE workflow_tasks SET status='Completed',decision='approve',reviewed_at=CURRENT_TIMESTAMP
+                    WHERE entity_type='personnel_registration' AND entity_id=? AND status='Pending'""", (registration_id,))
+                add_notification(connection,registration[5],"Personnel registration approved",
+                    f"{full_name} is now an active FlowLab user.",url_for("personnel_record",user_id=user_id),"personnel_registration",registration_id)
+                audit_change(connection,"personnel_registration",registration_id,"approve",after={"user_id":user_id,"role":role[1]})
+                flash(f"Personnel account for {full_name} created and approved.","success")
             elif action == "update":
                 user_id = request.form.get("user_id", type=int)
                 full_name = request.form.get("full_name", "").strip()
@@ -994,7 +1032,15 @@ def users():
         reset_requests = connection.execute("""SELECT pr.id,u.id,u.username,u.full_name,
             pr.requested_at FROM password_reset_requests pr JOIN users u ON u.id=pr.user_id
             WHERE pr.status='Pending' ORDER BY pr.requested_at""").fetchall()
+        pending_personnel = connection.execute("""SELECT p.id,p.full_name,COALESCE(p.email,''),p.requested_role,
+            p.initiated_by,p.created_at FROM personnel_registrations p WHERE p.status='Pending' ORDER BY p.created_at""").fetchall()
+        selected_registration = None
+        registration_id = request.args.get("registration_id", type=int)
+        if registration_id:
+            selected_registration = connection.execute("""SELECT id,full_name,COALESCE(email,''),requested_role,initiated_by
+                FROM personnel_registrations WHERE id=? AND status='Pending'""", (registration_id,)).fetchone()
         return render_template("users.html", users=rows, roles=roles, reset_requests=reset_requests,
+            pending_personnel=pending_personnel,selected_registration=selected_registration,
             page_title="User Management", page_subtitle="Controlled accounts, roles and access",
             active_nav="database")
     except ValueError as error:
@@ -1078,6 +1124,16 @@ def iso_clause_checklist():
     clauses = [tuple(row) + (("Compliant" if row[10] and row[11] == row[10] else
         "Action Required" if row[13] else "Awaiting Approval" if row[10] and row[12] == row[10] else "Pending Records"),)
         for row in clauses]
+    if any(row[1] == "6.2" for row in clauses):
+        personnel_count = query("SELECT COUNT(*) FROM users WHERE is_active=1")[0][0]
+        approved_count = query("""SELECT COUNT(*) FROM personnel_documents
+            WHERE is_deleted=0 AND is_current=1 AND status='Approved'""")[0][0]
+        personnel_pending = query("""SELECT COUNT(*) FROM personnel_documents
+            WHERE is_deleted=0 AND status IN ('Submitted for Review','Reverted')""")[0][0]
+        expected = personnel_count * len(PERSONNEL_DOCUMENT_TYPES)
+        personnel_state = ("Compliant" if expected and approved_count >= expected else
+            "Action Required" if personnel_pending else "Pending Records")
+        clauses = [row[:-1] + (personnel_state,) if row[1] == "6.2" else row for row in clauses]
     totals = {"total": len(clauses), "compliant": sum(1 for row in clauses if row[14] == "Compliant"),
         "partial": sum(1 for row in clauses if row[6] == "Partially Compliant"),
         "nonconforming": sum(1 for row in clauses if row[6] == "Nonconforming"),
@@ -1178,6 +1234,8 @@ def iso_clause_detail(clause_id):
             JOIN iso_clause_assessments a ON a.clause_id=c.id WHERE c.id=? AND c.is_active=1
             AND a.applicability='Applicable' AND a.applicability_set_by IS NOT NULL""", (clause_id,)).fetchone()
         if not clause: abort(404)
+        if clause[1] == "6.2":
+            return redirect(url_for("personnel_clause",clause_id=clause_id))
         if request.method == "POST":
             require_permission("equipment_edit")
             chief_controls_applicability = False
@@ -1264,6 +1322,211 @@ def iso_clause_detail(clause_id):
     except ValueError as error:
         connection.rollback(); flash(str(error),"error")
         return redirect(url_for("iso_clause_detail",clause_id=clause_id))
+    finally:
+        connection.close()
+
+
+def _save_personnel_document(upload, user_id):
+    suffix = Path(upload.filename).suffix.lower()
+    if suffix not in REPORT_EXTENSIONS:
+        raise ValueError("Upload a PDF, DOCX, XLSX, JPG or PNG file.")
+    destination = Path("data/documents/iso17025/personnel") / str(user_id)
+    destination.mkdir(parents=True, exist_ok=True)
+    stored_name = f"{uuid4().hex}{suffix}"
+    stored_path = destination / stored_name
+    upload.save(stored_path)
+    return Path(upload.filename).name, str(stored_path)
+
+
+@app.get("/iso17025/clause-checklist/<int:clause_id>/personnel")
+def personnel_clause(clause_id):
+    connection = get_connection()
+    try:
+        clause = connection.execute("""SELECT c.id,c.clause_code,c.title,c.guidance FROM iso_clauses c
+            JOIN iso_clause_assessments a ON a.clause_id=c.id WHERE c.id=? AND c.clause_code='6.2'
+            AND c.is_active=1 AND a.applicability='Applicable' AND a.applicability_set_by IS NOT NULL""", (clause_id,)).fetchone()
+        if not clause: abort(404)
+        users = connection.execute("""SELECT u.id,u.full_name,u.username,COALESCE(u.email,''),r.name,u.is_active
+            FROM users u JOIN roles r ON r.id=u.role_id ORDER BY u.is_active DESC,u.full_name""").fetchall()
+        documents = connection.execute("""SELECT d.id,d.user_id,d.document_type,d.document_number,d.revision,
+            d.issued_date,d.file_name,d.status,d.uploaded_by,COALESCE(d.approved_by,''),
+            COALESCE(d.review_comment,''),d.created_at,d.is_current,d.assigned_reviewer_id
+            FROM personnel_documents d WHERE d.is_deleted=0 ORDER BY d.user_id,d.document_type,d.id DESC""").fetchall()
+        by_user = {}
+        for document in documents:
+            by_user.setdefault(document[1], []).append(document)
+        personnel = []
+        for user in users:
+            current = {doc[2]: doc for doc in by_user.get(user[0], []) if doc[7] == "Approved" and doc[12]}
+            pending = {doc[2]: doc for doc in by_user.get(user[0], []) if doc[7] in {"Submitted for Review","Reverted"}}
+            personnel.append({"user":user,"current":current,"pending":pending,
+                "complete":all(kind in current for kind in PERSONNEL_DOCUMENT_TYPES)})
+        pending_registrations = connection.execute("SELECT COUNT(*) FROM personnel_registrations WHERE status='Pending'").fetchone()[0]
+        selected_user_id = request.args.get("user_id", type=int)
+        selected = next((item for item in personnel if item["user"][0] == selected_user_id), None)
+        role = session.get("role_name")
+        can_manage_all = role in {"Supervisor","Chief Meteorologist","Administrator"}
+        if selected and not (can_manage_all or selected_user_id == session.get("user_id")):
+            selected = None
+        reviewers = connection.execute("""SELECT u.id,u.full_name,r.name FROM users u JOIN roles r ON r.id=u.role_id
+            WHERE u.is_active=1 AND r.name IN ('Supervisor','Chief Meteorologist','Administrator')
+            ORDER BY CASE r.name WHEN 'Supervisor' THEN 1 WHEN 'Chief Meteorologist' THEN 2 ELSE 3 END,u.full_name""").fetchall()
+        return render_template("personnel_clause.html",clause=clause,personnel=personnel,
+            document_types=PERSONNEL_DOCUMENT_TYPES,selected=selected,reviewers=reviewers,
+            can_manage_all=can_manage_all,pending_registrations=pending_registrations,
+            page_title="Clause 6.2 · Personnel",page_subtitle=clause[3],active_nav="iso17025")
+    finally:
+        connection.close()
+
+
+@app.post("/iso17025/clause-checklist/<int:clause_id>/personnel/register")
+def personnel_register(clause_id):
+    connection = get_connection()
+    try:
+        full_name = request.form.get("full_name","").strip()
+        email = request.form.get("email","").strip() or None
+        requested_role = request.form.get("requested_role","").strip()
+        allowed = {"Supervisor","Engineer","Technician","Operator","Guest"}
+        if not full_name or requested_role not in allowed: raise ValueError("Full name and a valid laboratory role are required.")
+        if email and not valid_email(email): raise ValueError("Enter a valid email address.")
+        chief = connection.execute("""SELECT u.id,u.full_name FROM users u JOIN roles r ON r.id=u.role_id
+            WHERE u.is_active=1 AND r.name='Chief Meteorologist' ORDER BY u.id LIMIT 1""").fetchone()
+        if not chief: raise ValueError("An active Chief Meteorologist is required to review personnel registration.")
+        registration_id = connection.execute("""INSERT INTO personnel_registrations
+            (full_name,email,requested_role,status,initiated_by_user_id,initiated_by,assigned_reviewer_id)
+            VALUES (?,?,?,'Pending',?,?,?)""",(full_name,email,requested_role,session.get("user_id"),current_actor(),chief[0])).lastrowid
+        initiated_by_chief = session.get("role_name") == "Chief Meteorologist"
+        if not initiated_by_chief:
+            connection.execute("""INSERT INTO workflow_tasks(entity_type,entity_id,task_type,status,submitted_by,
+                assigned_to,submitted_user_id,assigned_user_id,priority) VALUES (?,?,'Personnel registration','Pending',?,?,?,?,?)""",
+                ("personnel_registration",registration_id,current_actor(),chief[1],session.get("user_id"),chief[0],"Normal"))
+            add_notification(connection,chief[0],"Personnel registration awaiting completion",full_name,
+                url_for("users",registration_id=registration_id),"personnel_registration",registration_id)
+        audit_change(connection,"personnel_registration",registration_id,"submit",after={"name":full_name,"role":requested_role})
+        connection.commit()
+        flash("Complete the personnel account details." if initiated_by_chief else
+            "Personnel registration sent to the Chief Meteorologist for completion.","success")
+        destination = url_for("users",registration_id=registration_id) if initiated_by_chief else url_for("personnel_clause",clause_id=clause_id)
+    except ValueError as error:
+        connection.rollback(); flash(str(error),"error")
+    finally:
+        connection.close()
+    return redirect(destination if 'destination' in locals() else url_for("personnel_clause",clause_id=clause_id))
+
+
+@app.post("/iso17025/personnel/<int:user_id>/documents")
+def personnel_document_upload(user_id):
+    connection = get_connection()
+    try:
+        target = connection.execute("SELECT id,full_name FROM users WHERE id=? AND is_active=1",(user_id,)).fetchone()
+        if not target: raise ValueError("Active personnel record was not found.")
+        role = session.get("role_name")
+        if user_id != session.get("user_id") and role not in {"Supervisor","Chief Meteorologist","Administrator"}:
+            abort(403)
+        document_type = request.form.get("document_type","")
+        document_number = request.form.get("document_number","").strip()
+        revision = request.form.get("revision","").strip()
+        issued_date = request.form.get("issued_date") or None
+        upload = request.files.get("document_file")
+        if document_type not in PERSONNEL_DOCUMENT_TYPES or not all((document_number,revision,issued_date,upload and upload.filename)):
+            raise ValueError("Document type, number, revision, issued date and file are required.")
+        reviewer_id = request.form.get("reviewer_user_id",type=int)
+        auto_approved = role in {"Chief Meteorologist","Administrator"}
+        if not auto_approved:
+            permitted_roles = ("Chief Meteorologist","Administrator") if role == "Supervisor" else ("Supervisor","Chief Meteorologist","Administrator")
+            reviewer = connection.execute(f"""SELECT u.id,u.full_name,r.name FROM users u JOIN roles r ON r.id=u.role_id
+                WHERE u.id=? AND u.is_active=1 AND r.name IN ({','.join('?' for _ in permitted_roles)})""",
+                (reviewer_id,*permitted_roles)).fetchone()
+            if not reviewer: raise ValueError("Select an authorized reviewer for this personnel document.")
+        else: reviewer = None
+        file_name,file_path = _save_personnel_document(upload,user_id)
+        previous = connection.execute("""SELECT id FROM personnel_documents WHERE user_id=? AND document_type=?
+            AND status='Approved' AND is_current=1 AND is_deleted=0 ORDER BY id DESC LIMIT 1""",(user_id,document_type)).fetchone()
+        status = "Approved" if auto_approved else "Submitted for Review"
+        document_id = connection.execute("""INSERT INTO personnel_documents
+            (user_id,document_type,document_number,revision,issued_date,file_name,file_path,status,
+            uploaded_by_user_id,uploaded_by,assigned_reviewer_id,approved_by_user_id,approved_by,approved_at,
+            supersedes_id,is_current) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,CASE WHEN ?='Approved' THEN CURRENT_TIMESTAMP ELSE NULL END,?,?)""",
+            (user_id,document_type,document_number,revision,issued_date,file_name,file_path,status,
+             session.get("user_id"),current_actor(),reviewer[0] if reviewer else None,
+             session.get("user_id") if auto_approved else None,current_actor() if auto_approved else None,status,
+             previous[0] if previous else None,int(auto_approved))).lastrowid
+        if auto_approved and previous:
+            connection.execute("UPDATE personnel_documents SET is_current=0,superseded_by_id=? WHERE id=?",(document_id,previous[0]))
+        if reviewer:
+            connection.execute("""INSERT INTO workflow_tasks(entity_type,entity_id,task_type,status,submitted_by,
+                assigned_to,submitted_user_id,assigned_user_id,priority) VALUES (?,?,'Personnel document review','Pending',?,?,?,?,?)""",
+                ("personnel_document",document_id,current_actor(),reviewer[1],session.get("user_id"),reviewer[0],"Normal"))
+            add_notification(connection,reviewer[0],"Personnel document awaiting review",
+                f"{target[1]} · {document_type}",url_for("personnel_record",user_id=user_id),"personnel_document",document_id)
+        audit_change(connection,"personnel_document",document_id,"upload",after={"person":target[1],"type":document_type,"status":status})
+        connection.commit(); flash("Personnel document approved." if auto_approved else "Personnel document submitted for review.","success")
+    except ValueError as error:
+        connection.rollback(); flash(str(error),"error")
+    finally:
+        connection.close()
+    return redirect(url_for("personnel_record",user_id=user_id))
+
+
+@app.get("/iso17025/personnel/<int:user_id>")
+def personnel_record(user_id):
+    clause = query("SELECT id FROM iso_clauses WHERE clause_code='6.2'")
+    if not clause: abort(404)
+    return redirect(url_for("personnel_clause",clause_id=clause[0][0],user_id=user_id))
+
+
+@app.post("/iso17025/personnel-documents/<int:document_id>/workflow")
+def personnel_document_workflow(document_id):
+    connection = get_connection()
+    try:
+        row = connection.execute("""SELECT d.id,d.user_id,d.document_type,d.status,d.uploaded_by_user_id,
+            d.assigned_reviewer_id,d.supersedes_id,r.name,u.full_name FROM personnel_documents d
+            JOIN users u ON u.id=d.uploaded_by_user_id JOIN roles r ON r.id=u.role_id
+            WHERE d.id=? AND d.is_deleted=0""",(document_id,)).fetchone()
+        if not row or row[3] != "Submitted for Review": raise ValueError("Only submitted personnel documents can be reviewed.")
+        role = session.get("role_name")
+        if role not in {"Supervisor","Chief Meteorologist","Administrator"}: abort(403)
+        if row[7] == "Supervisor" and role not in {"Chief Meteorologist","Administrator"}:
+            raise ValueError("A document changed by a Supervisor must be approved by the Chief Meteorologist.")
+        if session.get("user_id") != row[5] and role not in {"Chief Meteorologist","Administrator"}:
+            raise ValueError("This review is assigned to another authorized reviewer.")
+        action = request.form.get("action")
+        comment = request.form.get("comment","").strip()
+        if action not in {"approve","revert"}: raise ValueError("Select Approve or Revert.")
+        if action == "revert" and not comment: raise ValueError("A revert comment is required.")
+        status = "Approved" if action == "approve" else "Reverted"
+        if status == "Approved":
+            connection.execute("""UPDATE personnel_documents SET is_current=0,superseded_by_id=?
+                WHERE user_id=? AND document_type=? AND is_current=1 AND status='Approved' AND id<>?""",
+                (document_id,row[1],row[2],document_id))
+        connection.execute("""UPDATE personnel_documents SET status=?,review_comment=?,approved_by_user_id=?,approved_by=?,
+            approved_at=CASE WHEN ?='Approved' THEN CURRENT_TIMESTAMP ELSE NULL END,is_current=? WHERE id=?""",
+            (status,comment or None,session.get("user_id") if status=="Approved" else None,
+             current_actor() if status=="Approved" else None,status,int(status=="Approved"),document_id))
+        connection.execute("""UPDATE workflow_tasks SET status='Completed',decision=?,comment=?,reviewed_at=CURRENT_TIMESTAMP
+            WHERE entity_type='personnel_document' AND entity_id=? AND status='Pending'""",(action,comment or None,document_id))
+        add_notification(connection,row[4],f"Personnel document {status.lower()}",
+            comment or f"{row[2]} was {status.lower()} by {current_actor()}.",url_for("personnel_record",user_id=row[1]),"personnel_document",document_id)
+        audit_change(connection,"personnel_document",document_id,action,after={"status":status,"comment":comment or None})
+        connection.commit(); flash(f"Personnel document {status.lower()}.","success")
+    except ValueError as error:
+        connection.rollback(); flash(str(error),"error")
+    finally:
+        connection.close()
+    return redirect(url_for("personnel_record",user_id=row[1] if 'row' in locals() and row else session.get("user_id")))
+
+
+@app.get("/iso17025/personnel-documents/<int:document_id>/file")
+def personnel_document_file(document_id):
+    connection = get_connection()
+    try:
+        row = connection.execute("SELECT user_id,file_path,file_name FROM personnel_documents WHERE id=? AND is_deleted=0",(document_id,)).fetchone()
+        if not row: abort(404)
+        if row[0] != session.get("user_id") and session.get("role_name") not in {"Supervisor","Chief Meteorologist","Administrator"}:
+            abort(403)
+        path = Path(row[1])
+        if not path.is_file(): abort(404)
+        return send_file(path.resolve(),download_name=row[2],as_attachment=False)
     finally:
         connection.close()
 
