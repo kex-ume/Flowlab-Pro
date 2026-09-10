@@ -1,5 +1,6 @@
 {% extends 'base.html' %}
 {% block content %}
+<link rel="stylesheet" href="{{url_for('static',filename='clause-catalog.css')}}">
 <div class="clause-workspace clause-record-page gum-app">
   <nav class="breadcrumbs"><a href="{{url_for('iso_clause_checklist')}}">Clause Checklist</a><span>›</span><span>{{clause[1]}}</span></nav>
   <header class="clause-requirement-head">
@@ -10,6 +11,7 @@
   <section class="panel clause-requirement-list"><div class="panel-head"><h3>Required Documents and Records</h3><span class="meta-pill">{{requirements|length}}</span></div>
     <div class="clause-requirement-rows">{% for r in requirements %}<div><strong>{{r[10]}}</strong><span>{{r[1]}}</span><em class="requirement-state {{'complete' if r[3] else ('reverted' if r[9] else ('review' if r[7] else 'missing'))}}">{{'Approved' if r[3] else ('Action required' if r[9] else ('Awaiting approval' if r[7] else ('Required' if r[2] else 'Conditional')))}}</em></div>{% endfor %}</div>
   </section>
+  <section class="panel clause-subclause-panel"><div class="panel-head"><h3>Clause Requirements</h3><span class="meta-pill">{{subclauses|length}} requirements</span></div><div class="clause-subclause-list">{% for code,requirement in subclauses %}<div><strong>{{code}}</strong><span>{{requirement}}</span></div>{% endfor %}</div></section>
 
   <section class="panel clause-document-register"><div class="panel-head"><h3>Document and Record Register</h3><span class="meta-pill">{{evidence|length}}</span></div>
     {% if evidence %}<div class="table-scroll"><table><thead><tr><th>Subclause / Record</th><th>Document No.</th><th>Revision</th><th>Issued</th><th>Retain Until</th><th>Owner</th><th>Uploaded By</th><th>Approval</th><th>Document</th><th>Record Status</th></tr></thead><tbody>

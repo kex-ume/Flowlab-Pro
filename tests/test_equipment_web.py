@@ -221,6 +221,8 @@ class FreshDatabaseWebTests(unittest.TestCase):
         self.assertIn('id="clauseEvidenceForm"', detail_page)
         self.assertIn("data-collapsible-form hidden", detail_page)
         self.assertIn("4.2.1 — Confidentiality policy and personnel undertaking", detail_page)
+        self.assertIn("4.2.4",detail_page)
+        self.assertIn("Require personnel and external parties",detail_page)
         response = self.client.post(f"/iso17025/clause-checklist/{clause_id}", data={
             "applicability":"Applicable", "compliance_status":"Compliant",
             "finding":"Confidentiality arrangements reviewed", "last_review_date":"2026-09-09",
@@ -304,10 +306,12 @@ class FreshDatabaseWebTests(unittest.TestCase):
         connection.commit(); connection.close()
         with self.client.session_transaction() as login:
             login.update(user_id=technician_id,username="personneltech",full_name="Personnel Technician",role_name="Technician")
-        page = self.client.get(f"/iso17025/clause-checklist/{clause_id}/personnel").get_data(as_text=True)
+        page = self.client.get(f"/iso17025/clause-checklist/{clause_id}/personnel?user_id={technician_id}").get_data(as_text=True)
         self.assertIn("Personnel Compliance Register",page)
         self.assertIn("Lab Role",page); self.assertIn("Impartiality",page)
         self.assertIn("Confidentiality",page); self.assertIn("Job Description",page)
+        self.assertIn("6.2.1",page); self.assertIn("6.2.6",page)
+        self.assertIn("6.2.2 / 6.2.4 — Job Description",page)
         response = self.client.post(f"/iso17025/personnel/{technician_id}/documents",data={
             "document_type":"Impartiality Assessment","document_number":"IMP-001","revision":"1",
             "issued_date":"2026-09-10","reviewer_user_id":str(supervisor_id),

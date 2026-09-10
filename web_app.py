@@ -24,6 +24,7 @@ from flask import Flask, abort, flash, jsonify, redirect, render_template, reque
 
 from app.database.database import get_connection
 from app.database.init_db import initialize_database
+from app.iso17025_catalog import subclauses_for
 from app.modules.uncertainty.engine import Budget2Resolver, RSSEngine, TypeAProcessor, UncertaintyInput
 from app.modules.uncertainty.matrix import MatrixResolver
 from app.modules.uncertainty.repository import UncertaintyRepository
@@ -46,6 +47,12 @@ PERSONNEL_DOCUMENT_TYPES = (
     "Confidentiality Policy Acknowledgement",
     "Job Description",
 )
+PERSONNEL_DOCUMENT_SUBCLAUSES = {
+    "Laboratory Role Authorization":"6.2.6",
+    "Impartiality Assessment":"6.2.1",
+    "Confidentiality Policy Acknowledgement":"6.2.1",
+    "Job Description":"6.2.2 / 6.2.4",
+}
 
 
 @app.context_processor
@@ -1330,6 +1337,7 @@ def iso_clause_detail(clause_id):
         else: clause_status = "Pending Records"
         return render_template("clause_detail.html",clause=clause,assessment=assessment,
             requirements=requirements,evidence=evidence,users=users,reviewers=reviewers,capas=capas,
+            subclauses=subclauses_for(clause[1]),
             missing_required=missing_required,clause_status=clause_status,
             applicability=applicability,can_set_applicability=session.get("role_name")=="Chief Meteorologist",
             page_title=f"Clause {clause[1]} · {clause[2]}",page_subtitle=clause[4],active_nav="iso17025")
@@ -1390,7 +1398,8 @@ def personnel_clause(clause_id):
             WHERE u.is_active=1 AND r.name IN ('Supervisor','Chief Meteorologist','Administrator')
             ORDER BY CASE r.name WHEN 'Supervisor' THEN 1 WHEN 'Chief Meteorologist' THEN 2 ELSE 3 END,u.full_name""").fetchall()
         return render_template("personnel_clause.html",clause=clause,personnel=personnel,
-            document_types=PERSONNEL_DOCUMENT_TYPES,selected=selected,reviewers=reviewers,
+            document_types=PERSONNEL_DOCUMENT_TYPES,document_subclauses=PERSONNEL_DOCUMENT_SUBCLAUSES,
+            subclauses=subclauses_for(clause[1]),selected=selected,reviewers=reviewers,
             can_manage_all=can_manage_all,pending_registrations=pending_registrations,
             page_title="Clause 6.2 · Personnel",page_subtitle=clause[3],active_nav="iso17025")
     finally:
