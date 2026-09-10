@@ -259,6 +259,17 @@ def valid_email(value):
     return parsed == (value or "").strip() and "@" in parsed and "." in parsed.rsplit("@", 1)[-1]
 
 
+def validate_date_sequence(start_value, end_value, end_label):
+    if not start_value or not end_value: return
+    try:
+        start_date=date.fromisoformat(str(start_value)[:10])
+        end_date=date.fromisoformat(str(end_value)[:10])
+    except ValueError as error:
+        raise ValueError("Enter valid calendar dates.") from error
+    if end_date < start_date:
+        raise ValueError(f"{end_label} cannot be earlier than {start_date.strftime('%d/%m/%y')}.")
+
+
 def next_reference(connection, table, column, prefix):
     year = date.today().year
     stem = f"{prefix}-{year}-"
@@ -732,6 +743,7 @@ def capa():
                 "Issued date":request.form.get("issued_date"),"Target close-out date":request.form.get("target_close_date")}
             missing=[name for name,value in required.items() if not value]
             if missing: raise ValueError("Required NCR fields: "+", ".join(missing)+".")
+            validate_date_sequence(required["Issued date"],required["Target close-out date"],"Target close-out date")
             issued_path=_save_capa_file(request.files.get("issued_ncr"),required["NCR number"],"issued")
             if not issued_path: raise ValueError("Upload the issued NCR before saving the record.")
             cursor=connection.execute("""INSERT INTO capa_records
@@ -766,6 +778,7 @@ def capa_detail(record_id):
         if request.method=="POST":
             require_permission("equipment_edit")
             if row[12]=="Closed": raise ValueError("Closed NCR records are locked.")
+            validate_date_sequence(row[10],request.form.get("target_close_date"),"Target close-out date")
             closeout=_save_capa_file(request.files.get("closeout_report"),row[1],"closeout") or row[14]
             connection.execute("""UPDATE capa_records SET immediate_correction=?,root_cause=?,
                 corrective_action=?,owner=?,target_close_date=?,closeout_report_path=?,
@@ -1285,6 +1298,7 @@ def iso_clause_detail(clause_id):
                 request.form.get("planned_action", "").strip() or None,
                 request.form.get("target_date") or None,request.form.get("last_review_date") or None,
                 request.form.get("next_review_date") or None,current_actor())
+            validate_date_sequence(request.form.get("last_review_date"),request.form.get("next_review_date"),"Next review date")
             if existing:
                 if existing[1] == "Approved" and not workflow_authority():
                     raise ValueError("An approved assessment is locked. Chief/Admin authority is required to revise it.")
@@ -1683,6 +1697,8 @@ def iso_clause_evidence_upload(clause_id):
         retention_until=request.form.get("retention_until") or None
         if not upload or not upload.filename or not all((document_number,revision,effective_date,retention_until)):
             raise ValueError("Document/record number, revision, issued date, retention date and file are required.")
+        validate_date_sequence(effective_date,request.form.get("review_date"),"Review or expiry date")
+        validate_date_sequence(effective_date,retention_until,"Retention date")
         ensure_unique_document_number(connection,document_number)
         file_name,file_path=_save_clause_evidence(upload,clause[0])
         status="Approved" if chief_auto_approval() else "Draft"
@@ -1897,6 +1913,7 @@ def project_jobs():
                 project_name = request.form.get("project_name", "").strip()
                 if not project_name:
                     raise ValueError("Project: enter the project name.")
+                validate_date_sequence(request.form.get("project_start_date"),request.form.get("project_completion_date"),"Expected completion date")
                 project_number = request.form.get("project_number", "").strip() or next_reference(
                     connection, "projects", "project_number", "PRJ")
                 cursor = connection.execute("""INSERT INTO projects
@@ -1940,6 +1957,7 @@ def project_jobs():
                         (project_id,)).fetchone()
                     if not project:
                         raise ValueError("Select an active parent Project for this Job.")
+                    validate_date_sequence(request.form.get("planned_start_date"),request.form.get("required_date"),"Job due date")
                     customer_id = project[0]
                     flow_min = float(request.form["flow_min"]); flow_max = float(request.form["flow_max"])
                     flow_point_count = int(request.form["flow_point_count"])

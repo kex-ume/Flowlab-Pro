@@ -451,6 +451,12 @@ class FreshDatabaseWebTests(unittest.TestCase):
         connection.commit();connection.close()
         with self.client.session_transaction() as login:
             login.update(user_id=admin_id,username="capa-admin",full_name="CAPA Administrator",role_name="Administrator")
+        invalid=self.client.post("/capa",data={"ncr_number":"NCR-DATE-INVALID","title":"Invalid chronology",
+            "source":"Audit","description":"Date sequence check","owner":"Quality Officer",
+            "issued_date":"2026-09-10","target_close_date":"2026-09-01",
+            "issued_ncr":(io.BytesIO(b"%PDF-1.4 issued"),"issued.pdf")},
+            content_type="multipart/form-data",follow_redirects=True)
+        self.assertIn("Target close-out date cannot be earlier",invalid.get_data(as_text=True))
         response=self.client.post("/capa",data={"ncr_number":"NCR-TEST-001","title":"Test NCR",
             "source":"Internal audit","clause_reference":"7.10","description":"Observed nonconforming work",
             "owner":"Quality Officer","issued_date":"2026-09-01","target_close_date":"2026-09-30",
