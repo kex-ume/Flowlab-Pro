@@ -91,6 +91,37 @@ ISO_EVIDENCE_REQUIREMENTS = (
     ("8.9","Management review agenda, inputs, minutes and action register","Management system","Always","Date; attendees; required inputs; performance data; decisions; resources; actions; owners; closure"),
 )
 
+ISO_EVIDENCE_SUBCLAUSES = {
+    "Impartiality policy":"4.1.1", "Impartiality risk register":"4.1.4",
+    "Conflict-of-interest declaration register":"4.1.3", "Confidentiality policy and personnel undertaking":"4.2.1",
+    "Customer information release or disclosure record":"4.2.2", "Legal identity and accreditation scope file":"5.1",
+    "Organization chart and responsibility matrix":"5.5", "Appointment and authorization letters":"5.6",
+    "Resource and capability plan":"6.1", "Personnel competence matrix":"6.2.2",
+    "Training, supervision and competence assessment record":"6.2.5", "Method and activity authorization register":"6.2.6",
+    "Facility and environmental requirements register":"6.3.1", "Environmental monitoring and excursion record":"6.3.3",
+    "Field-site suitability and pre-job assessment":"6.3.5", "Equipment master register and calibration programme":"6.4.13",
+    "Equipment calibration, verification and intermediate-check records":"6.4.6", "Equipment maintenance, damage and repair history":"6.4.7",
+    "Metrological traceability chain":"6.5.1", "Reference-standard calibration certificates":"6.5.2",
+    "Approved external provider register and evaluations":"6.6.2", "Purchased service/product acceptance record":"6.6.3",
+    "Request, tender and contract review record":"7.1.1", "Contract amendment and customer agreement record":"7.1.6",
+    "Controlled flow calibration method or procedure":"7.2.1.3", "Method verification or validation report":"7.2.2",
+    "Method deviation authorization record":"7.2.1.7", "Sampling plan and sampling procedure":"7.3.2",
+    "Sampling or field observation record":"7.3.3", "Calibration item receipt, inspection and identification record":"7.4.2",
+    "Item storage, handling, transport and return record":"7.4.1", "Technical and raw observation record":"7.5.1",
+    "Calculation and data-review record":"7.5.2", "Measurement uncertainty procedure and approved budgets":"7.6.1",
+    "Validity-of-results plan":"7.7.1", "PT/ILC participation plan and result evaluation":"7.7.2",
+    "Intermediate check, control chart or replicate-check record":"7.7.1", "Approved calibration certificate template":"7.8.4",
+    "Issued calibration certificate/report register":"7.8.1", "Decision rule and statement-of-conformity agreement":"7.8.6",
+    "Complaint register and investigation file":"7.9.1", "Nonconforming work report and impact assessment":"7.10.1",
+    "Authorization to resume work":"7.10.2", "Laboratory information system and spreadsheet validation register":"7.11.2",
+    "Access, backup, recovery and data-integrity records":"7.11.3", "Management system option and scope declaration":"8.1.1",
+    "Quality policy, objectives and management system manual":"8.2.1", "Master controlled-document register":"8.3.2",
+    "External standards and methods register":"8.3.2", "Record control and retention schedule":"8.4.2",
+    "Risk and opportunity register":"8.5.1", "Customer feedback and improvement register":"8.6.1",
+    "Corrective action and effectiveness records":"8.7.1", "Internal audit programme, plan, report and findings":"8.8.2",
+    "Management review agenda, inputs, minutes and action register":"8.9.2",
+}
+
 
 def _create_iso_checklist_schema(conn, postgres=False):
     identity = "BIGSERIAL" if postgres else "INTEGER"
@@ -128,7 +159,7 @@ def _create_iso_checklist_schema(conn, postgres=False):
             conn.execute(f"ALTER TABLE iso_clause_assessments ADD COLUMN IF NOT EXISTS {column} {definition}")
         conn.execute("ALTER TABLE iso_clause_evidence ADD COLUMN IF NOT EXISTS document_owner TEXT")
         for column, definition in (("activity_scope","TEXT"),("applicability_rule","TEXT"),
-                ("required_fields","TEXT"),("is_active","INTEGER NOT NULL DEFAULT 1")):
+                ("required_fields","TEXT"),("subclause_code","TEXT"),("is_active","INTEGER NOT NULL DEFAULT 1")):
             conn.execute(f"ALTER TABLE iso_clause_evidence_requirements ADD COLUMN IF NOT EXISTS {column} {definition}")
     else:
         assessment_columns={row[1] for row in conn.execute("PRAGMA table_info(iso_clause_assessments)").fetchall()}
@@ -138,7 +169,7 @@ def _create_iso_checklist_schema(conn, postgres=False):
         if "document_owner" not in evidence_columns: conn.execute("ALTER TABLE iso_clause_evidence ADD COLUMN document_owner TEXT")
         columns={row[1] for row in conn.execute("PRAGMA table_info(iso_clause_evidence_requirements)").fetchall()}
         for column, definition in (("activity_scope","TEXT"),("applicability_rule","TEXT"),
-                ("required_fields","TEXT"),("is_active","INTEGER NOT NULL DEFAULT 1")):
+                ("required_fields","TEXT"),("subclause_code","TEXT"),("is_active","INTEGER NOT NULL DEFAULT 1")):
             if column not in columns: conn.execute(f"ALTER TABLE iso_clause_evidence_requirements ADD COLUMN {column} {definition}")
     for order, (code, title, category, guidance) in enumerate(ISO_CLAUSES, 1):
         conn.execute("""INSERT INTO iso_clauses(clause_code,title,category,guidance,sort_order)
@@ -149,12 +180,14 @@ def _create_iso_checklist_schema(conn, postgres=False):
     for code,evidence_name,scope,applicability,fields in ISO_EVIDENCE_REQUIREMENTS:
         clause = conn.execute("SELECT id FROM iso_clauses WHERE clause_code=?", (code,)).fetchone()
         required = int(applicability == "Always")
+        subclause = ISO_EVIDENCE_SUBCLAUSES.get(evidence_name, code)
         conn.execute("""INSERT INTO iso_clause_evidence_requirements
-            (clause_id,evidence_name,activity_scope,applicability_rule,required_fields,is_required,is_active)
-            VALUES (?,?,?,?,?,?,1) ON CONFLICT(clause_id,evidence_name) DO UPDATE SET
+            (clause_id,evidence_name,activity_scope,applicability_rule,required_fields,is_required,subclause_code,is_active)
+            VALUES (?,?,?,?,?,?,?,1) ON CONFLICT(clause_id,evidence_name) DO UPDATE SET
             activity_scope=excluded.activity_scope,applicability_rule=excluded.applicability_rule,
-            required_fields=excluded.required_fields,is_required=excluded.is_required,is_active=1""",
-            (clause[0],evidence_name,scope,applicability,fields,required))
+            required_fields=excluded.required_fields,is_required=excluded.is_required,
+            subclause_code=excluded.subclause_code,is_active=1""",
+            (clause[0],evidence_name,scope,applicability,fields,required,subclause))
 
 
 _postgres_schema_verified = False

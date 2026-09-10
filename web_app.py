@@ -1059,8 +1059,12 @@ def iso_clause_checklist():
         COALESCE(a.compliance_status,'Not Assessed'),
         COALESCE(a.status,'Draft'),COALESCE(u.full_name,''),a.next_review_date,
         (SELECT COUNT(*) FROM iso_clause_evidence_requirements r WHERE r.clause_id=c.id AND r.is_required=1 AND r.is_active=1),
-        (SELECT COUNT(*) FROM iso_clause_evidence e WHERE e.clause_id=c.id AND e.status='Approved' AND e.is_deleted=0),
-        (SELECT COUNT(*) FROM iso_clause_evidence e WHERE e.clause_id=c.id AND e.is_deleted=0)
+        (SELECT COUNT(*) FROM iso_clause_evidence_requirements r WHERE r.clause_id=c.id AND r.is_required=1 AND r.is_active=1
+            AND EXISTS (SELECT 1 FROM iso_clause_evidence e WHERE e.requirement_id=r.id AND e.status='Approved' AND e.is_deleted=0)),
+        (SELECT COUNT(*) FROM iso_clause_evidence_requirements r WHERE r.clause_id=c.id AND r.is_required=1 AND r.is_active=1
+            AND EXISTS (SELECT 1 FROM iso_clause_evidence e WHERE e.requirement_id=r.id AND e.is_deleted=0)),
+        (SELECT COUNT(*) FROM iso_clause_evidence_requirements r WHERE r.clause_id=c.id AND r.is_required=1 AND r.is_active=1
+            AND EXISTS (SELECT 1 FROM iso_clause_evidence e WHERE e.requirement_id=r.id AND e.status='Reverted' AND e.is_deleted=0))
         FROM iso_clauses c LEFT JOIN iso_clause_assessments a ON a.clause_id=c.id
         LEFT JOIN users u ON u.id=a.owner_user_id WHERE c.is_active=1
         AND a.applicability='Applicable' AND a.applicability_set_by IS NOT NULL"""
@@ -1071,7 +1075,10 @@ def iso_clause_checklist():
         sql += " AND c.category=?"; parameters.append(category)
     sql += " ORDER BY c.sort_order"
     clauses = query(sql, tuple(parameters))
-    totals = {"total": len(clauses), "compliant": sum(1 for row in clauses if row[6] == "Compliant"),
+    clauses = [tuple(row) + (("Compliant" if row[10] and row[11] == row[10] else
+        "Action Required" if row[13] else "Awaiting Approval" if row[10] and row[12] == row[10] else "Pending Records"),)
+        for row in clauses]
+    totals = {"total": len(clauses), "compliant": sum(1 for row in clauses if row[14] == "Compliant"),
         "partial": sum(1 for row in clauses if row[6] == "Partially Compliant"),
         "nonconforming": sum(1 for row in clauses if row[6] == "Nonconforming"),
         "not_assessed": sum(1 for row in clauses if row[6] == "Not Assessed")}
@@ -1138,6 +1145,31 @@ def _save_clause_evidence(upload, clause_code):
     return safe_name, str(target)
 
 
+def _sync_clause_compliance(connection, clause_id):
+    counts = connection.execute("""SELECT
+        COUNT(*),
+        SUM(CASE WHEN EXISTS (SELECT 1 FROM iso_clause_evidence e WHERE e.requirement_id=r.id
+            AND e.status='Approved' AND e.is_deleted=0) THEN 1 ELSE 0 END),
+        SUM(CASE WHEN EXISTS (SELECT 1 FROM iso_clause_evidence e WHERE e.requirement_id=r.id
+            AND e.is_deleted=0) THEN 1 ELSE 0 END),
+        SUM(CASE WHEN EXISTS (SELECT 1 FROM iso_clause_evidence e WHERE e.requirement_id=r.id
+            AND e.status='Reverted' AND e.is_deleted=0) THEN 1 ELSE 0 END)
+        FROM iso_clause_evidence_requirements r
+        WHERE r.clause_id=? AND r.is_required=1 AND r.is_active=1""", (clause_id,)).fetchone()
+    required, approved, uploaded, reverted = (int(value or 0) for value in counts)
+    if required and approved == required:
+        clause_status = "Compliant"
+        connection.execute("""UPDATE iso_clause_assessments SET compliance_status='Compliant',status='Approved',
+            approved_by=?,approved_at=CURRENT_TIMESTAMP,updated_by=?,updated_at=CURRENT_TIMESTAMP WHERE clause_id=?""",
+            (current_actor(), current_actor(), clause_id))
+    else:
+        clause_status = "Action Required" if reverted else ("Awaiting Approval" if required and uploaded == required else "Pending Records")
+        connection.execute("""UPDATE iso_clause_assessments SET compliance_status=?,status='Draft',
+            approved_by=NULL,approved_at=NULL,updated_by=?,updated_at=CURRENT_TIMESTAMP WHERE clause_id=?""",
+            (clause_status, current_actor(), clause_id))
+    return clause_status
+
+
 @app.route("/iso17025/clause-checklist/<int:clause_id>", methods=["GET", "POST"])
 def iso_clause_detail(clause_id):
     connection = get_connection()
@@ -1199,24 +1231,34 @@ def iso_clause_detail(clause_id):
             FROM iso_clause_assessments a WHERE a.clause_id=?""", (clause_id,)).fetchone()
         requirements = connection.execute("""SELECT r.id,r.evidence_name,r.is_required,
             (SELECT COUNT(*) FROM iso_clause_evidence e WHERE e.requirement_id=r.id AND e.status='Approved' AND e.is_deleted=0)
-            ,COALESCE(r.activity_scope,''),COALESCE(r.applicability_rule,''),COALESCE(r.required_fields,'')
-            FROM iso_clause_evidence_requirements r WHERE r.clause_id=? AND r.is_active=1
+            ,COALESCE(r.activity_scope,''),COALESCE(r.applicability_rule,''),COALESCE(r.required_fields,''),
+            (SELECT COUNT(*) FROM iso_clause_evidence e WHERE e.requirement_id=r.id AND e.is_deleted=0),
+            (SELECT COUNT(*) FROM iso_clause_evidence e WHERE e.requirement_id=r.id AND e.status='Submitted for Review' AND e.is_deleted=0),
+            (SELECT COUNT(*) FROM iso_clause_evidence e WHERE e.requirement_id=r.id AND e.status='Reverted' AND e.is_deleted=0),
+            COALESCE(r.subclause_code,c.clause_code)
+            FROM iso_clause_evidence_requirements r JOIN iso_clauses c ON c.id=r.clause_id WHERE r.clause_id=? AND r.is_active=1
             ORDER BY r.is_required DESC,r.id""", (clause_id,)).fetchall()
         evidence = connection.execute("""SELECT e.id,e.title,COALESCE(e.document_number,''),COALESCE(e.revision,''),
             e.effective_date,e.review_date,e.retention_until,e.file_name,e.status,e.uploaded_by,
             COALESCE(e.review_comment,''),COALESCE(e.approved_by,''),e.created_at,
-            COALESCE(r.evidence_name,'Additional evidence'),COALESCE(e.document_owner,'') FROM iso_clause_evidence e
+            COALESCE(r.evidence_name,'Additional evidence'),COALESCE(e.document_owner,''),COALESCE(r.subclause_code,c.clause_code) FROM iso_clause_evidence e
             LEFT JOIN iso_clause_evidence_requirements r ON r.id=e.requirement_id
+            JOIN iso_clauses c ON c.id=e.clause_id
             WHERE e.clause_id=? AND e.is_deleted=0 ORDER BY e.id DESC""", (clause_id,)).fetchall()
         users = connection.execute("""SELECT u.id,u.full_name,r.name FROM users u JOIN roles r ON r.id=u.role_id
             WHERE u.is_active=1 ORDER BY u.full_name""").fetchall()
-        reviewers = [row for row in users if row[2] in {"Chief Meteorologist","Administrator","Supervisor"}]
+        reviewers = [row for row in users if row[2] in {"Chief Meteorologist","Administrator"}]
         capas = connection.execute("SELECT id,ncr_number,title,status FROM capa_records WHERE is_deleted=0 ORDER BY id DESC").fetchall()
         applicability = assessment[1] if assessment and assessment[18] else "Pending determination"
         missing_required = sum(1 for requirement in requirements if requirement[2] and not requirement[3])
+        required = [requirement for requirement in requirements if requirement[2]]
+        if required and all(requirement[3] for requirement in required): clause_status = "Compliant"
+        elif any(requirement[9] for requirement in required): clause_status = "Action Required"
+        elif required and all(requirement[7] for requirement in required): clause_status = "Awaiting Approval"
+        else: clause_status = "Pending Records"
         return render_template("clause_detail.html",clause=clause,assessment=assessment,
             requirements=requirements,evidence=evidence,users=users,reviewers=reviewers,capas=capas,
-            missing_required=missing_required,
+            missing_required=missing_required,clause_status=clause_status,
             applicability=applicability,can_set_applicability=session.get("role_name")=="Chief Meteorologist",
             page_title=f"Clause {clause[1]} · {clause[2]}",page_subtitle=clause[4],active_nav="iso17025")
     except ValueError as error:
@@ -1236,17 +1278,17 @@ def iso_clause_evidence_upload(clause_id):
             AND a.applicability_set_by IS NOT NULL""",(clause_id,)).fetchone()
         if not clause: abort(404)
         upload=request.files.get("evidence_file")
-        title=request.form.get("title","").strip()
-        document_owner=request.form.get("document_owner","").strip()
+        requirement_id=request.form.get("requirement_id",type=int)
+        requirement=connection.execute("SELECT evidence_name FROM iso_clause_evidence_requirements WHERE id=? AND clause_id=? AND is_active=1",(requirement_id,clause_id)).fetchone() if requirement_id else None
+        if not requirement: raise ValueError("Select a document or record required for this clause.")
+        title=requirement[0]
+        document_owner=request.form.get("document_owner","").strip() or current_actor()
         document_number=request.form.get("document_number","").strip()
         revision=request.form.get("revision","").strip()
         effective_date=request.form.get("effective_date") or None
         retention_until=request.form.get("retention_until") or None
-        if not upload or not upload.filename or not all((title,document_owner,document_number,revision,effective_date,retention_until)):
-            raise ValueError("Requirement, title, document number, revision, owner, effective date, retention date and file are required.")
-        requirement_id=request.form.get("requirement_id",type=int)
-        if requirement_id and not connection.execute("SELECT 1 FROM iso_clause_evidence_requirements WHERE id=? AND clause_id=?",(requirement_id,clause_id)).fetchone():
-            raise ValueError("Select an evidence requirement belonging to this clause.")
+        if not upload or not upload.filename or not all((document_number,revision,effective_date,retention_until)):
+            raise ValueError("Document/record number, revision, issued date, retention date and file are required.")
         file_name,file_path=_save_clause_evidence(upload,clause[0])
         status="Approved" if chief_auto_approval() else "Draft"
         evidence_id=connection.execute("""INSERT INTO iso_clause_evidence
@@ -1258,6 +1300,7 @@ def iso_clause_evidence_upload(clause_id):
              request.form.get("review_date") or None,request.form.get("retention_until") or None,
              document_owner,file_name,file_path,status,current_actor(),current_actor() if status=="Approved" else None,status)).lastrowid
         audit_change(connection,"iso_clause_evidence",evidence_id,"upload",after={"title":title,"status":status})
+        _sync_clause_compliance(connection, clause_id)
         connection.commit();flash("Evidence uploaded" + (" and approved." if status=="Approved" else " as Draft."),"success")
     except Exception as error:
         connection.rollback();flash(str(error),"error")
@@ -1276,7 +1319,7 @@ def iso_clause_evidence_workflow(evidence_id):
         if action=="submit":
             reviewer_id=request.form.get("reviewer_user_id",type=int)
             reviewer=connection.execute("""SELECT u.id,u.full_name FROM users u JOIN roles r ON r.id=u.role_id
-                WHERE u.id=? AND u.is_active=1 AND r.name IN ('Chief Meteorologist','Administrator','Supervisor')""",(reviewer_id,)).fetchone()
+                WHERE u.id=? AND u.is_active=1 AND r.name IN ('Chief Meteorologist','Administrator')""",(reviewer_id,)).fetchone()
             if not reviewer: raise ValueError("Select an authorized reviewer.")
             connection.execute("UPDATE iso_clause_evidence SET status='Submitted for Review',assigned_reviewer_id=?,submitted_at=CURRENT_TIMESTAMP WHERE id=?",(reviewer_id,evidence_id))
             connection.execute("""INSERT INTO workflow_tasks(entity_type,entity_id,task_type,status,submitted_by,
@@ -1286,6 +1329,7 @@ def iso_clause_evidence_workflow(evidence_id):
             status="Submitted for Review"
         else:
             require_permission("record_approve")
+            if session.get("role_name") not in {"Chief Meteorologist","Administrator"}: raise ValueError("Only the Chief Meteorologist or Administrator can approve clause records.")
             if row[1]!="Submitted for Review": raise ValueError("Only submitted evidence can be reviewed.")
             if action=="revert" and not comment: raise ValueError("A revert comment is required.")
             if action not in {"approve","revert"}: raise ValueError("Select Approve or Revert.")
@@ -1300,6 +1344,7 @@ def iso_clause_evidence_workflow(evidence_id):
                 comment or f"{row[3]} was {status.lower()} by {current_actor()}.",
                 url_for("iso_clause_detail",clause_id=row[0]),"iso_clause_evidence",evidence_id)
         audit_change(connection,"iso_clause_evidence",evidence_id,action,after={"status":status,"comment":comment or None})
+        _sync_clause_compliance(connection, row[0])
         connection.commit();flash(f"Evidence status changed to {status}.","success")
     except ValueError as error:
         connection.rollback();flash(str(error),"error")

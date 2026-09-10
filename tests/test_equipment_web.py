@@ -217,6 +217,10 @@ class FreshDatabaseWebTests(unittest.TestCase):
         self.assertEqual(response.status_code,302)
         self.assertIn("Confidentiality", self.client.get(
             "/iso17025/clause-checklist").get_data(as_text=True))
+        detail_page = self.client.get(f"/iso17025/clause-checklist/{clause_id}").get_data(as_text=True)
+        self.assertIn('id="clauseEvidenceForm"', detail_page)
+        self.assertIn("data-collapsible-form hidden", detail_page)
+        self.assertIn("4.2.1 — Confidentiality policy and personnel undertaking", detail_page)
         response = self.client.post(f"/iso17025/clause-checklist/{clause_id}", data={
             "applicability":"Applicable", "compliance_status":"Compliant",
             "finding":"Confidentiality arrangements reviewed", "last_review_date":"2026-09-09",
@@ -250,8 +254,13 @@ class FreshDatabaseWebTests(unittest.TestCase):
             WHERE clause_id=?""", (clause_id,)).fetchone()[0]
         evidence_status = connection.execute("""SELECT status FROM iso_clause_evidence
             WHERE clause_id=?""", (clause_id,)).fetchone()[0]
+        clause_compliance = connection.execute("""SELECT compliance_status FROM iso_clause_assessments
+            WHERE clause_id=?""", (clause_id,)).fetchone()[0]
         connection.close()
         self.assertEqual((assessment_status,evidence_status),("Approved","Approved"))
+        self.assertEqual(clause_compliance,"Compliant")
+        detail_page = self.client.get(f"/iso17025/clause-checklist/{clause_id}").get_data(as_text=True)
+        self.assertIn("Active", detail_page)
 
     def test_iso_workspace_and_coveter_render_for_authorized_profiles(self):
         iso_page=self.client.get("/workspace/iso17025")
