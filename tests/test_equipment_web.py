@@ -314,6 +314,12 @@ class FreshDatabaseWebTests(unittest.TestCase):
             "document_file":(io.BytesIO(b"%PDF-1.4 personnel"),"impartiality.pdf")},
             content_type="multipart/form-data")
         self.assertEqual(response.status_code,302)
+        duplicate = self.client.post(f"/iso17025/personnel/{technician_id}/documents",data={
+            "document_type":"Impartiality Assessment","document_number":"IMP-001","revision":"duplicate",
+            "issued_date":"2026-09-10","reviewer_user_id":str(supervisor_id),
+            "document_file":(io.BytesIO(b"%PDF-1.4 duplicate"),"duplicate.pdf")},
+            content_type="multipart/form-data",follow_redirects=True)
+        self.assertIn("Document number IMP-001 is already registered",duplicate.get_data(as_text=True))
         connection = database.get_connection()
         document_id,status = connection.execute("SELECT id,status FROM personnel_documents").fetchone()
         task = connection.execute("""SELECT assigned_user_id,status FROM workflow_tasks
@@ -330,7 +336,7 @@ class FreshDatabaseWebTests(unittest.TestCase):
         with self.client.session_transaction() as login:
             login.update(user_id=chief_id,username="personnelchief",full_name="Personnel Chief",role_name="Chief Meteorologist")
         self.client.post(f"/iso17025/personnel/{technician_id}/documents",data={
-            "document_type":"Impartiality Assessment","document_number":"IMP-001","revision":"2",
+            "document_type":"Impartiality Assessment","document_number":"IMP-002","revision":"2",
             "issued_date":"2026-09-11","document_file":(io.BytesIO(b"%PDF-1.4 replacement"),"impartiality-v2.pdf")},
             content_type="multipart/form-data")
         connection = database.get_connection()
@@ -339,6 +345,24 @@ class FreshDatabaseWebTests(unittest.TestCase):
         connection.close()
         self.assertEqual(versions[0][0:3],("1","Approved",0))
         self.assertIsNotNone(versions[0][3]); self.assertEqual(versions[1][0:3],("2","Approved",1))
+        personnel_page=self.client.get(f"/iso17025/personnel/{technician_id}",follow_redirects=True).get_data(as_text=True)
+        self.assertIn("Superseded",personnel_page);self.assertIn("Save Revision",personnel_page)
+        connection=database.get_connection()
+        replacement_id=connection.execute("SELECT id FROM personnel_documents WHERE revision='2'").fetchone()[0]
+        connection.close()
+        self.client.post(f"/iso17025/personnel-documents/{replacement_id}/edit",data={
+            "document_number":"IMP-003","revision":"3","issued_date":"2026-09-12"})
+        connection=database.get_connection()
+        edited_id=connection.execute("SELECT id FROM personnel_documents WHERE revision='3'").fetchone()[0]
+        edited_state=connection.execute("SELECT status,is_current FROM personnel_documents WHERE id=?",(edited_id,)).fetchone()
+        connection.close()
+        self.assertEqual(edited_state,("Approved",1))
+        self.client.post(f"/iso17025/personnel-documents/{edited_id}/delete")
+        connection=database.get_connection()
+        restored=connection.execute("SELECT is_current FROM personnel_documents WHERE id=?",(replacement_id,)).fetchone()[0]
+        deleted=connection.execute("SELECT is_deleted FROM personnel_documents WHERE id=?",(edited_id,)).fetchone()[0]
+        connection.close()
+        self.assertEqual((restored,deleted),(1,1))
         with self.client.session_transaction() as login:
             login.update(user_id=technician_id,username="personneltech",full_name="Personnel Technician",role_name="Technician")
         self.client.post(f"/iso17025/clause-checklist/{clause_id}/personnel/register",data={

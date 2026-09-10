@@ -199,6 +199,20 @@ def user_id_for_actor(connection, actor):
     return row[0] if row else None
 
 
+def ensure_unique_document_number(connection, document_number, exclude_table=None, exclude_id=None):
+    number = (document_number or "").strip()
+    if not number: return
+    sources = (("controlled_documents","Controlled document"),
+        ("iso_clause_evidence","Clause evidence"),("personnel_documents","Personnel record"))
+    for table,label in sources:
+        sql=f"SELECT id FROM {table} WHERE LOWER(TRIM(document_number))=LOWER(TRIM(?))"
+        params=[number]
+        if table==exclude_table and exclude_id:
+            sql+=" AND id<>?";params.append(exclude_id)
+        if connection.execute(sql,tuple(params)).fetchone():
+            raise ValueError(f"Document number {number} is already registered. Document numbers remain reserved after supersession or deletion.")
+
+
 def active_reviewers(connection):
     return connection.execute("""SELECT u.id,u.full_name,r.name FROM users u
         JOIN roles r ON r.id=u.role_id WHERE u.is_active=1
@@ -1357,9 +1371,13 @@ def personnel_clause(clause_id):
             by_user.setdefault(document[1], []).append(document)
         personnel = []
         for user in users:
-            current = {doc[2]: doc for doc in by_user.get(user[0], []) if doc[7] == "Approved" and doc[12]}
-            pending = {doc[2]: doc for doc in by_user.get(user[0], []) if doc[7] in {"Submitted for Review","Reverted"}}
+            current = {}
+            pending = {}
+            for doc in by_user.get(user[0], []):
+                if doc[7] == "Approved" and doc[12]: current.setdefault(doc[2], doc)
+                if doc[7] in {"Submitted for Review","Reverted"}: pending.setdefault(doc[2], doc)
             personnel.append({"user":user,"current":current,"pending":pending,
+                "documents":by_user.get(user[0], []),
                 "complete":all(kind in current for kind in PERSONNEL_DOCUMENT_TYPES)})
         pending_registrations = connection.execute("SELECT COUNT(*) FROM personnel_registrations WHERE status='Pending'").fetchone()[0]
         selected_user_id = request.args.get("user_id", type=int)
@@ -1430,6 +1448,7 @@ def personnel_document_upload(user_id):
         upload = request.files.get("document_file")
         if document_type not in PERSONNEL_DOCUMENT_TYPES or not all((document_number,revision,issued_date,upload and upload.filename)):
             raise ValueError("Document type, number, revision, issued date and file are required.")
+        ensure_unique_document_number(connection,document_number)
         reviewer_id = request.form.get("reviewer_user_id",type=int)
         auto_approved = role in {"Chief Meteorologist","Administrator"}
         if not auto_approved:
@@ -1439,9 +1458,14 @@ def personnel_document_upload(user_id):
                 (reviewer_id,*permitted_roles)).fetchone()
             if not reviewer: raise ValueError("Select an authorized reviewer for this personnel document.")
         else: reviewer = None
-        file_name,file_path = _save_personnel_document(upload,user_id)
         previous = connection.execute("""SELECT id FROM personnel_documents WHERE user_id=? AND document_type=?
             AND status='Approved' AND is_current=1 AND is_deleted=0 ORDER BY id DESC LIMIT 1""",(user_id,document_type)).fetchone()
+        open_version = connection.execute("""SELECT id FROM personnel_documents WHERE user_id=? AND document_type=?
+            AND status IN ('Submitted for Review','Reverted') AND is_deleted=0 ORDER BY id DESC LIMIT 1""",
+            (user_id,document_type)).fetchone()
+        if open_version:
+            raise ValueError("An editable version of this personnel record already exists. Open and edit that version instead of adding a duplicate.")
+        file_name,file_path = _save_personnel_document(upload,user_id)
         status = "Approved" if auto_approved else "Submitted for Review"
         document_id = connection.execute("""INSERT INTO personnel_documents
             (user_id,document_type,document_number,revision,issued_date,file_name,file_path,status,
@@ -1466,6 +1490,97 @@ def personnel_document_upload(user_id):
     finally:
         connection.close()
     return redirect(url_for("personnel_record",user_id=user_id))
+
+
+def _personnel_document_reviewer(connection, reviewer_id, uploader_role):
+    permitted = ("Chief Meteorologist","Administrator") if uploader_role == "Supervisor" else (
+        "Supervisor","Chief Meteorologist","Administrator")
+    reviewer = connection.execute(f"""SELECT u.id,u.full_name,r.name FROM users u JOIN roles r ON r.id=u.role_id
+        WHERE u.id=? AND u.is_active=1 AND r.name IN ({','.join('?' for _ in permitted)})""",
+        (reviewer_id,*permitted)).fetchone()
+    if not reviewer: raise ValueError("Select an authorized reviewer.")
+    return reviewer
+
+
+@app.post("/iso17025/personnel-documents/<int:document_id>/edit")
+def personnel_document_edit(document_id):
+    connection = get_connection()
+    try:
+        row = connection.execute("""SELECT d.id,d.user_id,d.document_type,d.document_number,d.revision,d.issued_date,
+            d.file_name,d.file_path,d.status,d.uploaded_by_user_id,d.assigned_reviewer_id,d.is_current,r.name
+            FROM personnel_documents d JOIN users u ON u.id=d.uploaded_by_user_id JOIN roles r ON r.id=u.role_id
+            WHERE d.id=? AND d.is_deleted=0""",(document_id,)).fetchone()
+        if not row: abort(404)
+        role = session.get("role_name")
+        if session.get("user_id") not in {row[1],row[9]} and role not in {"Supervisor","Chief Meteorologist","Administrator"}:
+            abort(403)
+        document_number=request.form.get("document_number","").strip()
+        revision=request.form.get("revision","").strip()
+        issued_date=request.form.get("issued_date") or None
+        if not all((document_number,revision,issued_date)): raise ValueError("Document number, revision and issued date are required.")
+        ensure_unique_document_number(connection,document_number,"personnel_documents",document_id)
+        upload=request.files.get("document_file")
+        file_name,file_path=(row[6],row[7])
+        if upload and upload.filename: file_name,file_path=_save_personnel_document(upload,row[1])
+        auto_approved=role in {"Chief Meteorologist","Administrator"}
+        reviewer=None
+        if not auto_approved:
+            reviewer=_personnel_document_reviewer(connection,request.form.get("reviewer_user_id",type=int),role)
+        if row[8]=="Approved":
+            status="Approved" if auto_approved else "Submitted for Review"
+            new_id=connection.execute("""INSERT INTO personnel_documents
+                (user_id,document_type,document_number,revision,issued_date,file_name,file_path,status,
+                uploaded_by_user_id,uploaded_by,assigned_reviewer_id,approved_by_user_id,approved_by,approved_at,
+                supersedes_id,is_current) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,CASE WHEN ?='Approved' THEN CURRENT_TIMESTAMP ELSE NULL END,?,?)""",
+                (row[1],row[2],document_number,revision,issued_date,file_name,file_path,status,session.get("user_id"),
+                 current_actor(),reviewer[0] if reviewer else None,session.get("user_id") if auto_approved else None,
+                 current_actor() if auto_approved else None,status,row[0],int(auto_approved))).lastrowid
+            if auto_approved:
+                connection.execute("UPDATE personnel_documents SET is_current=0,superseded_by_id=? WHERE id=?",(new_id,row[0]))
+            document_id=new_id
+        else:
+            status="Approved" if auto_approved else "Submitted for Review"
+            connection.execute("""UPDATE personnel_documents SET document_number=?,revision=?,issued_date=?,file_name=?,file_path=?,
+                status=?,assigned_reviewer_id=?,review_comment=NULL,approved_by_user_id=?,approved_by=?,
+                approved_at=CASE WHEN ?='Approved' THEN CURRENT_TIMESTAMP ELSE NULL END,is_current=? WHERE id=?""",
+                (document_number,revision,issued_date,file_name,file_path,status,reviewer[0] if reviewer else None,
+                 session.get("user_id") if auto_approved else None,current_actor() if auto_approved else None,
+                 status,int(auto_approved),document_id))
+        if not auto_approved:
+            connection.execute("""UPDATE workflow_tasks SET status='Cancelled',decision='superseded by edit',reviewed_at=CURRENT_TIMESTAMP
+                WHERE entity_type='personnel_document' AND entity_id=? AND status='Pending'""",(row[0],))
+            connection.execute("""INSERT INTO workflow_tasks(entity_type,entity_id,task_type,status,submitted_by,
+                assigned_to,submitted_user_id,assigned_user_id,priority) VALUES (?,?,'Personnel document review','Pending',?,?,?,?,?)""",
+                ("personnel_document",document_id,current_actor(),reviewer[1],session.get("user_id"),reviewer[0],"Normal"))
+            add_notification(connection,reviewer[0],"Revised personnel document awaiting review",row[2],
+                url_for("personnel_record",user_id=row[1]),"personnel_document",document_id)
+        audit_change(connection,"personnel_document",document_id,"edit",after={"revision":revision,"status":status})
+        connection.commit();flash("Personnel document updated" + (" and approved." if auto_approved else " and submitted for review."),"success")
+    except ValueError as error:
+        connection.rollback();flash(str(error),"error")
+    finally: connection.close()
+    return redirect(url_for("personnel_record",user_id=row[1] if 'row' in locals() and row else session.get("user_id")))
+
+
+@app.post("/iso17025/personnel-documents/<int:document_id>/delete")
+def personnel_document_delete(document_id):
+    if session.get("role_name") not in {"Chief Meteorologist","Administrator"}: abort(403)
+    connection=get_connection()
+    try:
+        row=connection.execute("SELECT user_id,document_type,is_current,supersedes_id FROM personnel_documents WHERE id=? AND is_deleted=0",(document_id,)).fetchone()
+        if not row: abort(404)
+        connection.execute("UPDATE personnel_documents SET is_deleted=1,is_current=0 WHERE id=?",(document_id,))
+        connection.execute("""UPDATE workflow_tasks SET status='Cancelled',decision='deleted',reviewed_at=CURRENT_TIMESTAMP
+            WHERE entity_type='personnel_document' AND entity_id=? AND status='Pending'""",(document_id,))
+        if row[2]:
+            previous=connection.execute("""SELECT id FROM personnel_documents WHERE user_id=? AND document_type=?
+                AND status='Approved' AND is_deleted=0 AND id<>? ORDER BY id DESC LIMIT 1""",(row[0],row[1],document_id)).fetchone()
+            if previous:
+                connection.execute("UPDATE personnel_documents SET is_current=1,superseded_by_id=NULL WHERE id=?",(previous[0],))
+        audit_change(connection,"personnel_document",document_id,"delete",before={"type":row[1]},after={"is_deleted":1})
+        connection.commit();flash("Personnel document deleted. The most recent approved predecessor was restored where available.","success")
+    finally: connection.close()
+    return redirect(url_for("personnel_record",user_id=row[0]))
 
 
 @app.get("/iso17025/personnel/<int:user_id>")
@@ -1552,6 +1667,7 @@ def iso_clause_evidence_upload(clause_id):
         retention_until=request.form.get("retention_until") or None
         if not upload or not upload.filename or not all((document_number,revision,effective_date,retention_until)):
             raise ValueError("Document/record number, revision, issued date, retention date and file are required.")
+        ensure_unique_document_number(connection,document_number)
         file_name,file_path=_save_clause_evidence(upload,clause[0])
         status="Approved" if chief_auto_approval() else "Draft"
         evidence_id=connection.execute("""INSERT INTO iso_clause_evidence
@@ -3001,6 +3117,9 @@ def documents():
         else:
             try:
                 validate_report(document, required=True)
+                connection = get_connection()
+                try: ensure_unique_document_number(connection,request.form.get("number"))
+                finally: connection.close()
             except ValueError as error:
                 flash(str(error), "error")
                 return redirect(url_for("documents"))
