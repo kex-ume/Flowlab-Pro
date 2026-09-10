@@ -310,6 +310,7 @@ class FreshDatabaseWebTests(unittest.TestCase):
         self.assertIn("Personnel Compliance Register",page)
         self.assertIn("Lab Role",page); self.assertIn("Impartiality",page)
         self.assertIn("Confidentiality",page); self.assertIn("Job Description",page)
+        self.assertNotIn("Active account",page); self.assertNotIn("Laboratory role</span>",page)
         self.assertIn("6.2.1",page); self.assertIn("6.2.6",page)
         self.assertIn("6.2.2 / 6.2.4 — Job Description",page)
         response = self.client.post(f"/iso17025/personnel/{technician_id}/documents",data={

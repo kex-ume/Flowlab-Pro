@@ -4,6 +4,7 @@
 <link rel="stylesheet" href="{{url_for('static',filename='personnel-actions.css')}}">
 <link rel="stylesheet" href="{{url_for('static',filename='clause-catalog.css')}}">
 <link rel="stylesheet" href="{{url_for('static',filename='personnel-directory.css')}}">
+<link rel="stylesheet" href="{{url_for('static',filename='personnel-directory-columns.css')}}">
 <div class="clause-record-page personnel-clause-page gum-app">
   <nav class="breadcrumbs"><a href="{{url_for('iso_clause_checklist')}}">Clause Checklist</a><span>›</span><span>6.2 Personnel</span></nav>
   <section class="clause-requirement-head">
@@ -16,10 +17,9 @@
   <section class="panel clause-subclause-panel"><div class="panel-head"><h3>Personnel Requirements</h3><span class="meta-pill">{{subclauses|length}} subclauses</span></div><div class="clause-subclause-list">{% for code,requirement in subclauses %}<div><strong>{{code}}</strong><span>{{requirement}}</span></div>{% endfor %}</div></section>
   <section class="panel personnel-register personnel-directory">
     <div class="panel-head"><div><span class="eyebrow">Controlled personnel</span><h3>Personnel Compliance Register</h3></div><span class="meta-pill">{{personnel|length}} registered</span></div>
-    <div class="personnel-directory-head"><span>Personnel</span><span>Laboratory role</span><span>Required personnel records</span><span>Compliance</span><span></span></div>
+    <div class="personnel-directory-head"><span>Personnel</span><span>Required personnel records</span><span>Compliance</span><span></span></div>
     <div class="personnel-directory-list">{% for item in personnel %}{% set user=item.user %}<article class="personnel-directory-row {{'is-complete' if item.complete else 'is-incomplete'}}">
-      <div class="personnel-identity"><i>{{user[1][0]|upper}}</i><div>{% if can_manage_all %}<a href="{{url_for('personnel_record',user_id=user[0])}}">{{user[1]}}</a>{% else %}<strong>{{user[1]}}</strong>{% endif %}<small>{{user[3] or '@' ~ user[2]}}</small></div></div>
-      <div><span class="personnel-role">{{user[4]}}</span><small class="account-state {{'active' if user[5] else 'inactive'}}">{{'Active account' if user[5] else 'Inactive account'}}</small></div>
+      <div class="personnel-identity"><i>{{user[1][0]|upper}}</i><div>{% if can_manage_all %}<a href="{{url_for('personnel_record',user_id=user[0])}}">{{user[1]}}</a>{% else %}<strong>{{user[1]}}</strong>{% endif %}</div></div>
       <div class="personnel-evidence-strip">{% for kind in document_types %}{% set record=item.current.get(kind) %}{% set pending=item.pending.get(kind) %}<div class="evidence-cell {{'approved' if record else ('reverted' if pending and pending[7]=='Reverted' else ('pending' if pending else 'missing'))}}"><span>{{document_labels[kind]}}</span><b>{{'✓ Approved' if record else ('! Action' if pending and pending[7]=='Reverted' else ('• Review' if pending else '— Missing'))}}</b></div>{% endfor %}</div>
       <div><span class="personnel-overall {{'complete' if item.complete else 'incomplete'}}"><i>{{'✓' if item.complete else '!'}}</i>{{'Compliant' if item.complete else 'Incomplete'}}</span></div>
       <div class="personnel-row-action">{% if user[0]==session.user_id %}<a class="button secondary" href="{{url_for('personnel_record',user_id=user[0])}}">My records</a>{% elif can_manage_all %}<a class="button secondary" href="{{url_for('personnel_record',user_id=user[0])}}">View file</a>{% else %}<span class="view-only">View only</span>{% endif %}</div>
