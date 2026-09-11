@@ -1,4 +1,4 @@
-{% extends 'base.html' %}{% block content %}<link rel="stylesheet" href="{{url_for('static',filename='jobs.css')}}"><link rel="stylesheet" href="{{url_for('static',filename='project-rows.css')}}">
+{% extends 'base.html' %}{% block content %}<link rel="stylesheet" href="{{url_for('static',filename='jobs.css',v='20260911')}}">
 <datalist id="clientOptions">{% for c in customers %}<option value="{{c[1]}}"></option>{% endfor %}</datalist>
 <div class="project-workspace {{'project-jobs-view' if selected_project else 'project-index-view'}}">
 {% if selected_project %}
