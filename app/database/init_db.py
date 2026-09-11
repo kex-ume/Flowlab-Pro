@@ -538,6 +538,21 @@ def initialize_database():
             UNIQUE(entity_type, entity_id)
         )
     """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS deletion_archive (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            entity_type TEXT NOT NULL,
+            entity_id INTEGER NOT NULL,
+            display_name TEXT NOT NULL,
+            original_location TEXT,
+            originally_deleted_by TEXT NOT NULL,
+            originally_deleted_at TEXT NOT NULL,
+            archived_by TEXT NOT NULL,
+            archived_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            archive_month TEXT NOT NULL,
+            UNIQUE(entity_type, entity_id)
+        )
+    """)
 
     # ------------------------------------------------------------------
     # Method Configuration and Equipment Intelligence (SDS Sections 8, 10)
@@ -1476,6 +1491,8 @@ def initialize_database():
     ensure_column("quality_records", "is_deleted", "INTEGER NOT NULL DEFAULT 0")
     ensure_column("quality_records", "deleted_at", "TEXT")
     ensure_column("quality_records", "deleted_by", "TEXT")
+    ensure_column("personnel_documents", "deleted_at", "TEXT")
+    ensure_column("personnel_documents", "deleted_by", "TEXT")
     ensure_column("workflow_tasks", "notes", "TEXT")
     ensure_column("workflow_tasks", "submitted_user_id", "INTEGER")
     ensure_column("workflow_tasks", "assigned_user_id", "INTEGER")

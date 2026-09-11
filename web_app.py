@@ -1602,7 +1602,9 @@ def personnel_document_delete(document_id):
     try:
         row=connection.execute("SELECT user_id,document_type,is_current,supersedes_id FROM personnel_documents WHERE id=? AND is_deleted=0",(document_id,)).fetchone()
         if not row: abort(404)
-        connection.execute("UPDATE personnel_documents SET is_deleted=1,is_current=0 WHERE id=?",(document_id,))
+        connection.execute("""UPDATE personnel_documents SET is_deleted=1,is_current=0,
+            deleted_at=CURRENT_TIMESTAMP,deleted_by=? WHERE id=?""",(current_actor(),document_id))
+        recycle_record(connection,"personnel_document",document_id,f"{row[1]} · Personnel {row[0]}","ISO 17025 · Personnel")
         connection.execute("""UPDATE workflow_tasks SET status='Cancelled',decision='deleted',reviewed_at=CURRENT_TIMESTAMP
             WHERE entity_type='personnel_document' AND entity_id=? AND status='Pending'""",(document_id,))
         if row[2]:
@@ -1838,6 +1840,7 @@ def quality_record_delete(record_id):
         connection.close(); abort(404)
     connection.execute("""UPDATE quality_records SET is_deleted=1,deleted_at=CURRENT_TIMESTAMP,
         deleted_by=?,updated_at=CURRENT_TIMESTAMP WHERE id=?""", (current_actor(), record_id))
+    recycle_record(connection,"quality_record",record_id,record[1],f"ISO 17025 · {record[0]}")
     audit_change(connection, "quality_record", record_id, "soft_delete",
         before={"record_type": record[0], "title": record[1], "status": record[2]},
         after={"is_deleted": 1})
@@ -2205,15 +2208,15 @@ def project_job_delete(job_id):
         (job_id,)).fetchone()
     if not job:
         connection.close(); abort(404)
-    if job[1] in {"Approved", "Completed"}:
-        connection.close()
-        flash("Completed or approved Jobs cannot be deleted.", "error")
+    reason = request.form.get("reason", "").strip()
+    if job[1] in {"Approved", "Completed"} and not reason:
+        connection.close(); flash("A reason is required to remove an approved or completed Job.", "error")
         return redirect(url_for("project_jobs"))
     connection.execute("""UPDATE calibration_jobs SET is_deleted=1,deleted_at=CURRENT_TIMESTAMP,
         deleted_by=?,updated_at=CURRENT_TIMESTAMP WHERE id=?""", (current_actor(), job_id))
     recycle_record(connection, "calibration_job", job_id, job[0], "Projects & Jobs")
     audit_change(connection, "calibration_job", job_id, "soft_delete",
-        before={"job_number": job[0], "status": job[1]}, after={"is_deleted": 1})
+        before={"job_number": job[0], "status": job[1]}, after={"is_deleted": 1, "reason": reason or None})
     connection.commit(); connection.close()
     flash("Job removed. Related calculations and audit history were preserved.", "success")
     return redirect(url_for("project_jobs"))
@@ -2242,7 +2245,17 @@ def project_delete(project_id):
 def recycle_bin():
     rows = query("""SELECT id,entity_type,entity_id,display_name,COALESCE(original_location,''),
         deleted_by,deleted_at FROM recycle_bin ORDER BY deleted_at DESC,id DESC""")
-    return render_template("recycle_bin.html", rows=rows,
+    is_admin = session.get("role_name") == "Administrator" or app.config.get("TESTING")
+    archived = query("""SELECT id,entity_type,entity_id,display_name,COALESCE(original_location,''),
+        originally_deleted_by,originally_deleted_at,archived_by,archived_at,archive_month
+        FROM deletion_archive ORDER BY archive_month DESC,archived_at DESC,id DESC""") if is_admin else []
+    archive_batches = []
+    for row in archived:
+        if not archive_batches or archive_batches[-1][0] != row[9]:
+            archive_batches.append((row[9], []))
+        archive_batches[-1][1].append(row)
+    return render_template("recycle_bin.html", rows=rows, archive_batches=archive_batches,
+        is_admin=is_admin,
         can_manage=session.get("role_name") in {"Chief Meteorologist", "Administrator"} or app.config.get("TESTING"),
         page_title="Recycle Bin", page_subtitle="Recoverable deleted Projects, Jobs, files and folders",
         active_nav="recycle")
@@ -2257,14 +2270,22 @@ def recycle_restore(item_id):
         (item_id,)).fetchone()
     if not item:
         connection.close(); abort(404)
+    if item[0] == "equipment":
+        connection.execute("""UPDATE laboratory_equipment SET is_active=1,deactivated_at=NULL,
+            deactivated_by=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=?""",(item[1],))
+        connection.execute("DELETE FROM recycle_bin WHERE id=?",(item_id,))
+        audit_change(connection,"equipment",item[1],"restore",after={"restored":True})
+        connection.commit(); connection.close(); flash(f"{item[2]} restored.","success")
+        return redirect(url_for("recycle_bin"))
     targets = {"project": ("projects",), "calibration_job": ("calibration_jobs",),
-        "controlled_document": ("controlled_documents",)}
+        "controlled_document": ("controlled_documents",), "quality_record": ("quality_records",),
+        "personnel_document": ("personnel_documents",), "calibration_history": ("calibration_history",),
+        "maintenance_history": ("maintenance_history",)}
     target = targets.get(item[0])
     if not target:
         connection.close(); flash("This item type cannot be restored automatically.", "error")
         return redirect(url_for("recycle_bin"))
-    connection.execute(f"""UPDATE {target[0]} SET is_deleted=0,deleted_at=NULL,deleted_by=NULL,
-        updated_at=CURRENT_TIMESTAMP WHERE id=?""", (item[1],))
+    connection.execute(f"UPDATE {target[0]} SET is_deleted=0,deleted_at=NULL,deleted_by=NULL WHERE id=?", (item[1],))
     connection.execute("DELETE FROM recycle_bin WHERE id=?", (item_id,))
     audit_change(connection, item[0], item[1], "restore", after={"restored": True})
     connection.commit(); connection.close()
@@ -2278,42 +2299,63 @@ def recycle_purge(item_id):
         abort(403)
     connection = get_connection()
     try:
-        item = connection.execute("SELECT entity_type,entity_id,display_name FROM recycle_bin WHERE id=?",
+        item = connection.execute("""SELECT entity_type,entity_id,display_name,COALESCE(original_location,''),
+            deleted_by,deleted_at FROM recycle_bin WHERE id=?""",
             (item_id,)).fetchone()
         if not item:
             abort(404)
-        if item[0] == "project":
-            linked = connection.execute("SELECT COUNT(*) FROM project_jobs WHERE project_id=?", (item[1],)).fetchone()[0]
-            if linked:
-                raise ValueError("This Project contains retained Jobs and cannot be permanently deleted.")
-            connection.execute("DELETE FROM projects WHERE id=? AND is_deleted=1", (item[1],))
-        elif item[0] == "calibration_job":
-            linked = connection.execute("SELECT COUNT(*) FROM uncertainty_calculations WHERE job_id=?", (item[1],)).fetchone()[0]
-            if linked:
-                raise ValueError("This Job contains retained uncertainty records and cannot be permanently deleted.")
-            connection.execute("DELETE FROM project_jobs WHERE job_id=?", (item[1],))
-            connection.execute("DELETE FROM calibration_jobs WHERE id=? AND is_deleted=1", (item[1],))
-        elif item[0] == "controlled_document":
-            document = connection.execute("SELECT file_path FROM controlled_documents WHERE id=? AND is_deleted=1",
-                (item[1],)).fetchone()
-            if document and document[0]:
-                file_path = Path(document[0]).resolve()
-                document_root = Path("data/documents").resolve()
-                if document_root not in file_path.parents:
-                    raise ValueError("The stored document path is outside the controlled file repository.")
-                if file_path.is_file():
-                    file_path.unlink()
-            connection.execute("DELETE FROM controlled_documents WHERE id=? AND is_deleted=1", (item[1],))
-        else:
+        if item[0] not in {"project", "calibration_job", "controlled_document", "quality_record",
+                "personnel_document", "calibration_history", "maintenance_history", "equipment"}:
             raise ValueError("This item type cannot be permanently deleted automatically.")
+        archive_month = str(item[5])[:7]
+        connection.execute("""INSERT INTO deletion_archive
+            (entity_type,entity_id,display_name,original_location,originally_deleted_by,
+             originally_deleted_at,archived_by,archive_month) VALUES (?,?,?,?,?,?,?,?)
+            ON CONFLICT(entity_type,entity_id) DO UPDATE SET display_name=excluded.display_name,
+            original_location=excluded.original_location,originally_deleted_by=excluded.originally_deleted_by,
+            originally_deleted_at=excluded.originally_deleted_at,archived_by=excluded.archived_by,
+            archived_at=CURRENT_TIMESTAMP,archive_month=excluded.archive_month""",
+            (item[0],item[1],item[2],item[3],item[4],item[5],current_actor(),archive_month))
         connection.execute("DELETE FROM recycle_bin WHERE id=?", (item_id,))
-        audit_change(connection, item[0], item[1], "permanent_delete",
-            before={"display_name": item[2], "is_deleted": 1}, after={"purged": True})
-        connection.commit(); flash(f"{item[2]} permanently deleted.", "success")
+        audit_change(connection, item[0], item[1], "archive_after_recycle",
+            before={"display_name": item[2], "in_recycle_bin": True}, after={"admin_archive": True,"archive_month":archive_month})
+        connection.commit(); flash(f"{item[2]} removed from the Recycle Bin and retained in the Administrator archive.", "success")
     except ValueError as error:
         connection.rollback(); flash(str(error), "error")
     finally:
         connection.close()
+    return redirect(url_for("recycle_bin"))
+
+
+@app.post("/deletion-archive/<int:item_id>/restore")
+def deletion_archive_restore(item_id):
+    if not app.config.get("TESTING") and session.get("role_name") != "Administrator":
+        abort(403)
+    connection = get_connection()
+    item = connection.execute("SELECT entity_type,entity_id,display_name FROM deletion_archive WHERE id=?",
+        (item_id,)).fetchone()
+    if not item:
+        connection.close(); abort(404)
+    targets = {"project": "projects", "calibration_job": "calibration_jobs",
+        "controlled_document": "controlled_documents", "quality_record": "quality_records",
+        "personnel_document": "personnel_documents", "calibration_history": "calibration_history",
+        "maintenance_history": "maintenance_history"}
+    if item[0] == "equipment":
+        connection.execute("""UPDATE laboratory_equipment SET is_active=1,deactivated_at=NULL,
+            deactivated_by=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=?""",(item[1],))
+        connection.execute("DELETE FROM deletion_archive WHERE id=?", (item_id,))
+        audit_change(connection,item[0],item[1],"restore_from_admin_archive",after={"restored":True})
+        connection.commit(); connection.close(); flash(f"{item[2]} restored from the Administrator archive.","success")
+        return redirect(url_for("recycle_bin"))
+    table = targets.get(item[0])
+    if not table:
+        connection.close(); flash("This archived item cannot be restored automatically.", "error")
+        return redirect(url_for("recycle_bin"))
+    connection.execute(f"UPDATE {table} SET is_deleted=0,deleted_at=NULL,deleted_by=NULL WHERE id=?", (item[1],))
+    connection.execute("DELETE FROM deletion_archive WHERE id=?", (item_id,))
+    audit_change(connection,item[0],item[1],"restore_from_admin_archive",after={"restored":True})
+    connection.commit(); connection.close()
+    flash(f"{item[2]} restored from the Administrator archive.", "success")
     return redirect(url_for("recycle_bin"))
 
 
@@ -3067,6 +3109,7 @@ def equipment_delete(equipment_id):
     connection.execute("""UPDATE laboratory_equipment SET is_active=0,
         deactivated_at=CURRENT_TIMESTAMP,deactivated_by=?,updated_by=?,updated_at=CURRENT_TIMESTAMP
         WHERE id=?""", (current_actor(), current_actor(), equipment_id))
+    recycle_record(connection,"equipment",equipment_id,f"{item[0]} · {item[1]}","Equipment Register")
     audit_change(connection, "equipment", equipment_id, "deactivate",
         before={"asset_number": item[0], "equipment_name": item[1], "is_active": item[2]},
         after={"is_active": 0, "reason": reason or None})
@@ -3092,6 +3135,8 @@ def equipment_history_delete(equipment_id, kind, record_id):
         return redirect(url_for("equipment_detail", equipment_id=equipment_id, tab=kind))
     connection.execute(f"""UPDATE {table} SET is_deleted=1,deleted_at=CURRENT_TIMESTAMP,
         deleted_by=? WHERE id=?""", (current_actor(), record_id))
+    recycle_record(connection,f"{kind}_history",record_id,f"{kind.title()} record · Equipment {equipment_id}",
+        f"Equipment {equipment_id} · {kind.title()} History")
     audit_change(connection, kind, record_id, "soft_delete",
         before={"equipment_id": equipment_id, "is_deleted": 0, "status": record[1]},
         after={"is_deleted": 1, "reason": reason or None})
@@ -3249,14 +3294,15 @@ def document_delete(document_id):
         (document_id,)).fetchone()
     if not row:
         connection.close(); abort(404)
-    if row[1] == "Approved":
-        connection.close(); flash("Approved documents must be superseded through review and approval.", "error")
+    reason = request.form.get("reason", "").strip()
+    if row[1] == "Approved" and not reason:
+        connection.close(); flash("A reason is required to remove an approved document.", "error")
         return redirect(url_for("documents"))
     connection.execute("""UPDATE controlled_documents SET is_deleted=1,deleted_at=CURRENT_TIMESTAMP,
         deleted_by=?,updated_at=CURRENT_TIMESTAMP WHERE id=?""", (current_actor(), document_id))
     recycle_record(connection, "controlled_document", document_id, row[0], row[2])
     audit_change(connection, "controlled_document", document_id, "soft_delete",
-        before={"title": row[0], "status": row[1]}, after={"is_deleted": 1})
+        before={"title": row[0], "status": row[1]}, after={"is_deleted": 1,"reason":reason or None})
     connection.commit(); connection.close()
     flash("Document removed. The stored file and audit history were preserved.", "success")
     return redirect(url_for("documents"))

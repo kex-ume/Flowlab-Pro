@@ -98,6 +98,26 @@ class WebUncertaintyWorkflowTests(unittest.TestCase):
             (recycled[0],)).fetchone()[0], 0)
         connection.close()
 
+    def test_recycle_removal_is_retained_in_monthly_admin_archive(self):
+        self.client.post(f"/projects/{self.project}/delete")
+        connection = database.get_connection()
+        recycled = connection.execute("SELECT id FROM recycle_bin WHERE entity_type='project' AND entity_id=?",
+            (self.project,)).fetchone()[0]
+        connection.close()
+        self.client.post(f"/recycle-bin/{recycled}/purge")
+        connection = database.get_connection()
+        archived = connection.execute("SELECT id,archive_month FROM deletion_archive WHERE entity_type='project' AND entity_id=?",
+            (self.project,)).fetchone()
+        self.assertIsNotNone(archived)
+        self.assertEqual(len(archived[1]), 7)
+        self.assertEqual(connection.execute("SELECT is_deleted FROM projects WHERE id=?",(self.project,)).fetchone()[0],1)
+        connection.close()
+        self.client.post(f"/deletion-archive/{archived[0]}/restore")
+        connection = database.get_connection()
+        self.assertEqual(connection.execute("SELECT is_deleted FROM projects WHERE id=?",(self.project,)).fetchone()[0],0)
+        self.assertEqual(connection.execute("SELECT COUNT(*) FROM deletion_archive WHERE id=?",(archived[0],)).fetchone()[0],0)
+        connection.close()
+
     def test_user_management_is_a_real_module(self):
         workspace = self.client.get("/workspace/database").get_data(as_text=True)
         users = self.client.get("/users").get_data(as_text=True)
