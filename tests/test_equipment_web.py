@@ -393,7 +393,7 @@ class FreshDatabaseWebTests(unittest.TestCase):
         self.assertGreaterEqual(dashboard.count(">0<"), 4)
         self.assertIn("No equipment has been added to the calibration programme.", dashboard)
         self.assertIn("No equipment has been added.", self.client.get("/equipment").get_data(as_text=True))
-        self.assertIn("No jobs match the selected filters.", self.client.get("/projects/jobs").get_data(as_text=True))
+        self.assertIn("No projects created", self.client.get("/projects/jobs").get_data(as_text=True))
         self.assertIn("No controlled document has been uploaded.", self.client.get("/documents").get_data(as_text=True))
 
     def test_equipment_location_can_be_created_edited_and_viewed(self):

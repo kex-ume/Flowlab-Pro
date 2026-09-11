@@ -68,14 +68,16 @@ class WebUncertaintyWorkflowTests(unittest.TestCase):
         page = self.client.get(f"/uncertainty?job={job_id}").get_data(as_text=True)
         self.assertIn('data-flow-point-count="4"', page)
 
-    def test_project_and_job_forms_are_collapsed_until_requested(self):
+    def test_project_and_job_forms_are_separated_and_collapsed_until_requested(self):
         page = self.client.get("/projects/jobs").get_data(as_text=True)
         self.assertIn('data-scroll-to="newProject" aria-controls="newProject" aria-expanded="false"', page)
-        self.assertIn('data-scroll-to="newJob" aria-controls="newJob" aria-expanded="false"', page)
         self.assertIn('id="newProject" data-collapsible-form hidden', page)
-        self.assertIn('id="newJob" data-collapsible-form hidden', page)
         self.assertIn('data-close-form aria-label="Close Add Project form"', page)
-        self.assertIn('data-close-form aria-label="Close Create Job form"', page)
+        self.assertNotIn('id="newJob"', page)
+        jobs_page = self.client.get(f"/projects/jobs?project={self.project}").get_data(as_text=True)
+        self.assertIn('data-scroll-to="newJob" aria-controls="newJob" aria-expanded="false"', jobs_page)
+        self.assertIn('id="newJob" data-collapsible-form hidden', jobs_page)
+        self.assertIn('data-close-form aria-label="Close Create Job form"', jobs_page)
 
     def test_project_delete_is_recoverable(self):
         response = self.client.post(f"/projects/{self.project}/delete")

@@ -2059,8 +2059,8 @@ def project_jobs():
         equipment_rows=equipment_rows, methods=methods, jobs=jobs, assignees=assignees,
         selected_project=selected_project_row,
         next_job_number=next_job_number,
-        page_title="Projects · Calibration Jobs",
-        page_subtitle="Shared project and MUT calibration workflow", active_nav="projects")
+        page_title=(f"Project Jobs · {selected_project_row[1]}" if selected_project_row else "Projects"),
+        page_subtitle=(selected_project_row[2] if selected_project_row else "Project register"), active_nav="projects")
 
 
 @app.get("/projects/jobs/<int:job_id>")
