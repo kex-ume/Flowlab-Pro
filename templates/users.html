@@ -3,7 +3,7 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='users.css') }}">
 <div class="users-page">
   <section class="users-summary">
-    <div><span class="eyebrow">Access governance</span><h1>User Management <button type="button" class="info-tip" data-info="Create accounts, assign functional roles and control access to FlowLab Pro."></button></h1></div>
+    <div><span class="eyebrow">Access governance</span><h1>User Management <button type="button" class="info-tip" data-info="Create accounts, assign functional roles and control access to FlowLab Pro."></button></h1></div><button type="button" class="button" data-scroll-to="newUserForm" aria-controls="newUserForm" aria-expanded="false">+ Add User</button>
     <div class="users-count"><strong>{{ users|length }}</strong><span>Accounts</span></div>
   </section>
   {% if pending_personnel %}
@@ -11,8 +11,8 @@
   {% if selected_registration %}
   <section class="panel user-create-card" id="completePersonnelRegistration"><div class="panel-head"><h3>Complete Personnel Registration · {{selected_registration[1]}}</h3></div><form method="post" class="user-create-form"><input type="hidden" name="action" value="approve_personnel"><input type="hidden" name="registration_id" value="{{selected_registration[0]}}"><label>Username *<input name="username" required></label><label>Full name *<input name="full_name" value="{{selected_registration[1]}}" required></label><label>Email<input type="email" name="email" value="{{selected_registration[2]}}"></label><label>Role *<select name="role_id" required><option value="">Select role</option>{% for role in roles %}<option value="{{role[0]}}" {% if role[1]==selected_registration[3] %}selected{% endif %}>{{role[1]}}</option>{% endfor %}</select></label><label>Temporary password *<input type="password" name="password" minlength="10" autocomplete="new-password" required></label><label>Approval note<input name="comment"></label><button>Create &amp; Approve Personnel</button></form></section>
   {% endif %}
-  <section class="panel user-create-card">
-    <div class="panel-head"><h3>Add user <button type="button" class="info-tip" data-info="New accounts are active immediately and every change is audited."></button></h3></div>
+  <section class="panel user-create-card" id="newUserForm" data-collapsible-form hidden>
+    <div class="panel-head"><h3>Add user <button type="button" class="info-tip" data-info="New accounts are active immediately and every change is audited."></button></h3><button class="form-close-icon" type="button" data-close-form aria-label="Close Add User form" title="Close">×</button></div>
     <form method="post" class="user-create-form">
       <input type="hidden" name="action" value="create">
       <label>Username *<input name="username" autocomplete="off" required></label>

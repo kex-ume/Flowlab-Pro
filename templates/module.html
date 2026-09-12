@@ -1,20 +1,9 @@
 {% extends 'base.html' %}
 {% block content %}
-<section class="panel">
-  <form method="post" class="form-grid record-form">
-    <label>Reference number (optional)<input name="reference_number"></label>
-    <label>Title *<input name="title" required></label>
-    <label>Status *<select name="status" required><option>Open</option><option>In Progress</option><option>Under Review</option><option>Closed</option></select></label>
-    <label>Owner (optional)<input name="owner"></label>
-    <label>Due date (optional)<input type="date" name="due_date"></label>
-    <label class="wide">Notes (optional)<textarea name="notes" rows="3"></textarea></label>
-    <button>Save</button>
-  </form>
-</section>
-<section class="panel">
-  <div class="table-scroll"><table><thead><tr><th>Reference</th><th>Title</th><th>Status</th><th>Owner</th><th>Due date</th><th>Created</th><th></th></tr></thead><tbody>
-    {% for r in records %}<tr><td class="mono">{{ r[1] }}</td><td>{{ r[2] }}</td><td><span class="pill {{ r[3]|lower|replace(' ','-') }}">{{ r[3] }}</span></td><td>{{ r[4] }}</td><td data-local-date="{{ r[5] or '' }}">{{ r[5] or '' }}</td><td data-local-datetime="{{ r[6] }}">{{ r[6] }}</td><td><form method="post" action="{{url_for('quality_record_delete',record_id=r[0])}}" data-confirm-delete="Delete this record?"><input type="hidden" name="section" value="{{section}}"><input type="hidden" name="module" value="{{request.view_args.module}}"><button class="delete-button">Delete</button></form></td></tr>
-    {% else %}<tr><td colspan="7"><div class="table-empty"><span>No records have been added.</span></div></td></tr>{% endfor %}
-  </tbody></table></div>
-</section>
+<div class="page-actions"><button type="button" class="button" data-scroll-to="newModuleRecord" aria-controls="newModuleRecord" aria-expanded="false">+ Add Record</button></div>
+<section class="panel"><div class="table-scroll"><table><thead><tr><th>Reference</th><th>Title</th><th>Status</th><th>Owner</th><th>Due date</th><th>Created</th><th></th></tr></thead><tbody>
+{% for r in records %}<tr><td class="mono">{{r[1]}}</td><td>{{r[2]}}</td><td><span class="pill {{r[3]|lower|replace(' ','-')}}">{{r[3]}}</span></td><td>{{r[4]}}</td><td data-local-date="{{r[5] or ''}}">{{r[5] or ''}}</td><td data-local-datetime="{{r[6]}}">{{r[6]}}</td><td><form method="post" action="{{url_for('quality_record_delete',record_id=r[0])}}" data-confirm-delete="Move this record to the Recycle Bin?"><input type="hidden" name="section" value="{{section}}"><input type="hidden" name="module" value="{{request.view_args.module}}"><button class="delete-button">Delete</button></form></td></tr>
+{% else %}<tr><td colspan="7"><div class="table-empty"><span>No records have been added.</span><button type="button" data-scroll-to="newModuleRecord" aria-controls="newModuleRecord" aria-expanded="false">+ Add First Record</button></div></td></tr>{% endfor %}
+</tbody></table></div></section>
+<section class="panel" id="newModuleRecord" data-collapsible-form hidden><div class="panel-head"><h3>Add Record</h3><button class="form-close-icon" type="button" data-close-form aria-label="Close Add Record form" title="Close">×</button></div><form method="post" class="form-grid record-form"><label>Reference number (optional)<input name="reference_number"></label><label>Title *<input name="title" required></label><label>Status *<select name="status" required><option>Open</option><option>In Progress</option><option>Under Review</option><option>Closed</option></select></label><label>Owner (optional)<input name="owner"></label><label>Due date (optional)<input type="date" name="due_date"></label><label class="wide">Notes (optional)<textarea name="notes" rows="3"></textarea></label><button>Save</button></form></section>
 {% endblock %}

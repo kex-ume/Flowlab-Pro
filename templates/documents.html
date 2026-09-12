@@ -1,6 +1,7 @@
 {% extends 'base.html' %}
 {% block content %}
-<section class="panel"><form method="post" enctype="multipart/form-data" class="form-grid">
+<div class="page-actions"><button type="button" class="button" data-scroll-to="newControlledDocument" aria-controls="newControlledDocument" aria-expanded="false">+ Add Document</button></div>
+<section class="panel" id="newControlledDocument" data-collapsible-form hidden><div class="panel-head"><h3>Add Controlled Document</h3><button class="form-close-icon" type="button" data-close-form aria-label="Close Add Document form" title="Close">×</button></div><form method="post" enctype="multipart/form-data" class="form-grid">
   <label>Type *<select name="document_type" required><option>Procedure</option><option>Standard</option><option>SOP</option><option>Work Instruction</option></select></label><label>Document number (optional)<input name="number"></label><label>Title *<input name="title" required></label><label>Revision (optional)<input name="revision"></label><label>File *<input type="file" name="document" accept=".pdf,.docx,.xlsx,.jpg,.jpeg,.png" required></label><label class="wide">Notes (optional)<textarea name="notes" rows="3"></textarea></label><button>Upload Document</button>
 </form></section>
 <section class="panel"><div class="table-scroll"><table><thead><tr><th>Type</th><th>Number</th><th>Title</th><th>Revision</th><th>File</th><th>Status</th><th></th></tr></thead><tbody>
