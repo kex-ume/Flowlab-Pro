@@ -1206,6 +1206,145 @@ def initialize_database():
         )
     """)
 
+    # ------------------------------------------------------------------
+    # Service requests, conformity assessment and controlled report covers
+    # ------------------------------------------------------------------
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS lab_service_requests (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            job_id INTEGER,
+            request_number TEXT,
+            revision TEXT,
+            request_date TEXT,
+            company_name TEXT,
+            meter_end_user TEXT,
+            address TEXT,
+            city TEXT,
+            state TEXT,
+            country TEXT,
+            meter_type TEXT,
+            communication_mode TEXT,
+            meter_size TEXT,
+            serial_number TEXT,
+            flange_class TEXT,
+            manufacturer TEXT,
+            model_number TEXT,
+            maximum_flowrate TEXT,
+            flow_point_count INTEGER,
+            run_count INTEGER,
+            meter_use TEXT,
+            witness_required TEXT,
+            service_type TEXT,
+            requested_procedure TEXT,
+            requested_flow_range TEXT,
+            conformity_required INTEGER NOT NULL DEFAULT 0,
+            decision_rule_code TEXT,
+            acceptance_limits TEXT,
+            specification_reference TEXT,
+            customer_agreement INTEGER NOT NULL DEFAULT 0,
+            customer_agreement_date TEXT,
+            contact_name TEXT,
+            contact_phone TEXT,
+            contact_email TEXT,
+            original_filename TEXT NOT NULL,
+            file_path TEXT NOT NULL,
+            file_hash TEXT NOT NULL,
+            extracted_json TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'Retained',
+            uploaded_by TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(job_id) REFERENCES calibration_jobs(id)
+        )
+    """)
+    ensure_column("calibration_jobs", "service_request_required", "INTEGER NOT NULL DEFAULT 0")
+    ensure_column("calibration_jobs", "service_request_exception_reason", "TEXT")
+    ensure_column("calibration_jobs", "conformity_required", "INTEGER NOT NULL DEFAULT 0")
+    ensure_column("calibration_jobs", "decision_rule_code", "TEXT")
+    ensure_column("calibration_jobs", "specification_reference", "TEXT")
+    ensure_column("calibration_jobs", "specification_revision", "TEXT")
+    ensure_column("calibration_jobs", "specification_clause", "TEXT")
+    ensure_column("calibration_jobs", "lower_tolerance", "REAL")
+    ensure_column("calibration_jobs", "upper_tolerance", "REAL")
+    ensure_column("calibration_jobs", "tolerance_unit", "TEXT")
+    ensure_column("calibration_jobs", "customer_decision_rule_agreed", "INTEGER NOT NULL DEFAULT 0")
+    ensure_column("calibration_jobs", "customer_agreement_date", "TEXT")
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS conformity_assessments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            assessment_uid TEXT NOT NULL UNIQUE,
+            job_id INTEGER NOT NULL,
+            uncertainty_calculation_id INTEGER NOT NULL,
+            revision INTEGER NOT NULL DEFAULT 1,
+            status TEXT NOT NULL DEFAULT 'Draft',
+            rule_code TEXT NOT NULL DEFAULT 'DR-02',
+            rule_revision TEXT,
+            specification_reference TEXT,
+            specification_revision TEXT,
+            specification_clause TEXT,
+            lower_tolerance REAL NOT NULL,
+            upper_tolerance REAL NOT NULL,
+            tolerance_unit TEXT NOT NULL,
+            overall_decision TEXT NOT NULL,
+            statement_text TEXT NOT NULL,
+            snapshot_json TEXT NOT NULL,
+            created_by TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            submitted_by TEXT,
+            submitted_at TEXT,
+            approved_by TEXT,
+            approved_at TEXT,
+            review_comment TEXT,
+            superseded_at TEXT,
+            FOREIGN KEY(job_id) REFERENCES calibration_jobs(id),
+            FOREIGN KEY(uncertainty_calculation_id) REFERENCES uncertainty_calculations(id),
+            UNIQUE(job_id, revision)
+        )
+    """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS conformity_assessment_points (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            assessment_id INTEGER NOT NULL,
+            uncertainty_flow_point_id INTEGER,
+            point_order INTEGER NOT NULL,
+            flow_value REAL NOT NULL,
+            flow_unit TEXT NOT NULL,
+            error_percent REAL NOT NULL,
+            expanded_uncertainty REAL NOT NULL,
+            lower_tolerance REAL NOT NULL,
+            upper_tolerance REAL NOT NULL,
+            lower_acceptance REAL NOT NULL,
+            upper_acceptance REAL NOT NULL,
+            decision TEXT NOT NULL,
+            rationale TEXT,
+            FOREIGN KEY(assessment_id) REFERENCES conformity_assessments(id) ON DELETE CASCADE,
+            FOREIGN KEY(uncertainty_flow_point_id) REFERENCES uncertainty_flow_points(id),
+            UNIQUE(assessment_id, point_order)
+        )
+    """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS generated_report_covers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            cover_uid TEXT NOT NULL UNIQUE,
+            job_id INTEGER NOT NULL,
+            assessment_id INTEGER NOT NULL,
+            output_format TEXT NOT NULL,
+            original_filename TEXT NOT NULL,
+            file_path TEXT NOT NULL,
+            file_hash TEXT NOT NULL,
+            generated_by TEXT,
+            generated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(job_id) REFERENCES calibration_jobs(id),
+            FOREIGN KEY(assessment_id) REFERENCES conformity_assessments(id)
+        )
+    """)
+    cursor.execute("""CREATE INDEX IF NOT EXISTS idx_service_request_job
+        ON lab_service_requests(job_id)""")
+    cursor.execute("""CREATE INDEX IF NOT EXISTS idx_conformity_job
+        ON conformity_assessments(job_id,status)""")
+    cursor.execute("""CREATE INDEX IF NOT EXISTS idx_report_cover_job
+        ON generated_report_covers(job_id,generated_at)""")
+
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS workflow_tasks (
             id INTEGER PRIMARY KEY AUTOINCREMENT,

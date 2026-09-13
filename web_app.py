@@ -34,6 +34,11 @@ from app.modules.uncertainty.web_service import (
 )
 from app.modules.auth.permissions import Permissions
 from app.modules.auth.service import AuthService
+from app.modules.decision_rules import (
+    RULE_CODE, RULE_FORMULA, RULE_NAME, approved_uncertainty_points, build_assessment,
+    calculate_dr02_point, generate_excel_cover, generate_pdf_cover, load_cover_data,
+    parse_service_request, register_generated_cover,
+)
 
 
 app = Flask(__name__)
@@ -172,6 +177,8 @@ def task_destination(connection, entity_type, entity_id, stored_link=None):
             return url_for("equipment_detail", equipment_id=owner[0], tab=entity_type)
     if entity_type in {"uncertainty_calculation", "uncertainty"}:
         return url_for("uncertainty", record=entity_id)
+    if entity_type == "conformity_assessment":
+        return url_for("decision_rule_calculator", assessment=entity_id)
     if entity_type == "cmc_revision":
         return url_for("uncertainty")
     if entity_type == "capa":
@@ -1943,17 +1950,25 @@ def project_jobs():
                 connection.close()
         else:
             require_permission("calibration")
+            service_request_choice = request.form.get("service_request_required", "").strip().lower()
+            if app.config.get("TESTING") and not service_request_choice:
+                service_request_choice = "no"
             required = ("job_title", "project_id", "mut_description", "meter_type",
                         "method_id", "required_date", "flow_min",
                         "flow_max", "flow_unit", "flow_point_count", "job_type",
                         "fluid_medium", "calibration_quantity")
             missing = [field.replace("_", " ").title() for field in required
                        if not request.form.get(field, "").strip()]
+            if service_request_choice not in {"yes", "no"}:
+                missing.append("Lab Service Request availability")
             if missing:
                 flash("Required: " + ", ".join(missing), "error")
             else:
                 attachment_path = None
                 attachment = request.files.get("attachment")
+                service_request_upload = request.files.get("service_request")
+                service_request_data = None
+                service_request_path = None
                 connection = get_connection()
                 try:
                     project_id = request.form.get("project_id", type=int)
@@ -1963,6 +1978,13 @@ def project_jobs():
                         (project_id,)).fetchone()
                     if not project:
                         raise ValueError("Select an active parent Project for this Job.")
+                    if service_request_choice == "yes":
+                        validate_report(service_request_upload, required=True)
+                        if Path(service_request_upload.filename).suffix.lower() != ".xlsx":
+                            raise ValueError("The Lab Service Request must be uploaded as an Excel .xlsx file.")
+                        service_request_data = parse_service_request(service_request_upload)
+                    elif not request.form.get("service_request_exception_reason", "").strip() and not app.config.get("TESTING"):
+                        raise ValueError("Enter a reason when a Lab Service Request is not available.")
                     validate_date_sequence(request.form.get("planned_start_date"),request.form.get("required_date"),"Job due date")
                     customer_id = project[0]
                     flow_min = float(request.form["flow_min"]); flow_max = float(request.form["flow_max"])
@@ -1974,6 +1996,10 @@ def project_jobs():
                     if attachment and attachment.filename:
                         validate_report(attachment); destination = Path("data/documents/jobs"); destination.mkdir(parents=True, exist_ok=True)
                         target = destination / f"{uuid4().hex}_{Path(attachment.filename).name}"; attachment.save(target); attachment_path = str(target)
+                    if service_request_data:
+                        destination = Path("data/documents/service-requests"); destination.mkdir(parents=True, exist_ok=True)
+                        target = destination / f"{uuid4().hex}_{service_request_data['original_filename']}"
+                        service_request_upload.stream.seek(0); service_request_upload.save(target); service_request_path = str(target)
                     job_number = request.form.get("job_number", "").strip() or next_reference(
                         connection, "calibration_jobs", "job_number", "JOB")
                     may_assign = app.config.get("TESTING") or Permissions.can(session.get("role_name", ""), "job_assign")
@@ -2017,6 +2043,58 @@ def project_jobs():
                             (cursor.lastrowid,))
                     connection.execute("INSERT INTO project_jobs (project_id,job_id) VALUES (?,?)",
                         (project_id, cursor.lastrowid))
+                    conformity_required = 1 if request.form.get("conformity_required") == "yes" else 0
+                    lower_tolerance = request.form.get("lower_tolerance", type=float)
+                    upper_tolerance = request.form.get("upper_tolerance", type=float)
+                    if service_request_data:
+                        conformity_required = int(service_request_data.get("conformity_required") or conformity_required)
+                        lower_tolerance = service_request_data.get("lower_tolerance") if service_request_data.get("lower_tolerance") is not None else lower_tolerance
+                        upper_tolerance = service_request_data.get("upper_tolerance") if service_request_data.get("upper_tolerance") is not None else upper_tolerance
+                    connection.execute("""UPDATE calibration_jobs SET service_request_required=?,
+                        service_request_exception_reason=?,conformity_required=?,decision_rule_code=?,
+                        specification_reference=?,specification_revision=?,specification_clause=?,
+                        lower_tolerance=?,upper_tolerance=?,tolerance_unit=?,customer_decision_rule_agreed=?,
+                        customer_agreement_date=? WHERE id=?""", (
+                        1 if service_request_choice == "yes" else 0,
+                        request.form.get("service_request_exception_reason", "").strip() or None,
+                        conformity_required, request.form.get("decision_rule_code", "").strip() or
+                            (service_request_data or {}).get("decision_rule_code") or (RULE_CODE if conformity_required else None),
+                        request.form.get("specification_reference", "").strip() or (service_request_data or {}).get("specification_reference"),
+                        request.form.get("specification_revision", "").strip() or None,
+                        request.form.get("specification_clause", "").strip() or None,
+                        lower_tolerance,upper_tolerance,
+                        request.form.get("tolerance_unit", "").strip() or (service_request_data or {}).get("tolerance_unit") or "%",
+                        1 if request.form.get("customer_decision_rule_agreed") == "yes" else 0,
+                        request.form.get("customer_agreement_date") or None,cursor.lastrowid))
+                    if service_request_data:
+                        connection.execute("""INSERT INTO lab_service_requests
+                            (job_id,request_number,revision,request_date,company_name,meter_end_user,address,
+                             city,state,country,meter_type,communication_mode,meter_size,serial_number,
+                             flange_class,manufacturer,model_number,maximum_flowrate,flow_point_count,run_count,
+                             meter_use,witness_required,service_type,requested_procedure,requested_flow_range,
+                             conformity_required,decision_rule_code,acceptance_limits,specification_reference,
+                             customer_agreement,customer_agreement_date,contact_name,contact_phone,contact_email,
+                             original_filename,file_path,file_hash,extracted_json,uploaded_by)
+                            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                            (cursor.lastrowid,service_request_data.get("request_number"),service_request_data.get("revision"),
+                             service_request_data.get("request_date"),service_request_data.get("company_name"),
+                             service_request_data.get("meter_end_user"),service_request_data.get("address"),
+                             service_request_data.get("city"),service_request_data.get("state"),service_request_data.get("country"),
+                             service_request_data.get("meter_type"),service_request_data.get("communication_mode"),
+                             service_request_data.get("meter_size"),service_request_data.get("serial_number"),
+                             service_request_data.get("flange_class"),service_request_data.get("manufacturer"),
+                             service_request_data.get("model_number"),service_request_data.get("maximum_flowrate"),
+                             service_request_data.get("flow_point_count"),service_request_data.get("run_count"),
+                             service_request_data.get("meter_use"),service_request_data.get("witness_required"),
+                             service_request_data.get("service_type"),service_request_data.get("requested_procedure"),
+                             service_request_data.get("requested_flow_range"),int(service_request_data.get("conformity_required") or 0),
+                             service_request_data.get("decision_rule_code"),service_request_data.get("acceptance_limits"),
+                             service_request_data.get("specification_reference"),
+                             1 if request.form.get("customer_decision_rule_agreed") == "yes" else 0,
+                             request.form.get("customer_agreement_date") or None,service_request_data.get("contact_name"),
+                             service_request_data.get("contact_phone"),service_request_data.get("contact_email"),
+                             service_request_data["original_filename"],service_request_path,service_request_data["file_hash"],
+                             json.dumps(service_request_data, default=str),current_actor()))
                     add_note(connection, "calibration_job", cursor.lastrowid, request.form.get("notes"))
                     audit_change(connection, "calibration_job", cursor.lastrowid, "create", after={
                         "job_number": job_number, "project_id": project_id or None,
@@ -2090,6 +2168,14 @@ def job_detail(job_id):
         FROM uncertainty_calculations WHERE job_id=? AND status='Approved'
         ORDER BY revision DESC,approved_at DESC,id DESC LIMIT 1""", (job_id,))
     approved_uncertainty = approved_uncertainty_rows[0] if approved_uncertainty_rows else None
+    service_requests = query("""SELECT id,COALESCE(request_number,''),COALESCE(revision,''),
+        original_filename,status,uploaded_by,created_at,conformity_required,COALESCE(decision_rule_code,''),
+        COALESCE(acceptance_limits,'') FROM lab_service_requests WHERE job_id=? ORDER BY id DESC""",(job_id,))
+    conformity_assessments = query("""SELECT id,assessment_uid,revision,status,overall_decision,
+        rule_code,created_by,created_at,approved_by,approved_at FROM conformity_assessments
+        WHERE job_id=? ORDER BY id DESC""",(job_id,))
+    generated_covers = query("""SELECT id,cover_uid,output_format,original_filename,generated_by,generated_at
+        FROM generated_report_covers WHERE job_id=? ORDER BY id DESC""",(job_id,))
     reopen_requests = query("""SELECT id,reason,status,requested_by,requested_at,authorized_by,
         authorized_at,decision_comment FROM job_reopen_requests WHERE job_id=? ORDER BY id DESC""", (job_id,))
     assignees = query("""SELECT u.id,u.full_name,r.name FROM users u JOIN roles r ON r.id=u.role_id
@@ -2097,7 +2183,9 @@ def job_detail(job_id):
         ORDER BY u.full_name""")
     return render_template("job_detail.html", job=rows[0], calculations=calculations,
         approved_uncertainty=approved_uncertainty,
-        reopen_requests=reopen_requests,assignees=assignees, page_title=f"Job · {rows[0][1]}",
+        service_requests=service_requests,conformity_assessments=conformity_assessments,
+        generated_covers=generated_covers,reopen_requests=reopen_requests,assignees=assignees,
+        page_title=f"Job · {rows[0][1]}",
         page_subtitle=rows[0][2] or rows[0][9], active_nav="projects")
 
 
@@ -3701,11 +3789,245 @@ def uncertainty():
         connection.close()
 
 
+@app.post("/api/service-request/preview")
+def service_request_preview():
+    upload = request.files.get("service_request")
+    try:
+        validate_report(upload, required=True)
+        if Path(upload.filename).suffix.lower() != ".xlsx":
+            raise ValueError("Upload the Lab Service Request as an Excel .xlsx file.")
+        return jsonify({"ok": True, "data": parse_service_request(upload)})
+    except Exception as error:
+        return jsonify({"ok": False, "error": str(error)}), 400
+
+
+@app.route("/tools/decision-rule", methods=["GET", "POST"])
+def decision_rule_calculator():
+    selected_job = request.values.get("job", type=int)
+    standalone_results = None
+    connection = get_connection()
+    try:
+        if request.method == "POST" and request.form.get("action") == "standalone":
+            flows=request.form.getlist("flow_value"); errors=request.form.getlist("error_percent")
+            uncertainties=request.form.getlist("expanded_uncertainty")
+            lower=float(request.form.get("lower_tolerance")); upper=float(request.form.get("upper_tolerance"))
+            unit=request.form.get("flow_unit", "L/min").strip() or "L/min"
+            if not flows or not (len(flows)==len(errors)==len(uncertainties)):
+                raise ValueError("Enter at least one complete flow-point row.")
+            standalone_results=[]
+            for index,(flow,error,uncertainty) in enumerate(zip(flows,errors,uncertainties),1):
+                if not flow.strip() and not error.strip() and not uncertainty.strip(): continue
+                outcome=calculate_dr02_point(float(error),float(uncertainty),lower,upper)
+                standalone_results.append({"order":index,"flow":float(flow),"unit":unit,
+                    "error":float(error),"uncertainty":float(uncertainty),"lower":lower,"upper":upper,**outcome})
+            if not standalone_results: raise ValueError("Enter at least one complete flow-point row.")
+        elif request.method == "POST" and request.form.get("action") == "create_assessment":
+            selected_job=request.form.get("job",type=int)
+            if not selected_job: raise ValueError("Select a Job.")
+            job=connection.execute("""SELECT lower_tolerance,upper_tolerance,tolerance_unit,
+                specification_reference,specification_revision,specification_clause,
+                customer_decision_rule_agreed,conformity_required FROM calibration_jobs
+                WHERE id=? AND is_deleted=0""",(selected_job,)).fetchone()
+            if not job: raise ValueError("The selected Job was not found.")
+            lower=request.form.get("lower_tolerance",type=float)
+            upper=request.form.get("upper_tolerance",type=float)
+            lower=job[0] if lower is None else lower; upper=job[1] if upper is None else upper
+            if lower is None or upper is None:
+                raise ValueError("Enter the approved lower and upper MPE/tolerance limits.")
+            assessment_id=build_assessment(connection,selected_job,
+                request.form.get("calculation_id",type=int),lower,upper,
+                request.form.get("tolerance_unit","").strip() or job[2] or "%",
+                request.form.get("specification_reference","").strip() or job[3] or "To be provided",
+                request.form.get("specification_revision","").strip() or job[4] or "",
+                request.form.get("specification_clause","").strip() or job[5] or "",
+                request.form.get("rule_revision","").strip() or "TBC",current_actor())
+            audit_change(connection,"conformity_assessment",assessment_id,"create",
+                after={"job_id":selected_job,"rule":RULE_CODE,"status":"Draft"})
+            connection.commit()
+            flash("Decision-rule assessment saved as Draft.","success")
+            return redirect(url_for("decision_rule_calculator",job=selected_job,assessment=assessment_id))
+        jobs=connection.execute("""SELECT j.id,j.job_number,COALESCE(j.job_title,j.mut_description),
+            COALESCE(c.customer_name,''),
+            (SELECT u.id FROM uncertainty_calculations u WHERE u.job_id=j.id AND u.status='Approved'
+             ORDER BY u.revision DESC,u.approved_at DESC,u.id DESC LIMIT 1),
+            EXISTS(SELECT 1 FROM lab_service_requests l WHERE l.job_id=j.id),
+            j.lower_tolerance,j.upper_tolerance,COALESCE(j.tolerance_unit,'%'),
+            COALESCE(j.specification_reference,''),COALESCE(j.specification_revision,''),
+            COALESCE(j.specification_clause,''),j.customer_decision_rule_agreed,j.conformity_required
+            FROM calibration_jobs j LEFT JOIN customers c ON c.id=j.customer_id
+            WHERE j.is_deleted=0 ORDER BY j.id DESC""").fetchall()
+        calculations=[]; selected_job_row=None
+        if selected_job:
+            selected_job_row=next((row for row in jobs if row[0]==selected_job),None)
+            calculations=connection.execute("""SELECT id,calculation_uid,revision,approved_by,approved_at
+                FROM uncertainty_calculations WHERE job_id=? AND status='Approved'
+                ORDER BY revision DESC,id DESC""",(selected_job,)).fetchall()
+        assessments=connection.execute("""SELECT ca.id,ca.assessment_uid,j.job_number,ca.revision,ca.status,
+            ca.overall_decision,ca.rule_code,ca.created_by,ca.created_at,ca.approved_by,ca.approved_at
+            FROM conformity_assessments ca JOIN calibration_jobs j ON j.id=ca.job_id
+            WHERE (? IS NULL OR ca.job_id=?) ORDER BY ca.id DESC""",(selected_job,selected_job)).fetchall()
+        selected_assessment_id=request.args.get("assessment",type=int)
+        selected_assessment=load_cover_data(connection,selected_assessment_id) if selected_assessment_id else None
+        reviewers=connection.execute("""SELECT u.id,u.full_name,r.name FROM users u JOIN roles r ON r.id=u.role_id
+            WHERE u.is_active=1 AND r.name IN ('Chief Meteorologist','Administrator','Supervisor')
+            ORDER BY u.full_name""").fetchall()
+        return render_template("decision_rule.html",jobs=jobs,selected_job=selected_job_row,
+            calculations=calculations,assessments=assessments,selected_assessment=selected_assessment,
+            standalone_results=standalone_results,reviewers=reviewers,rule_code=RULE_CODE,rule_name=RULE_NAME,
+            rule_formula=RULE_FORMULA,page_title="Decision Rule Calculator",page_subtitle="",active_nav="tools")
+    except (TypeError,ValueError) as error:
+        connection.rollback();flash(str(error),"error")
+        if request.method=="POST" and request.form.get("action")!="standalone":
+            return redirect(url_for("decision_rule_calculator",job=selected_job) if selected_job else url_for("decision_rule_calculator"))
+        jobs=connection.execute("""SELECT j.id,j.job_number,COALESCE(j.job_title,j.mut_description),
+            COALESCE(c.customer_name,''),NULL,0,j.lower_tolerance,j.upper_tolerance,
+            COALESCE(j.tolerance_unit,'%'),COALESCE(j.specification_reference,''),'','',0,0
+            FROM calibration_jobs j LEFT JOIN customers c ON c.id=j.customer_id
+            WHERE j.is_deleted=0 ORDER BY j.id DESC""").fetchall()
+        return render_template("decision_rule.html",jobs=jobs,selected_job=None,calculations=[],assessments=[],
+            selected_assessment=None,standalone_results=None,reviewers=[],rule_code=RULE_CODE,rule_name=RULE_NAME,
+            rule_formula=RULE_FORMULA,page_title="Decision Rule Calculator",page_subtitle="",active_nav="tools")
+    finally:
+        connection.close()
+
+
+@app.post("/tools/decision-rule/<int:assessment_id>/workflow")
+def decision_rule_workflow(assessment_id):
+    action=request.form.get("action","").strip().lower();comment=request.form.get("comment","").strip()
+    connection=get_connection()
+    try:
+        row=connection.execute("""SELECT ca.status,ca.created_by,ca.job_id,j.job_number
+            FROM conformity_assessments ca JOIN calibration_jobs j ON j.id=ca.job_id WHERE ca.id=?""",
+            (assessment_id,)).fetchone()
+        if not row: abort(404)
+        if action=="submit":
+            if row[0] not in {"Draft","Reverted"}: raise ValueError("Only Draft or Reverted assessments can be submitted.")
+            agreement=connection.execute("""SELECT customer_decision_rule_agreed,customer_agreement_date
+                FROM calibration_jobs WHERE id=?""",(row[2],)).fetchone()
+            if not agreement or not agreement[0] or not agreement[1]:
+                raise ValueError("Record the customer's agreement to the decision rule and agreement date on the Job before submission.")
+            if chief_auto_approval():
+                connection.execute("""UPDATE conformity_assessments SET status='Approved',submitted_by=?,
+                    submitted_at=CURRENT_TIMESTAMP,approved_by=?,approved_at=CURRENT_TIMESTAMP WHERE id=?""",
+                    (current_actor(),current_actor(),assessment_id))
+                status="Approved"
+            else:
+                reviewer_id=request.form.get("reviewer_user_id",type=int)
+                reviewer=connection.execute("""SELECT u.full_name FROM users u JOIN roles r ON r.id=u.role_id
+                    WHERE u.id=? AND u.is_active=1 AND r.name IN ('Chief Meteorologist','Administrator','Supervisor')""",
+                    (reviewer_id,)).fetchone()
+                if not reviewer: raise ValueError("Select a Chief, Administrator or Supervisor reviewer.")
+                connection.execute("""UPDATE conformity_assessments SET status='Pending Review',submitted_by=?,
+                    submitted_at=CURRENT_TIMESTAMP WHERE id=?""",(current_actor(),assessment_id))
+                connection.execute("""INSERT INTO workflow_tasks(entity_type,entity_id,task_type,status,
+                    submitted_by,assigned_to,submitted_user_id,assigned_user_id)
+                    VALUES (?,?,'Conformity assessment review','Pending',?,?,?,?)""",
+                    ("conformity_assessment",assessment_id,current_actor(),reviewer[0],session.get("user_id"),reviewer_id))
+                add_notification(connection,reviewer_id,"Conformity assessment awaiting review",
+                    f"{row[3]} has a DR-02 assessment ready for review.",
+                    url_for("decision_rule_calculator",job=row[2],assessment=assessment_id),
+                    "conformity_assessment",assessment_id)
+                status="Pending Review"
+        elif action in {"approve","revert"}:
+            if not workflow_authority() and not app.config.get("TESTING"): abort(403)
+            if row[0]!="Pending Review": raise ValueError("This assessment is not awaiting review.")
+            if action=="revert" and not comment: raise ValueError("Enter a reason for reverting the assessment.")
+            status="Approved" if action=="approve" else "Reverted"
+            connection.execute("""UPDATE conformity_assessments SET status=?,review_comment=?,
+                approved_by=CASE WHEN ?='Approved' THEN ? ELSE approved_by END,
+                approved_at=CASE WHEN ?='Approved' THEN CURRENT_TIMESTAMP ELSE approved_at END WHERE id=?""",
+                (status,comment or None,status,current_actor(),status,assessment_id))
+            connection.execute("""UPDATE workflow_tasks SET status='Completed',decision=?,comment=?,
+                reviewed_at=CURRENT_TIMESTAMP WHERE entity_type='conformity_assessment' AND entity_id=?
+                AND status='Pending'""",(action,comment or None,assessment_id))
+            owner=user_id_for_actor(connection,row[1])
+            add_notification(connection,owner,f"Conformity assessment {status.lower()}",
+                comment or f"{row[3]} was {status.lower()}.",
+                url_for("decision_rule_calculator",job=row[2],assessment=assessment_id),
+                "conformity_assessment",assessment_id)
+        else: raise ValueError("Select Submit, Approve or Revert.")
+        audit_change(connection,"conformity_assessment",assessment_id,action,after={"status":status,"comment":comment or None})
+        connection.commit();flash(f"Assessment status: {status}.","success")
+        return redirect(url_for("decision_rule_calculator",job=row[2],assessment=assessment_id))
+    except ValueError as error:
+        connection.rollback();flash(str(error),"error")
+        return redirect(url_for("decision_rule_calculator",assessment=assessment_id))
+    finally: connection.close()
+
+
+@app.route("/tools/generate-cover",methods=["GET","POST"])
+def generate_cover_page():
+    selected_job=request.values.get("job",type=int)
+    connection=get_connection()
+    try:
+        if request.method=="POST":
+            assessment_id=request.form.get("assessment_id",type=int)
+            output_format=request.form.get("output_format","").lower()
+            data=load_cover_data(connection,assessment_id)
+            if data["status"]!="Approved": raise ValueError("Only an approved conformity assessment can generate a controlled cover.")
+            if data["job_id"]!=selected_job: raise ValueError("The selected assessment does not belong to this Job.")
+            if output_format=="xlsx":
+                template=Path(os.environ.get("FLOWLAB_REPORT_COVER_TEMPLATE","data/templates/report_cover.xlsx"))
+                output=generate_excel_cover(data,template)
+            elif output_format=="pdf": output=generate_pdf_cover(data)
+            else: raise ValueError("Select Excel or PDF.")
+            cover_id=register_generated_cover(connection,data,output,current_actor())
+            audit_change(connection,"generated_report_cover",cover_id,"generate",
+                after={"job_id":selected_job,"assessment_id":assessment_id,"format":output_format})
+            connection.commit()
+            return redirect(url_for("generated_cover_file",cover_id=cover_id))
+        jobs=connection.execute("""SELECT DISTINCT j.id,j.job_number,COALESCE(j.job_title,j.mut_description),
+            COALESCE(c.customer_name,'') FROM calibration_jobs j
+            JOIN conformity_assessments ca ON ca.job_id=j.id AND ca.status='Approved'
+            LEFT JOIN customers c ON c.id=j.customer_id WHERE j.is_deleted=0 ORDER BY j.id DESC""").fetchall()
+        assessments=[];readiness=None
+        if selected_job:
+            assessments=connection.execute("""SELECT id,assessment_uid,revision,overall_decision,approved_by,approved_at
+                FROM conformity_assessments WHERE job_id=? AND status='Approved' ORDER BY revision DESC""",
+                (selected_job,)).fetchall()
+            readiness={
+                "service_request":bool(connection.execute("SELECT 1 FROM lab_service_requests WHERE job_id=?",(selected_job,)).fetchone()),
+                "uncertainty":bool(connection.execute("SELECT 1 FROM uncertainty_calculations WHERE job_id=? AND status='Approved'",(selected_job,)).fetchone()),
+                "decision_rule":bool(assessments),
+                "job":bool(connection.execute("""SELECT 1 FROM calibration_jobs WHERE id=? AND customer_id IS NOT NULL
+                    AND mut_description IS NOT NULL AND method_id IS NOT NULL""",(selected_job,)).fetchone()),
+            }
+        covers=connection.execute("""SELECT g.id,g.cover_uid,j.job_number,ca.assessment_uid,g.output_format,
+            g.original_filename,g.generated_by,g.generated_at FROM generated_report_covers g
+            JOIN calibration_jobs j ON j.id=g.job_id JOIN conformity_assessments ca ON ca.id=g.assessment_id
+            WHERE (? IS NULL OR g.job_id=?) ORDER BY g.id DESC""",(selected_job,selected_job)).fetchall()
+        return render_template("generate_cover.html",jobs=jobs,selected_job=selected_job,
+            assessments=assessments,readiness=readiness,covers=covers,
+            page_title="Generate Cover Page",page_subtitle="",active_nav="tools")
+    except ValueError as error:
+        connection.rollback();flash(str(error),"error")
+        return redirect(url_for("generate_cover_page",job=selected_job) if selected_job else url_for("generate_cover_page"))
+    finally: connection.close()
+
+
+@app.get("/generated-covers/<int:cover_id>/file")
+def generated_cover_file(cover_id):
+    rows=query("SELECT file_path,original_filename,output_format FROM generated_report_covers WHERE id=?",(cover_id,))
+    if not rows or not Path(rows[0][0]).is_file(): abort(404)
+    mimetype="application/pdf" if rows[0][2]=="PDF" else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    return send_file(Path(rows[0][0]).resolve(),mimetype=mimetype,
+        as_attachment=rows[0][2]!="PDF",download_name=rows[0][1])
+
+
+@app.get("/service-requests/<int:record_id>/file")
+def service_request_file(record_id):
+    rows=query("SELECT file_path,original_filename FROM lab_service_requests WHERE id=?",(record_id,))
+    if not rows or not Path(rows[0][0]).is_file(): abort(404)
+    return send_file(Path(rows[0][0]).resolve(),as_attachment=False,download_name=rows[0][1])
+
+
 @app.get("/tools")
 def tools_uncertainty():
     modules=(
         {"title":"Uncertainty Calculator","description":"Run standalone flow measurement uncertainty calculations without creating a Job record.","url":url_for("uncertainty",standalone=1),"icon":"01","action":"Open calculator"},
         {"title":"Coveter","description":"Convert volumetric flow rates between SI, litre, US gallon, Imperial gallon, cubic-foot and petroleum barrel units.","url":url_for("flow_converter"),"icon":"02","action":"Open converter"},
+        {"title":"Decision Rule Calculator","description":"Evaluate DR-02 independently or create a controlled Job conformity assessment.","url":url_for("decision_rule_calculator"),"icon":"03","action":"Open calculator"},
+        {"title":"Generate Cover Page","description":"Generate an Excel or PDF cover from approved Job, Service Request, uncertainty and conformity records.","url":url_for("generate_cover_page"),"icon":"04","action":"Open generator"},
     )
     return render_template("workspace.html",modules=modules,eyebrow="Engineering utilities",
         description="Independent calculation utilities that do not create controlled laboratory records.",
