@@ -279,7 +279,7 @@ def load_cover_data(connection, assessment_id: int) -> dict[str, Any]:
            JOIN uncertainty_calculations uc ON uc.id=ca.uncertainty_calculation_id
            LEFT JOIN lab_service_requests lsr ON lsr.id=(SELECT id FROM lab_service_requests
                WHERE job_id=j.id ORDER BY id DESC LIMIT 1)
-           WHERE ca.id=?""", (assessment_id,)
+           WHERE ca.id=? AND ca.is_deleted=0""", (assessment_id,)
     ).fetchone()
     if not row:
         raise ValueError("Conformity assessment was not found.")

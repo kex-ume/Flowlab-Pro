@@ -296,7 +296,8 @@ def initialize_database():
                 overall_decision TEXT NOT NULL,statement_text TEXT NOT NULL,snapshot_json TEXT NOT NULL,
                 created_by TEXT,created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,submitted_by TEXT,
                 submitted_at TIMESTAMP,approved_by TEXT,approved_at TIMESTAMP,review_comment TEXT,
-                superseded_at TIMESTAMP,UNIQUE(job_id,revision))""")
+                superseded_at TIMESTAMP,is_deleted INTEGER NOT NULL DEFAULT 0,deleted_at TIMESTAMP,
+                deleted_by TEXT,UNIQUE(job_id,revision))""")
             conn.execute("""CREATE TABLE IF NOT EXISTS conformity_assessment_points (
                 id BIGSERIAL PRIMARY KEY,assessment_id BIGINT NOT NULL REFERENCES conformity_assessments(id) ON DELETE CASCADE,
                 uncertainty_flow_point_id BIGINT REFERENCES uncertainty_flow_points(id),point_order INTEGER NOT NULL,
@@ -310,7 +311,14 @@ def initialize_database():
                 job_id BIGINT NOT NULL REFERENCES calibration_jobs(id),
                 assessment_id BIGINT NOT NULL REFERENCES conformity_assessments(id),output_format TEXT NOT NULL,
                 original_filename TEXT NOT NULL,file_path TEXT NOT NULL,file_hash TEXT NOT NULL,
-                generated_by TEXT,generated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
+                generated_by TEXT,generated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                is_deleted INTEGER NOT NULL DEFAULT 0,deleted_at TIMESTAMP,deleted_by TEXT)""")
+            conn.execute("ALTER TABLE conformity_assessments ADD COLUMN IF NOT EXISTS is_deleted INTEGER NOT NULL DEFAULT 0")
+            conn.execute("ALTER TABLE conformity_assessments ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP")
+            conn.execute("ALTER TABLE conformity_assessments ADD COLUMN IF NOT EXISTS deleted_by TEXT")
+            conn.execute("ALTER TABLE generated_report_covers ADD COLUMN IF NOT EXISTS is_deleted INTEGER NOT NULL DEFAULT 0")
+            conn.execute("ALTER TABLE generated_report_covers ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP")
+            conn.execute("ALTER TABLE generated_report_covers ADD COLUMN IF NOT EXISTS deleted_by TEXT")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_service_request_job ON lab_service_requests(job_id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_conformity_job ON conformity_assessments(job_id,status)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_report_cover_job ON generated_report_covers(job_id,generated_at)")
@@ -1401,6 +1409,12 @@ def initialize_database():
         ON conformity_assessments(job_id,status)""")
     cursor.execute("""CREATE INDEX IF NOT EXISTS idx_report_cover_job
         ON generated_report_covers(job_id,generated_at)""")
+    ensure_column("conformity_assessments", "is_deleted", "INTEGER NOT NULL DEFAULT 0")
+    ensure_column("conformity_assessments", "deleted_at", "TEXT")
+    ensure_column("conformity_assessments", "deleted_by", "TEXT")
+    ensure_column("generated_report_covers", "is_deleted", "INTEGER NOT NULL DEFAULT 0")
+    ensure_column("generated_report_covers", "deleted_at", "TEXT")
+    ensure_column("generated_report_covers", "deleted_by", "TEXT")
 
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS workflow_tasks (

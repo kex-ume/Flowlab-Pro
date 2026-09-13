@@ -2173,9 +2173,9 @@ def job_detail(job_id):
         COALESCE(acceptance_limits,'') FROM lab_service_requests WHERE job_id=? ORDER BY id DESC""",(job_id,))
     conformity_assessments = query("""SELECT id,assessment_uid,revision,status,overall_decision,
         rule_code,created_by,created_at,approved_by,approved_at FROM conformity_assessments
-        WHERE job_id=? ORDER BY id DESC""",(job_id,))
+        WHERE job_id=? AND is_deleted=0 ORDER BY id DESC""",(job_id,))
     generated_covers = query("""SELECT id,cover_uid,output_format,original_filename,generated_by,generated_at
-        FROM generated_report_covers WHERE job_id=? ORDER BY id DESC""",(job_id,))
+        FROM generated_report_covers WHERE job_id=? AND is_deleted=0 ORDER BY id DESC""",(job_id,))
     reopen_requests = query("""SELECT id,reason,status,requested_by,requested_at,authorized_by,
         authorized_at,decision_comment FROM job_reopen_requests WHERE job_id=? ORDER BY id DESC""", (job_id,))
     assignees = query("""SELECT u.id,u.full_name,r.name FROM users u JOIN roles r ON r.id=u.role_id
@@ -2368,7 +2368,9 @@ def recycle_restore(item_id):
     targets = {"project": ("projects",), "calibration_job": ("calibration_jobs",),
         "controlled_document": ("controlled_documents",), "quality_record": ("quality_records",),
         "personnel_document": ("personnel_documents",), "calibration_history": ("calibration_history",),
-        "maintenance_history": ("maintenance_history",)}
+        "maintenance_history": ("maintenance_history",),
+        "conformity_assessment": ("conformity_assessments",),
+        "generated_report_cover": ("generated_report_covers",)}
     target = targets.get(item[0])
     if not target:
         connection.close(); flash("This item type cannot be restored automatically.", "error")
@@ -2393,7 +2395,8 @@ def recycle_purge(item_id):
         if not item:
             abort(404)
         if item[0] not in {"project", "calibration_job", "controlled_document", "quality_record",
-                "personnel_document", "calibration_history", "maintenance_history", "equipment"}:
+                "personnel_document", "calibration_history", "maintenance_history", "equipment",
+                "conformity_assessment", "generated_report_cover"}:
             raise ValueError("This item type cannot be permanently deleted automatically.")
         archive_month = str(item[5])[:7]
         connection.execute("""INSERT INTO deletion_archive
@@ -3579,6 +3582,14 @@ def uncertainty_api_workflow(record_type, record_id):
         status = workflow(connection, "cmc" if record_type == "cmc" else "calculation",
             record_id, action, current_actor(), body.get("comment", ""), reviewer, approver,
             auto_approve=auto_approve, authority_override=workflow_authority())
+        if not is_cmc and status == "Approved":
+            job_and_count=connection.execute("""SELECT job_id,
+                (SELECT COUNT(*) FROM uncertainty_flow_points WHERE calculation_id=?)
+                FROM uncertainty_calculations WHERE id=?""",(record_id,record_id)).fetchone()
+            if job_and_count and job_and_count[0] and job_and_count[1]:
+                connection.execute("""UPDATE calibration_jobs SET flow_point_count=?,updated_at=CURRENT_TIMESTAMP
+                    WHERE id=? AND COALESCE(flow_point_count,0)<?""",
+                    (job_and_count[1],job_and_count[0],job_and_count[1]))
         creator_id = user_id_for_actor(connection,record_row[1])
         link = url_for("uncertainty",record=record_id)
         if action == "submit" and not auto_approve:
@@ -3865,10 +3876,11 @@ def decision_rule_calculator():
         assessment_sql="""SELECT ca.id,ca.assessment_uid,j.job_number,ca.revision,ca.status,
             ca.overall_decision,ca.rule_code,ca.created_by,ca.created_at,ca.approved_by,ca.approved_at
             FROM conformity_assessments ca JOIN calibration_jobs j ON j.id=ca.job_id
+            WHERE ca.is_deleted=0
             """
         assessment_params=()
         if selected_job:
-            assessment_sql += " WHERE ca.job_id=?"
+            assessment_sql += " AND ca.job_id=?"
             assessment_params=(selected_job,)
         assessments=connection.execute(assessment_sql+" ORDER BY ca.id DESC",assessment_params).fetchall()
         selected_assessment_id=request.args.get("assessment",type=int)
@@ -3983,12 +3995,12 @@ def generate_cover_page():
             return redirect(url_for("generated_cover_file",cover_id=cover_id))
         jobs=connection.execute("""SELECT DISTINCT j.id,j.job_number,COALESCE(j.job_title,j.mut_description),
             COALESCE(c.customer_name,'') FROM calibration_jobs j
-            JOIN conformity_assessments ca ON ca.job_id=j.id AND ca.status='Approved'
+            JOIN conformity_assessments ca ON ca.job_id=j.id AND ca.status='Approved' AND ca.is_deleted=0
             LEFT JOIN customers c ON c.id=j.customer_id WHERE j.is_deleted=0 ORDER BY j.id DESC""").fetchall()
         assessments=[];readiness=None
         if selected_job:
             assessments=connection.execute("""SELECT id,assessment_uid,revision,overall_decision,approved_by,approved_at
-                FROM conformity_assessments WHERE job_id=? AND status='Approved' ORDER BY revision DESC""",
+                FROM conformity_assessments WHERE job_id=? AND status='Approved' AND is_deleted=0 ORDER BY revision DESC""",
                 (selected_job,)).fetchall()
             readiness={
                 "service_request":bool(connection.execute("SELECT 1 FROM lab_service_requests WHERE job_id=?",(selected_job,)).fetchone()),
@@ -4000,10 +4012,11 @@ def generate_cover_page():
         cover_sql="""SELECT g.id,g.cover_uid,j.job_number,ca.assessment_uid,g.output_format,
             g.original_filename,g.generated_by,g.generated_at FROM generated_report_covers g
             JOIN calibration_jobs j ON j.id=g.job_id JOIN conformity_assessments ca ON ca.id=g.assessment_id
+            WHERE g.is_deleted=0
             """
         cover_params=()
         if selected_job:
-            cover_sql += " WHERE g.job_id=?"
+            cover_sql += " AND g.job_id=?"
             cover_params=(selected_job,)
         covers=connection.execute(cover_sql+" ORDER BY g.id DESC",cover_params).fetchall()
         return render_template("generate_cover.html",jobs=jobs,selected_job=selected_job,
@@ -4017,11 +4030,37 @@ def generate_cover_page():
 
 @app.get("/generated-covers/<int:cover_id>/file")
 def generated_cover_file(cover_id):
-    rows=query("SELECT file_path,original_filename,output_format FROM generated_report_covers WHERE id=?",(cover_id,))
+    rows=query("SELECT file_path,original_filename,output_format FROM generated_report_covers WHERE id=? AND is_deleted=0",(cover_id,))
     if not rows or not Path(rows[0][0]).is_file(): abort(404)
     mimetype="application/pdf" if rows[0][2]=="PDF" else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     return send_file(Path(rows[0][0]).resolve(),mimetype=mimetype,
         as_attachment=rows[0][2]!="PDF",download_name=rows[0][1])
+
+
+@app.post("/tools/decision-rule/<int:assessment_id>/delete")
+def decision_rule_delete(assessment_id):
+    if not app.config.get("TESTING") and session.get("role_name") != "Chief Meteorologist": abort(403)
+    connection=get_connection()
+    row=connection.execute("SELECT assessment_uid,status FROM conformity_assessments WHERE id=? AND is_deleted=0",(assessment_id,)).fetchone()
+    if not row: connection.close();abort(404)
+    connection.execute("UPDATE conformity_assessments SET is_deleted=1,deleted_at=CURRENT_TIMESTAMP,deleted_by=? WHERE id=?",(current_actor(),assessment_id))
+    recycle_record(connection,"conformity_assessment",assessment_id,row[0])
+    audit_change(connection,"conformity_assessment",assessment_id,"soft_delete",before={"status":row[1]},after={"is_deleted":1})
+    connection.commit();connection.close();flash("Assessment moved to the Recycle Bin.","success")
+    return redirect(url_for("decision_rule_calculator"))
+
+
+@app.post("/generated-covers/<int:cover_id>/delete")
+def generated_cover_delete(cover_id):
+    if not app.config.get("TESTING") and session.get("role_name") != "Chief Meteorologist": abort(403)
+    connection=get_connection()
+    row=connection.execute("SELECT cover_uid,file_path FROM generated_report_covers WHERE id=? AND is_deleted=0",(cover_id,)).fetchone()
+    if not row: connection.close();abort(404)
+    connection.execute("UPDATE generated_report_covers SET is_deleted=1,deleted_at=CURRENT_TIMESTAMP,deleted_by=? WHERE id=?",(current_actor(),cover_id))
+    recycle_record(connection,"generated_report_cover",cover_id,row[0],row[1])
+    audit_change(connection,"generated_report_cover",cover_id,"soft_delete",after={"is_deleted":1})
+    connection.commit();connection.close();flash("Generated cover moved to the Recycle Bin.","success")
+    return redirect(url_for("generate_cover_page"))
 
 
 @app.get("/service-requests/<int:record_id>/file")
