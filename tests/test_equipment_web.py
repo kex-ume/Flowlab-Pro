@@ -275,7 +275,7 @@ class FreshDatabaseWebTests(unittest.TestCase):
         self.assertEqual(iso_page.status_code,200)
         self.assertIn("Accreditation Scope &amp; Clause Applicability",iso_page.get_data(as_text=True))
         tools=self.client.get("/tools").get_data(as_text=True)
-        self.assertIn("Coveter",tools);self.assertIn("Uncertainty Calculator",tools)
+        self.assertIn("Converter",tools);self.assertIn("Uncertainty Calculator",tools)
         converter=self.client.get("/tools/coveter")
         self.assertEqual(converter.status_code,200)
         page=converter.get_data(as_text=True)

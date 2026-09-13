@@ -3851,21 +3851,26 @@ def decision_rule_calculator():
             (SELECT u.id FROM uncertainty_calculations u WHERE u.job_id=j.id AND u.status='Approved'
              ORDER BY u.revision DESC,u.approved_at DESC,u.id DESC LIMIT 1),
             EXISTS(SELECT 1 FROM lab_service_requests l WHERE l.job_id=j.id),
-            j.lower_tolerance,j.upper_tolerance,COALESCE(j.tolerance_unit,'%'),
+            j.lower_tolerance,j.upper_tolerance,COALESCE(j.tolerance_unit,?),
             COALESCE(j.specification_reference,''),COALESCE(j.specification_revision,''),
             COALESCE(j.specification_clause,''),j.customer_decision_rule_agreed,j.conformity_required
             FROM calibration_jobs j LEFT JOIN customers c ON c.id=j.customer_id
-            WHERE j.is_deleted=0 ORDER BY j.id DESC""").fetchall()
+            WHERE j.is_deleted=0 ORDER BY j.id DESC""",("%",)).fetchall()
         calculations=[]; selected_job_row=None
         if selected_job:
             selected_job_row=next((row for row in jobs if row[0]==selected_job),None)
             calculations=connection.execute("""SELECT id,calculation_uid,revision,approved_by,approved_at
                 FROM uncertainty_calculations WHERE job_id=? AND status='Approved'
                 ORDER BY revision DESC,id DESC""",(selected_job,)).fetchall()
-        assessments=connection.execute("""SELECT ca.id,ca.assessment_uid,j.job_number,ca.revision,ca.status,
+        assessment_sql="""SELECT ca.id,ca.assessment_uid,j.job_number,ca.revision,ca.status,
             ca.overall_decision,ca.rule_code,ca.created_by,ca.created_at,ca.approved_by,ca.approved_at
             FROM conformity_assessments ca JOIN calibration_jobs j ON j.id=ca.job_id
-            WHERE (? IS NULL OR ca.job_id=?) ORDER BY ca.id DESC""",(selected_job,selected_job)).fetchall()
+            """
+        assessment_params=()
+        if selected_job:
+            assessment_sql += " WHERE ca.job_id=?"
+            assessment_params=(selected_job,)
+        assessments=connection.execute(assessment_sql+" ORDER BY ca.id DESC",assessment_params).fetchall()
         selected_assessment_id=request.args.get("assessment",type=int)
         selected_assessment=load_cover_data(connection,selected_assessment_id) if selected_assessment_id else None
         reviewers=connection.execute("""SELECT u.id,u.full_name,r.name FROM users u JOIN roles r ON r.id=u.role_id
@@ -3881,9 +3886,9 @@ def decision_rule_calculator():
             return redirect(url_for("decision_rule_calculator",job=selected_job) if selected_job else url_for("decision_rule_calculator"))
         jobs=connection.execute("""SELECT j.id,j.job_number,COALESCE(j.job_title,j.mut_description),
             COALESCE(c.customer_name,''),NULL,0,j.lower_tolerance,j.upper_tolerance,
-            COALESCE(j.tolerance_unit,'%'),COALESCE(j.specification_reference,''),'','',0,0
+            COALESCE(j.tolerance_unit,?),COALESCE(j.specification_reference,''),'','',0,0
             FROM calibration_jobs j LEFT JOIN customers c ON c.id=j.customer_id
-            WHERE j.is_deleted=0 ORDER BY j.id DESC""").fetchall()
+            WHERE j.is_deleted=0 ORDER BY j.id DESC""",("%",)).fetchall()
         return render_template("decision_rule.html",jobs=jobs,selected_job=None,calculations=[],assessments=[],
             selected_assessment=None,standalone_results=None,reviewers=[],rule_code=RULE_CODE,rule_name=RULE_NAME,
             rule_formula=RULE_FORMULA,page_title="Decision Rule Calculator",page_subtitle="",active_nav="tools")
@@ -3992,10 +3997,15 @@ def generate_cover_page():
                 "job":bool(connection.execute("""SELECT 1 FROM calibration_jobs WHERE id=? AND customer_id IS NOT NULL
                     AND mut_description IS NOT NULL AND method_id IS NOT NULL""",(selected_job,)).fetchone()),
             }
-        covers=connection.execute("""SELECT g.id,g.cover_uid,j.job_number,ca.assessment_uid,g.output_format,
+        cover_sql="""SELECT g.id,g.cover_uid,j.job_number,ca.assessment_uid,g.output_format,
             g.original_filename,g.generated_by,g.generated_at FROM generated_report_covers g
             JOIN calibration_jobs j ON j.id=g.job_id JOIN conformity_assessments ca ON ca.id=g.assessment_id
-            WHERE (? IS NULL OR g.job_id=?) ORDER BY g.id DESC""",(selected_job,selected_job)).fetchall()
+            """
+        cover_params=()
+        if selected_job:
+            cover_sql += " WHERE g.job_id=?"
+            cover_params=(selected_job,)
+        covers=connection.execute(cover_sql+" ORDER BY g.id DESC",cover_params).fetchall()
         return render_template("generate_cover.html",jobs=jobs,selected_job=selected_job,
             assessments=assessments,readiness=readiness,covers=covers,
             page_title="Generate Cover Page",page_subtitle="",active_nav="tools")
@@ -4025,7 +4035,7 @@ def service_request_file(record_id):
 def tools_uncertainty():
     modules=(
         {"title":"Uncertainty Calculator","description":"Run standalone flow measurement uncertainty calculations without creating a Job record.","url":url_for("uncertainty",standalone=1),"icon":"01","action":"Open calculator"},
-        {"title":"Coveter","description":"Convert volumetric flow rates between SI, litre, US gallon, Imperial gallon, cubic-foot and petroleum barrel units.","url":url_for("flow_converter"),"icon":"02","action":"Open converter"},
+        {"title":"Converter","description":"Convert volumetric flow rates between SI, litre, US gallon, Imperial gallon, cubic-foot and petroleum barrel units.","url":url_for("flow_converter"),"icon":"02","action":"Open converter"},
         {"title":"Decision Rule Calculator","description":"Evaluate DR-02 independently or create a controlled Job conformity assessment.","url":url_for("decision_rule_calculator"),"icon":"03","action":"Open calculator"},
         {"title":"Generate Cover Page","description":"Generate an Excel or PDF cover from approved Job, Service Request, uncertainty and conformity records.","url":url_for("generate_cover_page"),"icon":"04","action":"Open generator"},
     )
@@ -4034,6 +4044,7 @@ def tools_uncertainty():
         page_title="Tools",page_subtitle="Standalone laboratory utilities",active_nav="tools")
 
 
+@app.get("/tools/converter")
 @app.get("/tools/coveter")
 def flow_converter():
     units=(
@@ -4045,7 +4056,7 @@ def flow_converter():
         ("impgal_h","Imp gal/h"),("bbl_s","bbl/s"),("bbl_h","bbl/h"),
         ("bbl_d","bbl/day (BPD)"),("ml_d","ML/day"),
     )
-    return render_template("converter.html",units=units,page_title="Coveter",
+    return render_template("converter.html",units=units,page_title="Converter",
         page_subtitle="Volumetric flow-rate unit conversion",active_nav="tools")
     uncertainty_repository = UncertaintyRepository()
     uncertainty_nav = (

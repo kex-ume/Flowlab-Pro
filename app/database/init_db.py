@@ -257,6 +257,63 @@ def initialize_database():
                 is_deleted INTEGER NOT NULL DEFAULT 0)""")
             _create_iso_checklist_schema(conn, postgres=True)
             _create_personnel_clause_schema(conn, postgres=True)
+            for statement in (
+                "ALTER TABLE calibration_jobs ADD COLUMN IF NOT EXISTS service_request_required INTEGER NOT NULL DEFAULT 0",
+                "ALTER TABLE calibration_jobs ADD COLUMN IF NOT EXISTS service_request_exception_reason TEXT",
+                "ALTER TABLE calibration_jobs ADD COLUMN IF NOT EXISTS conformity_required INTEGER NOT NULL DEFAULT 0",
+                "ALTER TABLE calibration_jobs ADD COLUMN IF NOT EXISTS decision_rule_code TEXT",
+                "ALTER TABLE calibration_jobs ADD COLUMN IF NOT EXISTS specification_reference TEXT",
+                "ALTER TABLE calibration_jobs ADD COLUMN IF NOT EXISTS specification_revision TEXT",
+                "ALTER TABLE calibration_jobs ADD COLUMN IF NOT EXISTS specification_clause TEXT",
+                "ALTER TABLE calibration_jobs ADD COLUMN IF NOT EXISTS lower_tolerance DOUBLE PRECISION",
+                "ALTER TABLE calibration_jobs ADD COLUMN IF NOT EXISTS upper_tolerance DOUBLE PRECISION",
+                "ALTER TABLE calibration_jobs ADD COLUMN IF NOT EXISTS tolerance_unit TEXT",
+                "ALTER TABLE calibration_jobs ADD COLUMN IF NOT EXISTS customer_decision_rule_agreed INTEGER NOT NULL DEFAULT 0",
+                "ALTER TABLE calibration_jobs ADD COLUMN IF NOT EXISTS customer_agreement_date DATE",
+            ):
+                conn.execute(statement)
+            conn.execute("""CREATE TABLE IF NOT EXISTS lab_service_requests (
+                id BIGSERIAL PRIMARY KEY,job_id BIGINT NOT NULL REFERENCES calibration_jobs(id),
+                request_number TEXT,revision TEXT,request_date DATE,company_name TEXT,meter_end_user TEXT,
+                address TEXT,city TEXT,state TEXT,country TEXT,meter_type TEXT,communication_mode TEXT,
+                meter_size TEXT,serial_number TEXT,flange_class TEXT,manufacturer TEXT,model_number TEXT,
+                maximum_flowrate TEXT,flow_point_count INTEGER,run_count INTEGER,meter_use TEXT,
+                witness_required TEXT,service_type TEXT,requested_procedure TEXT,requested_flow_range TEXT,
+                conformity_required INTEGER NOT NULL DEFAULT 0,decision_rule_code TEXT,acceptance_limits TEXT,
+                specification_reference TEXT,customer_agreement INTEGER NOT NULL DEFAULT 0,
+                customer_agreement_date DATE,contact_name TEXT,contact_phone TEXT,contact_email TEXT,
+                original_filename TEXT NOT NULL,file_path TEXT NOT NULL,file_hash TEXT NOT NULL,
+                extracted_json TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'Retained',uploaded_by TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
+            conn.execute("""CREATE TABLE IF NOT EXISTS conformity_assessments (
+                id BIGSERIAL PRIMARY KEY,assessment_uid TEXT NOT NULL UNIQUE,
+                job_id BIGINT NOT NULL REFERENCES calibration_jobs(id),
+                uncertainty_calculation_id BIGINT NOT NULL REFERENCES uncertainty_calculations(id),
+                revision INTEGER NOT NULL DEFAULT 1,status TEXT NOT NULL DEFAULT 'Draft',
+                rule_code TEXT NOT NULL DEFAULT 'DR-02',rule_revision TEXT,specification_reference TEXT,
+                specification_revision TEXT,specification_clause TEXT,lower_tolerance DOUBLE PRECISION NOT NULL,
+                upper_tolerance DOUBLE PRECISION NOT NULL,tolerance_unit TEXT NOT NULL,
+                overall_decision TEXT NOT NULL,statement_text TEXT NOT NULL,snapshot_json TEXT NOT NULL,
+                created_by TEXT,created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,submitted_by TEXT,
+                submitted_at TIMESTAMP,approved_by TEXT,approved_at TIMESTAMP,review_comment TEXT,
+                superseded_at TIMESTAMP,UNIQUE(job_id,revision))""")
+            conn.execute("""CREATE TABLE IF NOT EXISTS conformity_assessment_points (
+                id BIGSERIAL PRIMARY KEY,assessment_id BIGINT NOT NULL REFERENCES conformity_assessments(id) ON DELETE CASCADE,
+                uncertainty_flow_point_id BIGINT REFERENCES uncertainty_flow_points(id),point_order INTEGER NOT NULL,
+                flow_value DOUBLE PRECISION NOT NULL,flow_unit TEXT NOT NULL,error_percent DOUBLE PRECISION NOT NULL,
+                expanded_uncertainty DOUBLE PRECISION NOT NULL,lower_tolerance DOUBLE PRECISION NOT NULL,
+                upper_tolerance DOUBLE PRECISION NOT NULL,lower_acceptance DOUBLE PRECISION NOT NULL,
+                upper_acceptance DOUBLE PRECISION NOT NULL,decision TEXT NOT NULL,rationale TEXT,
+                UNIQUE(assessment_id,point_order))""")
+            conn.execute("""CREATE TABLE IF NOT EXISTS generated_report_covers (
+                id BIGSERIAL PRIMARY KEY,cover_uid TEXT NOT NULL UNIQUE,
+                job_id BIGINT NOT NULL REFERENCES calibration_jobs(id),
+                assessment_id BIGINT NOT NULL REFERENCES conformity_assessments(id),output_format TEXT NOT NULL,
+                original_filename TEXT NOT NULL,file_path TEXT NOT NULL,file_hash TEXT NOT NULL,
+                generated_by TEXT,generated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_service_request_job ON lab_service_requests(job_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_conformity_job ON conformity_assessments(job_id,status)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_report_cover_job ON generated_report_covers(job_id,generated_at)")
             conn.commit()
             _postgres_schema_verified = True
         finally:
