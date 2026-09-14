@@ -247,9 +247,9 @@ def calculate_payload(connection, payload):
     points = payload.get("points") or []
     if not points:
         raise ValueError("Add at least one flow point.")
-    if job_row and not payload.get("pointOnly") and len(points) != max(1, int(job_row[20] or 1)):
+    if job_row and not payload.get("pointOnly") and len(points) < max(1, int(job_row[20] or 1)):
         raise ValueError(
-            f"This Job requires {max(1, int(job_row[20] or 1))} flow points; "
+            f"This Job requires at least {max(1, int(job_row[20] or 1))} flow points; "
             f"the calculation currently contains {len(points)}.")
     calculated_points = []
     for index, point in enumerate(points, 1):
