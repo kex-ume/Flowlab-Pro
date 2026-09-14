@@ -322,6 +322,16 @@ def initialize_database():
             conn.execute("CREATE INDEX IF NOT EXISTS idx_service_request_job ON lab_service_requests(job_id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_conformity_job ON conformity_assessments(job_id,status)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_report_cover_job ON generated_report_covers(job_id,generated_at)")
+            conn.execute("""CREATE TABLE IF NOT EXISTS master_meter_curve_points (
+                id BIGSERIAL PRIMARY KEY,equipment_id BIGINT NOT NULL REFERENCES laboratory_equipment(id),
+                calibration_record_id BIGINT NOT NULL REFERENCES calibration_history(id) ON DELETE CASCADE,
+                point_order INTEGER NOT NULL,flow_value DOUBLE PRECISION NOT NULL,flow_unit TEXT NOT NULL,
+                indicated_value DOUBLE PRECISION,reference_value DOUBLE PRECISION,
+                correction_percent DOUBLE PRECISION,meter_factor DOUBLE PRECISION,
+                expanded_uncertainty DOUBLE PRECISION,coverage_factor DOUBLE PRECISION,
+                uploaded_by TEXT,created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(calibration_record_id,point_order))""")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_master_curve_equipment ON master_meter_curve_points(equipment_id,calibration_record_id,flow_value)")
             conn.commit()
             _postgres_schema_verified = True
         finally:
@@ -509,6 +519,16 @@ def initialize_database():
     ensure_column("calibration_history", "source_name", "TEXT")
     ensure_column("calibration_history", "sensitivity_coefficient", "REAL")
     ensure_column("calibration_history", "degrees_of_freedom", "REAL")
+    cursor.execute("""CREATE TABLE IF NOT EXISTS master_meter_curve_points (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,equipment_id INTEGER NOT NULL,
+        calibration_record_id INTEGER NOT NULL,point_order INTEGER NOT NULL,
+        flow_value REAL NOT NULL,flow_unit TEXT NOT NULL,indicated_value REAL,reference_value REAL,
+        correction_percent REAL,meter_factor REAL,expanded_uncertainty REAL,coverage_factor REAL,
+        uploaded_by TEXT,created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(equipment_id) REFERENCES laboratory_equipment(id),
+        FOREIGN KEY(calibration_record_id) REFERENCES calibration_history(id) ON DELETE CASCADE,
+        UNIQUE(calibration_record_id,point_order))""")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_master_curve_equipment ON master_meter_curve_points(equipment_id,calibration_record_id,flow_value)")
     ensure_column("maintenance_history", "is_deleted", "INTEGER NOT NULL DEFAULT 0")
     ensure_column("maintenance_history", "deleted_at", "TEXT")
     ensure_column("maintenance_history", "deleted_by", "TEXT")

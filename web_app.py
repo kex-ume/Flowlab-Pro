@@ -357,6 +357,43 @@ def validate_report(upload, required=False):
         raise ValueError("Report files must not exceed 10 MB.")
 
 
+def parse_master_meter_curve(upload):
+    """Read a master-meter calibration curve from CSV or XLSX column headings."""
+    extension=Path(upload.filename or "").suffix.lower()
+    if extension not in {".csv",".xlsx"}: raise ValueError("Upload the correction curve as CSV or Excel .xlsx.")
+    if extension==".csv":
+        upload.stream.seek(0);rows=list(csv.DictReader(io.StringIO(upload.stream.read().decode("utf-8-sig"))))
+    else:
+        from openpyxl import load_workbook
+        upload.stream.seek(0);sheet=load_workbook(upload.stream,data_only=True,read_only=True).active
+        values=list(sheet.iter_rows(values_only=True));headers=[str(v or "").strip() for v in values[0]] if values else []
+        rows=[dict(zip(headers,row)) for row in values[1:]]
+    def normalized(row): return {re.sub(r"[^a-z0-9]+","",str(k).lower()):v for k,v in row.items()}
+    def pick(row,*names):
+        for name in names:
+            value=row.get(name)
+            if value not in (None,""): return value
+        return None
+    parsed=[]
+    for index,raw in enumerate(rows,1):
+        row=normalized(raw);flow=pick(row,"flowpoint","flowvalue","flowrate","nominalflow")
+        if flow in (None,""): continue
+        point={"order":index,"flow":float(flow),"unit":str(pick(row,"flowunit","unit") or "").strip(),
+            "indicated":pick(row,"indicatedvalue","indication","masterindication"),
+            "reference":pick(row,"referencevalue","referenceflow"),
+            "correction":pick(row,"correctionpercent","correction","errorpercent"),
+            "factor":pick(row,"meterfactor","factor","kfactor"),
+            "uncertainty":pick(row,"expandeduncertainty","uncertainty"),"k":pick(row,"coveragefactor","k")}
+        for key in ("indicated","reference","correction","factor","uncertainty","k"):
+            point[key]=None if point[key] in (None,"") else float(point[key])
+        if not point["unit"]: raise ValueError(f"Curve row {index}: Flow Unit is required.")
+        if point["factor"] is None and point["correction"] is None:
+            raise ValueError(f"Curve row {index}: Meter Factor or Correction Percent is required.")
+        parsed.append(point)
+    if not parsed: raise ValueError("No calibrated curve points were found in the uploaded file.")
+    return parsed
+
+
 @app.before_request
 def ensure_database():
     initialize_database()
@@ -2844,10 +2881,27 @@ def equipment_detail(equipment_id):
     item = equipment_row[0]
     if request.method == "POST":
         action = request.form.get("action")
-        require_permission("calibration" if action == "calibration" else "maintenance")
+        require_permission("calibration" if action in {"calibration", "master_curve"} else "maintenance")
         connection = get_connection()
         try:
-            if action == "calibration":
+            if action == "master_curve":
+                calibration_id=request.form.get("calibration_record_id",type=int)
+                calibration=connection.execute("""SELECT id,status,certificate_number FROM calibration_history
+                    WHERE id=? AND equipment_id=? AND is_deleted=0""",(calibration_id,equipment_id)).fetchone()
+                if not calibration or calibration[1] != "Approved":
+                    raise ValueError("Select the current approved calibration record for this master meter.")
+                curve_file=request.files.get("curve_file")
+                if not curve_file or not curve_file.filename: raise ValueError("Upload the master-meter correction curve.")
+                points=parse_master_meter_curve(curve_file)
+                connection.execute("DELETE FROM master_meter_curve_points WHERE calibration_record_id=?",(calibration_id,))
+                connection.executemany("""INSERT INTO master_meter_curve_points
+                    (equipment_id,calibration_record_id,point_order,flow_value,flow_unit,indicated_value,
+                     reference_value,correction_percent,meter_factor,expanded_uncertainty,coverage_factor,uploaded_by)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",[(equipment_id,calibration_id,p["order"],p["flow"],p["unit"],
+                    p["indicated"],p["reference"],p["correction"],p["factor"],p["uncertainty"],p["k"],current_actor()) for p in points])
+                audit_change(connection,"master_meter_curve",calibration_id,"upload",after={"equipment_id":equipment_id,"points":len(points),"certificate":calibration[2]})
+                flash(f"Master-meter correction curve uploaded with {len(points)} calibrated points.","success")
+            elif action == "calibration":
                 calibration_date = request.form.get("calibration_date")
                 calibrated_by = request.form.get("calibrated_by", "").strip()
                 certificate_number = request.form.get("certificate_number", "").strip()
@@ -3035,15 +3089,23 @@ def equipment_detail(equipment_id):
         next_due_date,coverage_factor,expanded_uncertainty,standard_uncertainty,
         COALESCE(certificate_path,''),is_active FROM uncertainty_profiles
         WHERE equipment_id=? ORDER BY id DESC""", (equipment_id,))
+    master_curve_points = query("""SELECT cp.flow_value,cp.flow_unit,cp.indicated_value,cp.reference_value,
+        cp.correction_percent,cp.meter_factor,cp.expanded_uncertainty,cp.coverage_factor,
+        ch.certificate_number,ch.calibration_date FROM master_meter_curve_points cp
+        JOIN calibration_history ch ON ch.id=cp.calibration_record_id
+        WHERE cp.equipment_id=? AND ch.status='Approved' AND ch.is_deleted=0
+        ORDER BY cp.flow_value""",(equipment_id,))
     notes = query("""SELECT note,author,created_at,edited_at,visibility FROM record_notes
         WHERE entity_type='equipment' AND entity_id=? ORDER BY created_at DESC,id DESC""", (equipment_id,))
     return render_template("equipment_detail.html", item=item, calibrations=calibrations,
         maintenance=maintenance, profiles=profiles, notes=notes,
+        master_curve_points=master_curve_points,
         reviewers=query("""SELECT u.id,u.full_name,r.name FROM users u JOIN roles r ON r.id=u.role_id
             WHERE u.is_active=1 AND u.id<>? AND r.name IN
             ('Chief Meteorologist','Supervisor','Administrator','HOD') ORDER BY u.full_name""",
             (session.get("user_id") or -1,)),
         tab=request.args.get("tab", "overview"), show_form=request.args.get("add") == "1",
+        show_curve_form=request.args.get("curve") == "1",
         page_title="Equipment", page_subtitle="", active_nav="iso17025")
 
 
@@ -3744,6 +3806,11 @@ def uncertainty():
     requested_record = request.args.get("record", type=int)
     connection = get_connection()
     try:
+        if not standalone and not requested_job and not requested_record:
+            latest_draft=connection.execute("""SELECT id FROM uncertainty_calculations
+                WHERE status IN ('Draft','Reverted') AND calculated_by=?
+                ORDER BY updated_at DESC,id DESC LIMIT 1""",(current_actor(),)).fetchone()
+            requested_record=latest_draft[0] if latest_draft else None
         if requested_job and not requested_record:
             unfinished = connection.execute("""SELECT id FROM uncertainty_calculations
                 WHERE job_id=? AND status IN ('Draft','Reverted') AND calculated_by=?
@@ -3763,6 +3830,14 @@ def uncertainty():
             LEFT JOIN project_jobs pj ON pj.job_id=j.id LEFT JOIN projects p ON p.id=pj.project_id
             WHERE j.is_deleted=0 ORDER BY j.id DESC""").fetchall()
         equipment_data = [equipment_dict(row) for row in equipment_rows(connection)]
+        for equipment in equipment_data:
+            calibration_id=equipment.get("calibration_record_id")
+            curve=connection.execute("""SELECT flow_value,flow_unit,indicated_value,reference_value,
+                correction_percent,meter_factor,expanded_uncertainty,coverage_factor,id
+                FROM master_meter_curve_points WHERE equipment_id=? AND calibration_record_id=?
+                ORDER BY flow_value""",(equipment["id"],calibration_id)).fetchall() if calibration_id else []
+            equipment["correction_curve"]=[dict(zip(("flow","unit","indicated","reference","correction_percent",
+                "meter_factor","expanded_uncertainty","coverage_factor","curve_point_id"),point)) for point in curve]
         uncertainty_reviewers = connection.execute("""SELECT u.id,u.full_name,r.name FROM users u
             JOIN roles r ON r.id=u.role_id WHERE u.is_active=1 AND r.name IN
             ('Engineer','Supervisor','Chief Meteorologist','Administrator','HOD') ORDER BY u.full_name""").fetchall()
