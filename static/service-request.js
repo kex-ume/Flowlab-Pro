@@ -10,6 +10,13 @@
     const input = field(name);
     if (input && value !== null && value !== undefined && value !== '') input.value = value;
   };
+  const selectByText = (name, value) => {
+    const input = field(name); if (!input || !value) return;
+    if (input.tagName !== 'SELECT') { input.value = value; return; }
+    const wanted = String(value).toLowerCase();
+    const match = [...input.options].find(option => option.textContent.toLowerCase().includes(wanted) || wanted.includes(option.textContent.toLowerCase()));
+    if (match) input.value = match.value;
+  };
   const syncChoice = () => {
     const choice = field('service_request_required')?.value;
     uploadWrap.hidden = choice !== 'yes';
@@ -27,16 +34,27 @@
       const payload = await response.json();
       if (!response.ok || !payload.ok) throw new Error(payload.error || 'Unable to read the Service Request.');
       const data = payload.data;
-      set('mut_description', data.service_description || (data.meter_type ? `${data.meter_type} flow meter` : ''));
+      set('job_title', [data.service_type, data.meter_type, 'service'].filter(Boolean).join(' · '));
+      set('mut_description', [data.manufacturer, data.model_number, data.meter_type].filter(Boolean).join(' ') || data.meter_type);
       set('mut_serial_number', data.serial_number); set('manufacturer', data.manufacturer);
       set('model_number', data.model_number); set('meter_type', data.meter_type);
       set('meter_size', data.meter_size); set('flow_point_count', data.flow_point_count);
-      set('flow_min', data.flow_min); set('flow_max', data.flow_max); set('flow_unit', data.flow_unit);
+      set('flow_min', data.flow_min); set('flow_max', data.flow_max);
+      if (/kg\s*\//i.test(data.flow_unit || '')) set('calibration_quantity', 'mass');
+      else if (data.flow_unit) set('calibration_quantity', 'volume');
+      field('calibration_quantity')?.dispatchEvent(new Event('change'));
+      set('flow_unit', data.flow_unit);
+      selectByText('method_id', data.requested_procedure);
+      selectByText('job_type', data.service_type);
       set('specification_reference', data.specification_reference);
       set('lower_tolerance', data.lower_tolerance); set('upper_tolerance', data.upper_tolerance);
       set('tolerance_unit', data.tolerance_unit || '%');
       if (data.conformity_required) set('conformity_required', 'yes');
-      if ((data.decision_rule_code || '').toUpperCase().includes('DR-02')) set('decision_rule_code', 'DR-02');
+      if (/DR[- ]?02|OPTION\s*2|GUARD/i.test(data.decision_rule_code || '')) set('decision_rule_code', 'DR-02');
+      if (data.conformity_required && data.decision_rule_code) {
+        set('customer_decision_rule_agreed', 'yes');
+        set('customer_agreement_date', data.request_date);
+      }
       status.textContent = 'Service Request read. Confirm the populated Job and conformity fields before creating the Job.';
       status.classList.add('success');
     } catch (error) {

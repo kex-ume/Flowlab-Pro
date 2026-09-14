@@ -45,6 +45,29 @@ def _answer(sheet, row: int, label_cell: str = "A", start_column: int = 2) -> st
     return _row_value(sheet, row, start_column)
 
 
+def _inline_answer(value: Any) -> str:
+    text = _text(value)
+    if ":" not in text:
+        return ""
+    answer = text.split(":", 1)[1].strip(" _")
+    return "" if answer.lower() in {"", "yes/no", "y/n"} else answer
+
+
+def _cell_answer(sheet, label_cell: str, *answer_cells: str, other_cell: str | None = None) -> str:
+    """Read one form field without leaking adjacent labels into its value."""
+    inline = _inline_answer(sheet[label_cell].value)
+    candidates = [inline]
+    for coordinate in answer_cells:
+        value = _text(sheet[coordinate].value)
+        if value and not value.rstrip().endswith(":") and "please specify" not in value.lower():
+            candidates.append(value)
+    if other_cell:
+        other = _inline_answer(sheet[other_cell].value)
+        if other and other.lower() not in {"n/a", "na", "none"}:
+            candidates.append(other)
+    return next((value for value in candidates if value), "")
+
+
 def _yes(value: Any) -> bool:
     return _text(value).lower() in {"yes", "y", "true", "1", "required", "accepted"}
 
@@ -69,13 +92,16 @@ def parse_flow_range(value: str) -> tuple[float | None, float | None, str]:
     text = _text(value).replace("–", "-").replace("−", "-")
     numbers = [float(item) for item in re.findall(r"\d+(?:\.\d+)?", text.replace(",", ""))]
     unit_match = re.search(
-        r"(m³\s*/\s*(?:s|min|h|hr|day)|l\s*/\s*(?:s|min|h|hr|day)|kg\s*/\s*(?:s|min|h|hr)|(?:us\s*)?gpm)",
+        r"(m(?:³|3)\s*/\s*(?:s|min|h|hr|day)|l\s*/?\s*(?:s|min|h|hr|day|pm)|kg\s*/\s*(?:s|min|h|hr)|(?:us\s*)?gpm|bpd)",
         text, re.I,
     )
-    unit = re.sub(r"\s+", "", unit_match.group(1)) if unit_match else ""
+    raw_unit = re.sub(r"\s+", "", unit_match.group(1)).lower() if unit_match else ""
+    aliases = {"lpm":"L/min", "l/min":"L/min", "m3/h":"m³/h", "m3/hr":"m³/h",
+        "m³/hr":"m³/h", "m³/h":"m³/h", "kg/s":"kg/s", "kg/min":"kg/min", "bpd":"BPD"}
+    unit = aliases.get(raw_unit, unit_match.group(1).strip() if unit_match else "")
     if len(numbers) < 2:
         return None, None, unit
-    return min(numbers[0], numbers[1]), max(numbers[0], numbers[1]), unit
+    return min(numbers), max(numbers), unit
 
 
 def parse_service_request(upload) -> dict[str, Any]:
@@ -88,51 +114,51 @@ def parse_service_request(upload) -> dict[str, Any]:
     workbook = load_workbook(io.BytesIO(raw), data_only=True, read_only=False)
     sheet = workbook["REQUEST"] if "REQUEST" in workbook.sheetnames else workbook[workbook.sheetnames[0]]
 
-    acceptance = _answer(sheet, 34)
+    acceptance = _cell_answer(sheet, "A34", "D34")
     lower, upper, unit = parse_tolerance(acceptance)
     footer = _text(sheet["D66"].value)
     revision_match = re.search(r"(?:rev(?:ision)?\s*)?([0-9A-Za-z.-]+)", footer, re.I)
-    request_number = _answer(sheet, 64)
-    requested_range = _answer(sheet, 31)
+    request_number = _cell_answer(sheet, "A64", "A65")
+    requested_range = _cell_answer(sheet, "A31", "D31")
     flow_min, flow_max, flow_unit = parse_flow_range(requested_range)
     result = {
         "request_number": request_number,
         "revision": revision_match.group(1) if revision_match else footer,
-        "request_date": _answer(sheet, 8, "E", 5),
-        "company_name": _answer(sheet, 8),
-        "meter_end_user": _answer(sheet, 9),
-        "address": _answer(sheet, 10),
-        "city": _answer(sheet, 11),
-        "state": _answer(sheet, 11, "D", 5),
-        "country": _answer(sheet, 11, "E", 5),
-        "meter_type": _answer(sheet, 13),
-        "communication_mode": _answer(sheet, 14),
-        "meter_size": _answer(sheet, 15, "A", 3),
-        "serial_number": _answer(sheet, 16),
-        "flange_class": _answer(sheet, 17),
-        "manufacturer": _answer(sheet, 18),
-        "model_number": _answer(sheet, 18, "D", 5),
-        "maximum_flowrate": _answer(sheet, 20),
-        "flow_point_count": _integer(_answer(sheet, 21)),
-        "run_count": _integer(_answer(sheet, 21, "D", 5)),
-        "meter_use": _answer(sheet, 22),
-        "witness_required": _answer(sheet, 23),
-        "service_type": _answer(sheet, 25),
-        "service_description": _answer(sheet, 28),
-        "requested_procedure": _answer(sheet, 30),
+        "request_date": _inline_answer(sheet["E8"].value),
+        "company_name": _cell_answer(sheet, "A8", "B8"),
+        "meter_end_user": _cell_answer(sheet, "A9", "B9"),
+        "address": _cell_answer(sheet, "A10", "B10"),
+        "city": _cell_answer(sheet, "A11", "B11"),
+        "state": _inline_answer(sheet["D11"].value),
+        "country": _inline_answer(sheet["E11"].value),
+        "meter_type": _cell_answer(sheet, "A13", "C13", other_cell="D13"),
+        "communication_mode": _cell_answer(sheet, "A14", "C14", other_cell="D14"),
+        "meter_size": _cell_answer(sheet, "A15", "C15", other_cell="D15"),
+        "serial_number": _cell_answer(sheet, "A16", "C16"),
+        "flange_class": _cell_answer(sheet, "A17", "C17", other_cell="D17"),
+        "manufacturer": _cell_answer(sheet, "A18", "C18"),
+        "model_number": _inline_answer(sheet["D18"].value) or _text(sheet["E18"].value),
+        "maximum_flowrate": _cell_answer(sheet, "A20", "C20"),
+        "flow_point_count": _integer(_cell_answer(sheet, "A21", "C21")),
+        "run_count": _integer(_inline_answer(sheet["D21"].value) or _text(sheet["E21"].value)),
+        "meter_use": _cell_answer(sheet, "A22", "C22", other_cell="D22"),
+        "witness_required": _cell_answer(sheet, "A23", "C23"),
+        "service_type": _cell_answer(sheet, "A25", "C25"),
+        "service_description": _inline_answer(sheet["A28"].value),
+        "requested_procedure": _cell_answer(sheet, "A30", "D30"),
         "requested_flow_range": requested_range,
         "flow_min": flow_min,
         "flow_max": flow_max,
         "flow_unit": flow_unit,
-        "conformity_required": _yes(_answer(sheet, 32)),
-        "decision_rule_code": _answer(sheet, 33),
+        "conformity_required": _yes(_cell_answer(sheet, "A32", "D32")),
+        "decision_rule_code": _cell_answer(sheet, "A33", "D33"),
         "acceptance_limits": acceptance,
         "lower_tolerance": lower,
         "upper_tolerance": upper,
         "tolerance_unit": unit,
-        "contact_name": _answer(sheet, 36),
-        "contact_phone": _answer(sheet, 36, "C", 3),
-        "contact_email": _answer(sheet, 36, "D", 5),
+        "contact_name": _inline_answer(sheet["A36"].value),
+        "contact_phone": _inline_answer(sheet["C36"].value),
+        "contact_email": _inline_answer(sheet["D36"].value),
         "file_hash": hashlib.sha256(raw).hexdigest(),
         "original_filename": Path(upload.filename or "service-request.xlsx").name,
     }
