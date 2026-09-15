@@ -225,6 +225,17 @@ class GUMWebWorkflowTests(unittest.TestCase):
         self.assertTrue(response.get_json()["record"]["locked"])
         self.assertEqual(response.get_json()["record"]["status"],"Submitted for Review")
 
+    def test_stale_deleted_draft_id_recovers_to_a_new_record(self):
+        payload=self.payload()
+        saved=self.client.post("/uncertainty/api/autosave",json=payload).get_json()["record"]
+        connection=database.get_connection()
+        connection.execute("DELETE FROM uncertainty_calculations WHERE id=?",(saved["id"],))
+        connection.commit();connection.close()
+        payload["recordId"]=saved["id"]
+        recovered=self.client.post("/uncertainty/api/autosave",json=payload)
+        self.assertEqual(recovered.status_code,200,recovered.get_data(as_text=True))
+        self.assertNotEqual(recovered.get_json()["record"]["id"],saved["id"])
+
     def test_type_a_statistics_are_derived_from_retained_runs(self):
         point = self.calculate()["points"][0]
         self.assertEqual(point["statistics"]["n"], 3)

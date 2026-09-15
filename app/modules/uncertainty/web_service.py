@@ -390,25 +390,26 @@ def save_calculation(connection, payload, result, actor):
     existing_id = payload.get("recordId")
     if existing_id:
         existing = connection.execute("SELECT status,revision,calculation_uid,calculated_by FROM uncertainty_calculations WHERE id=?", (existing_id,)).fetchone()
-        if not existing:
-            raise ValueError("Calculation record was not found.")
-        if existing[0] == "Approved":
-            raise ValueError("Approved calculations are locked. Create a revision to make changes.")
-        if existing[0] in {"Draft","Reverted"} and existing[3] != actor:
-            raise ValueError("This unfinished uncertainty draft belongs to another user.")
-        calculation_id, revision, uid = int(existing_id), existing[1], existing[2]
-        connection.execute("DELETE FROM uncertainty_flow_points WHERE calculation_id=?", (calculation_id,))
-        connection.execute("DELETE FROM uncertainty_sources WHERE calculation_id=?", (calculation_id,))
-        connection.execute("""UPDATE uncertainty_calculations SET calculation_type=?,method_name=?,
-            quantity=?,fluid=?,analyst=?,snapshot_json=?,calculation_version='flp-gum-2.0',
-            combined_standard_uncertainty=?,coverage_factor=?,expanded_uncertainty=?,
-            calculated_by=?,last_edited_by=?,calculated_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?""",
-            (result["calculationTypeLabel"], result["method"], payload.get("quantity"), payload.get("fluid"),
-             payload.get("analyst") or actor, json.dumps(payload | {"backendResult": result}),
-             result["points"][-1]["result"]["combined_standard_uncertainty"],
-             result["points"][-1]["result"]["coverage_factor"],
-             result["points"][-1]["result"]["expanded_uncertainty"], actor, actor, calculation_id))
-    else:
+        if existing:
+            if existing[0] == "Approved":
+                raise ValueError("Approved calculations are locked. Create a revision to make changes.")
+            if existing[0] in {"Draft","Reverted"} and existing[3] != actor:
+                raise ValueError("This unfinished uncertainty draft belongs to another user.")
+            calculation_id, revision, uid = int(existing_id), existing[1], existing[2]
+            connection.execute("DELETE FROM uncertainty_flow_points WHERE calculation_id=?", (calculation_id,))
+            connection.execute("DELETE FROM uncertainty_sources WHERE calculation_id=?", (calculation_id,))
+            connection.execute("""UPDATE uncertainty_calculations SET calculation_type=?,method_name=?,
+                quantity=?,fluid=?,analyst=?,snapshot_json=?,calculation_version='flp-gum-2.0',
+                combined_standard_uncertainty=?,coverage_factor=?,expanded_uncertainty=?,
+                calculated_by=?,last_edited_by=?,calculated_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?""",
+                (result["calculationTypeLabel"], result["method"], payload.get("quantity"), payload.get("fluid"),
+                 payload.get("analyst") or actor, json.dumps(payload | {"backendResult": result}),
+                 result["points"][-1]["result"]["combined_standard_uncertainty"],
+                 result["points"][-1]["result"]["coverage_factor"],
+                 result["points"][-1]["result"]["expanded_uncertainty"], actor, actor, calculation_id))
+            _save_children(connection, calculation_id, payload, result, actor)
+            return {"id": calculation_id, "calculationId": uid, "revision": revision, "status": "Draft"}
+    if not existing_id or not existing:
         unfinished = connection.execute("""SELECT id,calculation_uid FROM uncertainty_calculations
             WHERE job_id=? AND calculation_type=? AND status IN ('Draft','Reverted') AND calculated_by=?
             ORDER BY updated_at DESC,id DESC LIMIT 1""", (job_id, result["calculationTypeLabel"],actor)).fetchone()
@@ -442,18 +443,17 @@ def save_partial_draft(connection, payload, actor):
         if existing_id:
             existing = connection.execute("SELECT status,revision,created_by FROM cmc_revisions WHERE id=?",
                 (existing_id,)).fetchone()
-            if not existing:
-                raise ValueError("CMC record was not found.")
-            if existing[0] not in {"Draft", "Reverted"}:
+            if existing and existing[0] not in {"Draft", "Reverted"}:
                 return {"id": existing_id, "calculationId": f"CMC-{method[:3].upper()}-{existing[1]:03d}",
                     "revision": existing[1], "status": existing[0], "createdBy": existing[2],
                     "isCmc": True, "locked": True}
-            if existing[2] != actor:
+            if existing and existing[2] != actor:
                 raise ValueError("This unfinished CMC draft belongs to another user.")
-            connection.execute("""UPDATE cmc_revisions SET snapshot_json=?,reason=?,calculated_at=CURRENT_TIMESTAMP
-                WHERE id=?""", (snapshot, payload.get("reason") or "In-progress capability calculation", existing_id))
-            return {"id": existing_id, "calculationId": f"CMC-{method[:3].upper()}-{existing[1]:03d}",
-                "revision": existing[1], "status": existing[0], "createdBy": existing[2], "isCmc": True}
+            if existing:
+                connection.execute("""UPDATE cmc_revisions SET snapshot_json=?,reason=?,calculated_at=CURRENT_TIMESTAMP
+                    WHERE id=?""", (snapshot, payload.get("reason") or "In-progress capability calculation", existing_id))
+                return {"id": existing_id, "calculationId": f"CMC-{method[:3].upper()}-{existing[1]:03d}",
+                    "revision": existing[1], "status": existing[0], "createdBy": existing[2], "isCmc": True}
         unfinished = connection.execute("""SELECT id,revision,created_by,status FROM cmc_revisions
             WHERE method_name=? AND status IN ('Draft','Reverted') AND created_by=?
             ORDER BY id DESC LIMIT 1""", (method,actor)).fetchone()
@@ -480,20 +480,19 @@ def save_partial_draft(connection, payload, actor):
     if existing_id:
         existing = connection.execute("""SELECT status,calculation_uid,revision,calculated_by
             FROM uncertainty_calculations WHERE id=? AND job_id=?""", (existing_id, job_id)).fetchone()
-        if not existing:
-            raise ValueError("Uncertainty record was not found.")
-        if existing[0] not in {"Draft", "Reverted"}:
+        if existing and existing[0] not in {"Draft", "Reverted"}:
             return {"id": existing_id, "calculationId": existing[1], "revision": existing[2],
                 "status": existing[0], "createdBy": existing[3], "locked": True}
-        if existing[3] != actor:
+        if existing and existing[3] != actor:
             raise ValueError("This unfinished uncertainty draft belongs to another user.")
-        connection.execute("""UPDATE uncertainty_calculations SET calculation_type=?,method_name=?,
-            quantity=?,fluid=?,analyst=?,snapshot_json=?,last_edited_by=?,updated_at=CURRENT_TIMESTAMP
-            WHERE id=?""", (calculation_type, CALCULATION_TYPES[calculation_type][1],
-            payload.get("quantity", "mass"), payload.get("fluid"), payload.get("analyst"),
-            snapshot, actor, existing_id))
-        return {"id": existing_id, "calculationId": existing[1], "revision": existing[2],
-            "status": existing[0], "createdBy": existing[3]}
+        if existing:
+            connection.execute("""UPDATE uncertainty_calculations SET calculation_type=?,method_name=?,
+                quantity=?,fluid=?,analyst=?,snapshot_json=?,last_edited_by=?,updated_at=CURRENT_TIMESTAMP
+                WHERE id=?""", (calculation_type, CALCULATION_TYPES[calculation_type][1],
+                payload.get("quantity", "mass"), payload.get("fluid"), payload.get("analyst"),
+                snapshot, actor, existing_id))
+            return {"id": existing_id, "calculationId": existing[1], "revision": existing[2],
+                "status": existing[0], "createdBy": existing[3]}
     unfinished = connection.execute("""SELECT id,calculation_uid,revision,calculated_by,status
         FROM uncertainty_calculations WHERE job_id=? AND calculation_type=?
         AND status IN ('Draft','Reverted') AND calculated_by=?
@@ -579,17 +578,16 @@ def save_cmc(connection, payload, result, actor):
     existing_id = payload.get("recordId")
     if existing_id:
         existing = connection.execute("SELECT status,revision FROM cmc_revisions WHERE id=?", (existing_id,)).fetchone()
-        if not existing:
-            raise ValueError("CMC record was not found.")
-        if existing[0] == "Approved":
-            raise ValueError("Approved CMC records are locked. Create a revision to make changes.")
-        connection.execute("""UPDATE cmc_revisions SET snapshot_json=?,coverage_factor=?,
-            proposed_cmc=?,calculation_version='flp-gum-2.0',calculated_at=CURRENT_TIMESTAMP
-            WHERE id=?""", (json.dumps(payload | {"backendResult": result}),
-            result["points"][-1]["result"]["coverage_factor"],
-            result["points"][-1]["result"]["expanded_uncertainty"], existing_id))
-        return {"id": int(existing_id), "calculationId": f"CMC-{method[:3].upper()}-{existing[1]:03d}",
-            "revision": existing[1], "status": "Draft", "isCmc": True}
+        if existing:
+            if existing[0] == "Approved":
+                raise ValueError("Approved CMC records are locked. Create a revision to make changes.")
+            connection.execute("""UPDATE cmc_revisions SET snapshot_json=?,coverage_factor=?,
+                proposed_cmc=?,calculation_version='flp-gum-2.0',calculated_at=CURRENT_TIMESTAMP
+                WHERE id=?""", (json.dumps(payload | {"backendResult": result}),
+                result["points"][-1]["result"]["coverage_factor"],
+                result["points"][-1]["result"]["expanded_uncertainty"], existing_id))
+            return {"id": int(existing_id), "calculationId": f"CMC-{method[:3].upper()}-{existing[1]:03d}",
+                "revision": existing[1], "status": "Draft", "isCmc": True}
     revision = connection.execute("SELECT COALESCE(MAX(revision),0)+1 FROM cmc_revisions WHERE method_name=?", (method,)).fetchone()[0]
     last = result["points"][-1]["result"]
     record_id = connection.execute("""INSERT INTO cmc_revisions
