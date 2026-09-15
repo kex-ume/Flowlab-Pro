@@ -51,7 +51,12 @@
   function canAutoSave() { return $('#gumApp').dataset.canSave==='1'&&['Draft','Reverted'].includes(state.status)&&(state.isCmc||state.jobId); }
   function markDraftDirty(event) {
     if(event?.target?.closest('#reviewAssignmentModal'))return;
-    draftDirty=true;clearTimeout(draftTimer);if(canAutoSave())draftTimer=setTimeout(()=>autosaveDraft(true),900);
+    draftDirty=true;clearTimeout(draftTimer);if(canAutoSave())draftTimer=setTimeout(()=>autosaveDraft(true),400);
+  }
+  function flushDraft() {
+    if(!draftDirty||!canAutoSave())return;
+    try{if(!navigator.sendBeacon('/uncertainty/api/autosave',new Blob([JSON.stringify(payload())],{type:'application/json'})))throw new Error('Beacon unavailable');}
+    catch(error){fetch('/uncertainty/api/autosave',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload()),keepalive:true}).catch(()=>{});}
   }
   async function autosaveDraft(showMessage=false) {
     if(!draftDirty||!canAutoSave())return null;
@@ -253,7 +258,9 @@
   function filterRecords(){const text=value('#recordSearch').toLowerCase(),status=value('#recordStatus');$$('[data-record-row]').forEach(row=>row.hidden=(!row.textContent.toLowerCase().includes(text)||(status&&row.dataset.status!==status)));}
   $('#recordSearch').addEventListener('input',filterRecords);$('#recordStatus').addEventListener('change',filterRecords);
   $('#gumApp').addEventListener('input',markDraftDirty);$('#gumApp').addEventListener('change',markDraftDirty);
-  window.addEventListener('pagehide',()=>{if(!draftDirty||!canAutoSave())return;try{navigator.sendBeacon('/uncertainty/api/autosave',new Blob([JSON.stringify(payload())],{type:'application/json'}));}catch(error){}});
+  window.addEventListener('pagehide',flushDraft);
+  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden')flushDraft();});
+  window.setInterval(()=>{if(draftDirty&&canAutoSave())autosaveDraft(false);},5000);
   document.addEventListener('keydown',event=>{if(event.key==='Escape'){$('#infoPopover').hidden=true;$('#recordDetailModal').hidden=true;$('#newCalculationModal').hidden=true;}});
   if(state.standalone){
     $('#jobId').closest('label').hidden=true;

@@ -454,6 +454,9 @@ def save_partial_draft(connection, payload, actor):
             WHERE method_name=? AND status IN ('Draft','Reverted') AND created_by=?
             ORDER BY id DESC LIMIT 1""", (method,actor)).fetchone()
         if unfinished:
+            connection.execute("""UPDATE cmc_revisions SET snapshot_json=?,reason=?,
+                calculated_at=CURRENT_TIMESTAMP WHERE id=?""",(snapshot,
+                payload.get("reason") or "In-progress capability calculation",unfinished[0]))
             return {"id": unfinished[0], "calculationId": f"CMC-{method[:3].upper()}-{unfinished[1]:03d}",
                 "revision": unfinished[1], "status": unfinished[3], "createdBy": unfinished[2],
                 "isCmc": True, "existing": True}
@@ -490,6 +493,10 @@ def save_partial_draft(connection, payload, actor):
         ORDER BY updated_at DESC,id DESC LIMIT 1""",
         (job_id, calculation_type,actor)).fetchone()
     if unfinished:
+        connection.execute("""UPDATE uncertainty_calculations SET quantity=?,fluid=?,analyst=?,
+            snapshot_json=?,last_edited_by=?,updated_at=CURRENT_TIMESTAMP WHERE id=?""",
+            (payload.get("quantity","mass"),payload.get("fluid"),payload.get("analyst"),
+             snapshot,actor,unfinished[0]))
         return {"id": unfinished[0], "calculationId": unfinished[1], "revision": unfinished[2],
             "status": unfinished[4], "createdBy": unfinished[3], "existing": True}
     revision = connection.execute("SELECT COALESCE(MAX(revision),0)+1 FROM uncertainty_calculations WHERE job_id=?",

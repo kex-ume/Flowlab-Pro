@@ -202,8 +202,12 @@ class GUMWebWorkflowTests(unittest.TestCase):
         saved = self.client.post("/uncertainty/api/autosave", json=partial)
         self.assertEqual(saved.status_code, 200, saved.get_data(as_text=True))
         record_id = saved.get_json()["record"]["id"]
+        latest = self.payload(); latest["points"][0]["runs"] = latest["points"][0]["runs"][:2]
+        resumed = self.client.post("/uncertainty/api/autosave", json=latest)
+        self.assertEqual(resumed.status_code, 200, resumed.get_data(as_text=True))
+        self.assertEqual(resumed.get_json()["record"]["id"], record_id)
         loaded = self.client.get(f"/uncertainty/api/records/calculation/{record_id}").get_json()["record"]
-        self.assertEqual(len(loaded["points"][0]["runs"]), 1)
+        self.assertEqual(len(loaded["points"][0]["runs"]), 2)
         discarded = self.client.post(f"/uncertainty/api/records/calculation/{record_id}/discard", json={})
         self.assertEqual(discarded.status_code, 200, discarded.get_data(as_text=True))
         connection = database.get_connection()
