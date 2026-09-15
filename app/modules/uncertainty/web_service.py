@@ -795,7 +795,7 @@ def pdf_report(payload):
         section(f"Flow point - {point.get('label') or point.get('nominalFlow')}")
         line(f"Nominal flow: {number(point.get('nominalFlow'))} {point.get('flowUnit', '')}    Reference temperature: {point.get('referenceTemperature') or ''} C    Reference pressure: {point.get('referencePressure') or ''}")
         stats = point.get("statistics", {}); outcome = point.get("result", {})
-        line(f"Type A: n={stats.get('n', '')}; mean={number(stats.get('mean'))} %; s={number(stats.get('standard_deviation'))} %; uA={number(stats.get('standard_uncertainty'))} %")
+        line(f"Type A: n={stats.get('n', '')}; mean error={number(stats.get('mean'))} %; sample SD of error={number(stats.get('standard_deviation'))} %; standard u of mean={number(stats.get('standard_uncertainty'))} %")
         line("Repeatability diagnostics (informational; not separately added to RSS)", 8, 13, True)
         for diagnostic in point.get("repeatabilityDiagnostics", []):
             line(f"{diagnostic.get('quantity','')}: mean={number(diagnostic.get('mean'))} {diagnostic.get('unit','')}; s={number(diagnostic.get('standard_deviation'))}; u={number(diagnostic.get('standard_uncertainty'))}; relative u={number(diagnostic.get('relative_standard_uncertainty'))}% - {diagnostic.get('treatment','')}", 7, 11)

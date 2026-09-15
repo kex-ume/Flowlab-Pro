@@ -134,7 +134,7 @@
   function renderTypeAStats() {
     const stats=(currentPoint().backendResult||currentPoint().observationPreview||{}).statistics;
     const validObservations=currentPoint().runs.map(evaluateRun).filter(Boolean).length;
-    const items=stats?[['Valid observations',stats.n],['Mean',`${format(stats.mean)} %`],['Sample s',`${format(stats.standard_deviation)} %`],['Calibration repeatability uA',`${format(stats.standard_uncertainty)} %`],['Degrees of freedom',stats.n-1],['Evaluation','Calculated']]:[['Valid observations',validObservations],['Mean','— %'],['Sample s','— %'],['Calibration repeatability uA','— %'],['Degrees of freedom','—'],['Evaluation',validObservations>=2?'Ready to calculate':'Need ≥ 2']];
+    const items=stats?[['Valid observations',stats.n],['Mean error',`${format(stats.mean)} %`],['Sample SD of error',`${format(stats.standard_deviation)} %`],['Type A standard u of mean',`${format(stats.standard_uncertainty)} %`],['Degrees of freedom',stats.n-1],['Evaluation','Calculated']]:[['Valid observations',validObservations],['Mean error','— %'],['Sample SD of error','— %'],['Type A standard u of mean','— %'],['Degrees of freedom','—'],['Evaluation',validObservations>=2?'Ready to calculate':'Need ≥ 2']];
     $('#typeAStats').innerHTML=items.map(item=>`<article><small>${item[0]}</small><b>${item[1]}</b></article>`).join('');
   }
   function evaluateRun(run) {
