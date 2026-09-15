@@ -161,8 +161,6 @@ def _equipment_source(connection, source, nominal_flow):
     certificate = row[12] or row[6] or row[19]
     if not certificate:
         raise ValueError(f"{row[1]} {row[2]}: a calibration certificate is required.")
-    if row[7] is not None and row[8] is not None and not row[7] <= nominal_flow <= row[8]:
-        raise ValueError(f"{row[1]} {row[2]} is outside its valid range at {nominal_flow:g} {row[9] or ''}.")
     prop = source.get("equipmentProperty", "calibration_uncertainty")
     values = {
         "calibration_uncertainty": (
