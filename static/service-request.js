@@ -34,6 +34,11 @@
       const payload = await response.json();
       if (!response.ok || !payload.ok) throw new Error(payload.error || 'Unable to read the Service Request.');
       const data = payload.data;
+      if (!payload.extracted) {
+        status.textContent = 'Service Request accepted and will be retained. Complete or confirm the Job fields manually.';
+        status.classList.add('success');
+        return;
+      }
       set('job_title', [data.service_type, data.meter_type, 'service'].filter(Boolean).join(' · '));
       set('mut_description', [data.manufacturer, data.model_number, data.meter_type].filter(Boolean).join(' ') || data.meter_type);
       set('mut_serial_number', data.serial_number); set('manufacturer', data.manufacturer);

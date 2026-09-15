@@ -45,7 +45,7 @@ app = Flask(__name__)
 app.config["SECRET_KEY"] = "flowlab-local-mvp"
 app.config["MAX_CONTENT_LENGTH"] = 32 * 1024 * 1024
 REPORT_MAX_BYTES = 10 * 1024 * 1024
-REPORT_EXTENSIONS = {".pdf", ".docx", ".xlsx", ".jpg", ".jpeg", ".png"}
+REPORT_EXTENSIONS = {".pdf", ".docx", ".xlsx", ".xlsm", ".xls", ".jpg", ".jpeg", ".png"}
 PERSONNEL_DOCUMENT_TYPES = (
     "Laboratory Role Authorization",
     "Authorization Letter",
@@ -392,6 +392,25 @@ def parse_master_meter_curve(upload):
         parsed.append(point)
     if not parsed: raise ValueError("No calibrated curve points were found in the uploaded file.")
     return parsed
+
+
+def prepare_service_request(upload):
+    """Extract an Excel request or retain a PDF request with file traceability."""
+    extension = Path(upload.filename or "").suffix.lower()
+    if extension in {".xlsx", ".xlsm"}:
+        data = parse_service_request(upload)
+        data["content_extracted"] = True
+        return data
+    if extension in {".pdf", ".xls"}:
+        upload.stream.seek(0)
+        raw = upload.stream.read()
+        upload.stream.seek(0)
+        return {
+            "original_filename": Path(upload.filename or "service-request.pdf").name,
+            "file_hash": hashlib.sha256(raw).hexdigest(),
+            "content_extracted": False,
+        }
+    raise ValueError("Upload the Lab Service Request as an Excel or PDF file.")
 
 
 @app.before_request
@@ -2017,9 +2036,7 @@ def project_jobs():
                         raise ValueError("Select an active parent Project for this Job.")
                     if service_request_choice == "yes":
                         validate_report(service_request_upload, required=True)
-                        if Path(service_request_upload.filename).suffix.lower() != ".xlsx":
-                            raise ValueError("The Lab Service Request must be uploaded as an Excel .xlsx file.")
-                        service_request_data = parse_service_request(service_request_upload)
+                        service_request_data = prepare_service_request(service_request_upload)
                     elif not request.form.get("service_request_exception_reason", "").strip() and not app.config.get("TESTING"):
                         raise ValueError("Enter a reason when a Lab Service Request is not available.")
                     validate_date_sequence(request.form.get("planned_start_date"),request.form.get("required_date"),"Job due date")
@@ -3880,9 +3897,9 @@ def service_request_preview():
     upload = request.files.get("service_request")
     try:
         validate_report(upload, required=True)
-        if Path(upload.filename).suffix.lower() != ".xlsx":
-            raise ValueError("Upload the Lab Service Request as an Excel .xlsx file.")
-        return jsonify({"ok": True, "data": parse_service_request(upload)})
+        data = prepare_service_request(upload)
+        return jsonify({"ok": True, "data": data,
+            "extracted": bool(data.get("content_extracted"))})
     except Exception as error:
         return jsonify({"ok": False, "error": str(error)}), 400
 
