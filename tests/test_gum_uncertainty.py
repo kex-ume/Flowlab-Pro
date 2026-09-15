@@ -215,6 +215,16 @@ class GUMWebWorkflowTests(unittest.TestCase):
             (record_id,)).fetchone()[0], 0)
         connection.close()
 
+    def test_late_autosave_synchronizes_locked_workflow_status(self):
+        saved=self.client.post("/uncertainty/api/autosave",json=self.payload()).get_json()["record"]
+        connection=database.get_connection()
+        connection.execute("UPDATE uncertainty_calculations SET status='Submitted for Review' WHERE id=?",(saved["id"],))
+        connection.commit();connection.close()
+        response=self.client.post("/uncertainty/api/autosave",json=self.payload() | {"recordId":saved["id"]})
+        self.assertEqual(response.status_code,200,response.get_data(as_text=True))
+        self.assertTrue(response.get_json()["record"]["locked"])
+        self.assertEqual(response.get_json()["record"]["status"],"Submitted for Review")
+
     def test_type_a_statistics_are_derived_from_retained_runs(self):
         point = self.calculate()["points"][0]
         self.assertEqual(point["statistics"]["n"], 3)

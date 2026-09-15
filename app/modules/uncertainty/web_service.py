@@ -442,8 +442,12 @@ def save_partial_draft(connection, payload, actor):
         if existing_id:
             existing = connection.execute("SELECT status,revision,created_by FROM cmc_revisions WHERE id=?",
                 (existing_id,)).fetchone()
-            if not existing or existing[0] not in {"Draft", "Reverted"}:
-                raise ValueError("Only a Draft or Reverted CMC record can be automatically saved.")
+            if not existing:
+                raise ValueError("CMC record was not found.")
+            if existing[0] not in {"Draft", "Reverted"}:
+                return {"id": existing_id, "calculationId": f"CMC-{method[:3].upper()}-{existing[1]:03d}",
+                    "revision": existing[1], "status": existing[0], "createdBy": existing[2],
+                    "isCmc": True, "locked": True}
             if existing[2] != actor:
                 raise ValueError("This unfinished CMC draft belongs to another user.")
             connection.execute("""UPDATE cmc_revisions SET snapshot_json=?,reason=?,calculated_at=CURRENT_TIMESTAMP
@@ -476,8 +480,11 @@ def save_partial_draft(connection, payload, actor):
     if existing_id:
         existing = connection.execute("""SELECT status,calculation_uid,revision,calculated_by
             FROM uncertainty_calculations WHERE id=? AND job_id=?""", (existing_id, job_id)).fetchone()
-        if not existing or existing[0] not in {"Draft", "Reverted"}:
-            raise ValueError("Only a Draft or Reverted uncertainty record can be automatically saved.")
+        if not existing:
+            raise ValueError("Uncertainty record was not found.")
+        if existing[0] not in {"Draft", "Reverted"}:
+            return {"id": existing_id, "calculationId": existing[1], "revision": existing[2],
+                "status": existing[0], "createdBy": existing[3], "locked": True}
         if existing[3] != actor:
             raise ValueError("This unfinished uncertainty draft belongs to another user.")
         connection.execute("""UPDATE uncertainty_calculations SET calculation_type=?,method_name=?,
