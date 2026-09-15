@@ -1,0 +1,10 @@
+.all-points-result { border-left: 4px solid var(--gum-blue); }
+.general-result-banner { display: grid; grid-template-columns: minmax(210px, .35fr) 1fr; align-items: center; gap: 18px; padding: 12px 14px; margin-bottom: 12px; border-radius: 8px; background: #eef6fb; }
+.general-result-banner small, .general-result-banner b { display: block; }
+.general-result-banner small { text-transform: uppercase; font-size: 9px; color: #587185; font-weight: 750; }
+.general-result-banner b { margin-top: 4px; color: var(--gum-blue); font-size: 21px; }
+.general-result-banner p { margin: 0; color: #506879; font-size: 11px; line-height: 1.5; }
+.governing-row { background: #f0f8f5; }
+.summary-tag { display: inline-block; margin-left: 5px; padding: 3px 5px; border-radius: 99px; background: #dff3ea; color: var(--gum-green); font-size: 8px; font-weight: 800; }
+.gum-cardhead > span.incomplete { background: #fff0cf; color: var(--gum-amber); }
+@media (max-width: 760px) { .general-result-banner { grid-template-columns: 1fr; } }

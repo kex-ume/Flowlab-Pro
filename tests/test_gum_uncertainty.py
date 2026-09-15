@@ -183,6 +183,7 @@ class GUMWebWorkflowTests(unittest.TestCase):
         self.assertIn("standardDeviation/Math.sqrt(n)", script)
         self.assertIn("navigator.sendBeacon('/uncertainty/api/autosave'", script)
         self.assertIn("Assign and Submit for Review", script)
+        self.assertIn("Complete budget calculated and saved against the selected Job.", script)
 
     def test_standalone_tool_calculates_but_cannot_create_a_record(self):
         page=self.client.get("/uncertainty?standalone=1").get_data(as_text=True)
@@ -252,6 +253,24 @@ class GUMWebWorkflowTests(unittest.TestCase):
         self.assertEqual(diagnostics["Calibration error"]["treatment"],
             "Included as the Type A budget source")
         self.assertIn("Diagnostic only", diagnostics["Reference flow"]["treatment"])
+
+    def test_multi_point_summary_is_stored_against_the_job(self):
+        low = self.point(); low["label"] = "Low flow"
+        high = self.point(); high["label"] = "High flow"; high["nominalFlow"] = 100
+        high["runs"][0]["mut"] = 101; high["runs"][1]["mut"] = 100; high["runs"][2]["mut"] = 99
+        payload = self.payload(points=[low, high])
+        calculated = self.calculate(payload)
+        expected = max(point["result"]["expanded_uncertainty"] for point in calculated["points"])
+        self.assertEqual(calculated["summary"]["point_count"], 2)
+        self.assertAlmostEqual(calculated["summary"]["expanded_uncertainty"], expected)
+        saved = self.client.post("/uncertainty/api/save", json=payload)
+        self.assertEqual(saved.status_code, 200, saved.get_data(as_text=True))
+        record_id = saved.get_json()["record"]["id"]
+        connection = database.get_connection()
+        stored = connection.execute("SELECT job_id,expanded_uncertainty FROM uncertainty_calculations WHERE id=?", (record_id,)).fetchone()
+        connection.close()
+        self.assertEqual(stored[0], self.job_id)
+        self.assertAlmostEqual(stored[1], expected)
 
     def test_expanded_rectangular_triangular_and_resolution_conversion(self):
         sources = [

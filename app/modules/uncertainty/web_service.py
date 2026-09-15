@@ -330,9 +330,23 @@ def calculate_payload(connection, payload):
             "referencePressure": point.get("refPressure"),
             "densityUnit": point.get("densityUnit") or "kg/m³"})
     comparison = [] if is_cmc else _compare_with_approved_cmc(connection, method, calculated_points)
+    governing_point = max(calculated_points,
+        key=lambda point: point["result"]["expanded_uncertainty"])
+    summary = {
+        "point_count": len(calculated_points),
+        "governing_point_index": governing_point["index"],
+        "governing_point_label": governing_point["label"],
+        "governing_nominal_flow": governing_point["nominalFlow"],
+        "governing_flow_unit": governing_point["flowUnit"],
+        "combined_standard_uncertainty": governing_point["result"]["combined_standard_uncertainty"],
+        "coverage_factor": governing_point["result"]["coverage_factor"],
+        "expanded_uncertainty": governing_point["result"]["expanded_uncertainty"],
+        "rule": "Maximum expanded uncertainty across the calculated flow points",
+    }
     return {"calculationType": calculation_type, "calculationTypeLabel": type_label,
         "method": method, "isCmc": is_cmc, "points": calculated_points,
-        "cmcComparison": comparison, "calculatedAt": datetime.now().isoformat(timespec="seconds")}
+        "summary": summary, "cmcComparison": comparison,
+        "calculatedAt": datetime.now().isoformat(timespec="seconds")}
 
 
 def _expression_value(point, flow):
@@ -387,6 +401,8 @@ def save_calculation(connection, payload, result, actor):
     if not job_id:
         raise ValueError("Select an existing job and MUT before saving.")
     hydrate_job_metadata(connection, payload)
+    governing = result.get("summary") or max(result["points"],
+        key=lambda point: point["result"]["expanded_uncertainty"])["result"]
     existing_id = payload.get("recordId")
     if existing_id:
         existing = connection.execute("SELECT status,revision,calculation_uid,calculated_by FROM uncertainty_calculations WHERE id=?", (existing_id,)).fetchone()
@@ -404,9 +420,8 @@ def save_calculation(connection, payload, result, actor):
                 calculated_by=?,last_edited_by=?,calculated_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?""",
                 (result["calculationTypeLabel"], result["method"], payload.get("quantity"), payload.get("fluid"),
                  payload.get("analyst") or actor, json.dumps(payload | {"backendResult": result}),
-                 result["points"][-1]["result"]["combined_standard_uncertainty"],
-                 result["points"][-1]["result"]["coverage_factor"],
-                 result["points"][-1]["result"]["expanded_uncertainty"], actor, actor, calculation_id))
+                 governing["combined_standard_uncertainty"], governing["coverage_factor"],
+                 governing["expanded_uncertainty"], actor, actor, calculation_id))
             _save_children(connection, calculation_id, payload, result, actor)
             return {"id": calculation_id, "calculationId": uid, "revision": revision, "status": "Draft"}
     if not existing_id or not existing:
@@ -419,15 +434,14 @@ def save_calculation(connection, payload, result, actor):
         requested_uid = str(payload.get("calculationId") or "").strip()
         uid = requested_uid if requested_uid.startswith("UB-") and not connection.execute(
             "SELECT 1 FROM uncertainty_calculations WHERE calculation_uid=?", (requested_uid,)).fetchone() else calculation_uid(connection)
-        last = result["points"][-1]["result"]
         calculation_id = connection.execute("""INSERT INTO uncertainty_calculations
             (job_id,revision,status,calculation_uid,calculation_type,method_name,quantity,fluid,
              analyst,final_job_rule,combined_standard_uncertainty,coverage_factor,expanded_uncertainty,
              calculation_version,snapshot_json,calculated_by,created_by,last_edited_by,calculated_at,updated_at)
             VALUES (?,?, 'Draft',?,?,?,?,?,?,'Multiple flow points',?,?,?,'flp-gum-2.0',?,?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)""",
             (job_id, revision, uid, result["calculationTypeLabel"], result["method"], payload.get("quantity"),
-             payload.get("fluid"), payload.get("analyst") or actor, last["combined_standard_uncertainty"],
-             last["coverage_factor"], last["expanded_uncertainty"],
+             payload.get("fluid"), payload.get("analyst") or actor, governing["combined_standard_uncertainty"],
+             governing["coverage_factor"], governing["expanded_uncertainty"],
              json.dumps(payload | {"backendResult": result}), actor, actor, actor)).lastrowid
     _save_children(connection, calculation_id, payload, result, actor)
     return {"id": calculation_id, "calculationId": uid, "revision": revision, "status": "Draft"}
