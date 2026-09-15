@@ -5,7 +5,7 @@
   <nav class="job-breadcrumbs"><a class="button secondary" href="{{url_for('project_jobs')}}">‹ All Projects</a><span>›</span><strong>{{selected_project[1]}}</strong></nav>
   <header class="project-detail-hero">
     <div><span class="eyebrow">{{selected_project[1]}}</span><h1>{{selected_project[2]}}</h1><p>{{selected_project[4]}}</p></div>
-    <div class="project-hero-meta"><div><span>Project PO</span><strong>{{selected_project[3] or 'Not provided'}}</strong></div><div><span>Jobs</span><strong>{{jobs|length}}</strong></div></div>
+    <div class="project-hero-meta"><div><span>Project PO</span><strong>{{selected_project[3] or 'Not provided'}}</strong></div><div><span>Jobs</span><strong>{{jobs|length}}</strong></div><a class="job-action edit" href="{{url_for('project_edit',project_id=selected_project[0])}}">Edit Project</a></div>
   </header>
   <div class="page-actions"><button class="action-button" type="button" data-scroll-to="newJob" aria-controls="newJob" aria-expanded="false">+ Add More Jobs</button></div>
   <section class="panel project-register">
@@ -14,7 +14,7 @@
       {% for j in jobs %}<article class="project-job-card">
         <div class="project-job-id"><span class="mono">{{j[1]}}</span><span class="pill {{j[8]|lower|replace(' ','-')}}">{{j[8]}}</span></div>
         <div class="project-job-copy"><h2>{{j[10] or j[3]}}</h2><div class="project-job-facts"><span><b>Client</b>{{j[2] or '—'}}</span><span><b>MUT</b>{{j[3]}}</span><span><b>Method</b>{{j[5] or '—'}}</span><span><b>Range</b>{{j[6] or '—'}}</span><span><b>Due</b><i data-local-date="{{j[9] or ''}}">{{j[9] or '—'}}</i></span><span><b>PO</b>{{j[15] or 'Not provided'}}{% if j[14] %}<small class="danger">Revised for Job</small>{% endif %}</span></div></div>
-        <div class="job-actions project-job-actions"><a class="job-action view" href="{{url_for('job_detail',job_id=j[0])}}">View Job</a>{% if j[16] %}<a class="job-action report" href="{{url_for('job_report_file',job_id=j[0])}}">View Report</a>{% endif %}{% if j[17] %}<a class="job-action uncertainty" href="{{url_for('uncertainty_report',record_id=j[17])}}">Uncertainty Report</a>{% endif %}{% if can('equipment_delete') %}<form method="post" action="{{url_for('project_job_delete',job_id=j[0])}}" data-confirm-delete="Move this Job to the Recycle Bin?" {% if j[8] in ('Approved','Completed') %}data-require-reason="Reason for removing this approved or completed Job"{% endif %}><input type="hidden" name="reason"><button class="delete-icon" aria-label="Delete Job">×</button></form>{% endif %}</div>
+        <div class="job-actions project-job-actions"><a class="job-action view" href="{{url_for('job_detail',job_id=j[0])}}">View Job</a><a class="job-action edit" href="{{url_for('job_edit',job_id=j[0])}}">Edit</a>{% if j[16] %}<a class="job-action report" href="{{url_for('job_report_file',job_id=j[0])}}">View Report</a>{% endif %}{% if j[17] %}<a class="job-action uncertainty" href="{{url_for('uncertainty_report',record_id=j[17])}}">Uncertainty Report</a>{% endif %}{% if can('equipment_delete') %}<form method="post" action="{{url_for('project_job_delete',job_id=j[0])}}" data-confirm-delete="Move this Job to the Recycle Bin?" {% if j[8] in ('Approved','Completed') %}data-require-reason="Reason for removing this approved or completed Job"{% endif %}><input type="hidden" name="reason"><button class="delete-icon" aria-label="Delete Job">×</button></form>{% endif %}</div>
       </article>{% else %}<div class="project-empty"><span>JOB</span><h2>No jobs under this project</h2><p>Add the first calibration job when work is ready to be assigned.</p></div>{% endfor %}
     </div>
   </section>
@@ -24,7 +24,7 @@
     {% for p in projects %}<article class="project-card">
       <div class="project-card-head"><span class="mono">{{p[1]}}</span><span class="project-card-mark">PRJ</span></div>
       <div class="project-card-body"><h2>{{p[2]}}</h2><dl><div><dt>Client</dt><dd>{{p[4]}}</dd></div><div><dt>Project PO</dt><dd>{{p[3] or 'Not provided'}}</dd></div></dl></div>
-      <div class="project-card-actions"><a class="job-action view" href="{{url_for('project_jobs',project=p[0])}}">View Jobs</a>{% if session.get('role_name') in ('Chief Meteorologist','Administrator') or config.TESTING %}<form method="post" action="{{url_for('project_delete',project_id=p[0])}}" data-confirm-delete="Move this Project to the Recycle Bin?"><button class="delete-icon" aria-label="Delete Project">×</button></form>{% endif %}</div>
+      <div class="project-card-actions"><a class="job-action view" href="{{url_for('project_jobs',project=p[0])}}">View Jobs</a>{% if session.get('role_name') in ('Chief Meteorologist','Supervisor','Administrator','HOD') or config.TESTING %}<a class="job-action edit" href="{{url_for('project_edit',project_id=p[0])}}">Edit</a><form method="post" action="{{url_for('project_delete',project_id=p[0])}}" data-confirm-delete="Move this Project to the Recycle Bin?"><button class="delete-icon" aria-label="Delete Project">×</button></form>{% endif %}</div>
     </article>{% else %}<div class="project-empty project-empty-wide"><span>PRJ</span><h2>No projects created</h2><p>Create a project to begin organizing its calibration jobs.</p></div>{% endfor %}
   </section>
 {% endif %}

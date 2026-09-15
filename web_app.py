@@ -2243,6 +2243,104 @@ def job_detail(job_id):
         page_subtitle=rows[0][2] or rows[0][9], active_nav="projects")
 
 
+def require_project_job_editor():
+    if not app.config.get("TESTING") and session.get("role_name") not in {
+            "Chief Meteorologist", "Supervisor", "Administrator", "HOD"}:
+        abort(403)
+
+
+@app.route("/projects/<int:project_id>/edit", methods=["GET", "POST"])
+def project_edit(project_id):
+    require_project_job_editor()
+    connection=get_connection()
+    try:
+        project=connection.execute("""SELECT p.id,p.project_number,p.project_name,p.customer_id,
+            c.customer_name,COALESCE(p.purchase_order,''),COALESCE(p.project_manager,''),
+            p.target_start_date,p.target_completion_date,p.status,COALESCE(p.description,''),
+            COALESCE(p.notes,'') FROM projects p JOIN customers c ON c.id=p.customer_id
+            WHERE p.id=? AND p.is_deleted=0""",(project_id,)).fetchone()
+        if not project: abort(404)
+        if request.method == "POST":
+            project_name=request.form.get("project_name","").strip()
+            client_name=request.form.get("project_client_name","").strip()
+            if not project_name or not client_name: raise ValueError("Project name and client are required.")
+            validate_date_sequence(request.form.get("project_start_date"),request.form.get("project_completion_date"),"Expected completion date")
+            customer=connection.execute("SELECT id FROM customers WHERE customer_name=? COLLATE NOCASE",(client_name,)).fetchone()
+            if not customer:
+                customer_id=connection.execute("INSERT INTO customers(customer_name,status) VALUES (?,'Active')",(client_name,)).lastrowid
+            else: customer_id=customer[0]
+            before={"name":project[2],"client":project[4],"po":project[5],"status":project[9]}
+            connection.execute("""UPDATE projects SET project_name=?,customer_id=?,purchase_order=?,
+                project_manager=?,target_start_date=?,target_completion_date=?,status=?,description=?,notes=?,
+                updated_at=CURRENT_TIMESTAMP WHERE id=?""",(project_name,customer_id,
+                request.form.get("project_purchase_order","").strip() or None,
+                request.form.get("project_manager","").strip() or None,
+                request.form.get("project_start_date") or None,request.form.get("project_completion_date") or None,
+                request.form.get("project_status","Draft"),request.form.get("project_description","").strip() or None,
+                request.form.get("project_notes","").strip() or None,project_id))
+            audit_change(connection,"project",project_id,"edit",before=before,after={"name":project_name,"client":client_name,"po":request.form.get("project_purchase_order"),"status":request.form.get("project_status")})
+            connection.commit();flash(f"Project {project[1]} updated.","success")
+            return redirect(url_for("project_jobs",project=project_id))
+        return render_template("project_edit.html",project=project,
+            customers=connection.execute("SELECT id,customer_name FROM customers WHERE status='Active' ORDER BY customer_name").fetchall(),
+            page_title=f"Edit Project · {project[1]}",page_subtitle="",active_nav="projects")
+    except ValueError as error:
+        connection.rollback();flash(str(error),"error")
+        return render_template("project_edit.html",project=project,
+            customers=connection.execute("SELECT id,customer_name FROM customers WHERE status='Active' ORDER BY customer_name").fetchall(),
+            page_title=f"Edit Project · {project[1]}",page_subtitle="",active_nav="projects"),400
+    finally: connection.close()
+
+
+@app.route("/projects/jobs/<int:job_id>/edit", methods=["GET", "POST"])
+def job_edit(job_id):
+    require_project_job_editor()
+    connection=get_connection()
+    try:
+        job=connection.execute("""SELECT j.id,j.job_number,j.job_title,j.job_type,j.status,j.method_id,
+            j.equipment_id,COALESCE(j.mut_description,''),COALESCE(j.mut_asset_id,''),
+            COALESCE(j.mut_serial_number,''),COALESCE(j.manufacturer,''),COALESCE(j.model_number,''),
+            COALESCE(j.meter_type,''),COALESCE(j.meter_size,''),j.flow_min,j.flow_max,
+            COALESCE(j.flow_unit,''),COALESCE(j.flow_point_count,1),COALESCE(j.fluid_medium,''),
+            COALESCE(j.calibration_quantity,''),j.planned_start_date,j.required_date,
+            COALESCE(j.purchase_order_override,''),COALESCE(j.notes,''),p.project_number,p.project_name
+            FROM calibration_jobs j LEFT JOIN project_jobs pj ON pj.job_id=j.id
+            LEFT JOIN projects p ON p.id=pj.project_id WHERE j.id=? AND j.is_deleted=0""",(job_id,)).fetchone()
+        if not job: abort(404)
+        if request.method == "POST":
+            required=("job_title","job_type","method_id","mut_description","meter_type","required_date","flow_min","flow_max","flow_unit","flow_point_count","fluid_medium","calibration_quantity")
+            missing=[name.replace("_"," ").title() for name in required if not request.form.get(name,"").strip()]
+            if missing: raise ValueError("Required: " + ", ".join(missing))
+            validate_date_sequence(request.form.get("planned_start_date"),request.form.get("required_date"),"Job due date")
+            flow_min=float(request.form["flow_min"]);flow_max=float(request.form["flow_max"]);flow_points=int(request.form["flow_point_count"])
+            if flow_min>flow_max: raise ValueError("Minimum flow cannot be greater than maximum flow.")
+            if not 1<=flow_points<=50: raise ValueError("Number of flow points must be between 1 and 50.")
+            before={"title":job[2],"status":job[4],"method_id":job[5],"range":[job[14],job[15],job[16]],"flow_points":job[17]}
+            values=(request.form["job_title"].strip(),request.form["job_type"].strip(),request.form.get("status","Draft"),
+                request.form.get("method_id",type=int),request.form.get("equipment_id",type=int),request.form["mut_description"].strip(),
+                request.form.get("mut_asset_id","").strip() or None,request.form.get("mut_serial_number","").strip() or None,
+                request.form.get("manufacturer","").strip() or None,request.form.get("model_number","").strip() or None,
+                request.form["meter_type"].strip(),request.form.get("meter_size","").strip() or None,
+                flow_min,flow_max,request.form["flow_unit"].strip(),f"{flow_min}–{flow_max} {request.form['flow_unit'].strip()}",flow_points,
+                request.form["fluid_medium"].strip(),request.form["calibration_quantity"].strip(),
+                request.form.get("planned_start_date") or None,request.form["required_date"],
+                request.form.get("job_purchase_order","").strip() or None,request.form.get("notes","").strip() or None,job_id)
+            connection.execute("""UPDATE calibration_jobs SET job_title=?,job_type=?,status=?,method_id=?,equipment_id=?,
+                mut_description=?,mut_asset_id=?,mut_serial_number=?,manufacturer=?,model_number=?,meter_type=?,meter_size=?,
+                flow_min=?,flow_max=?,flow_unit=?,flow_range=?,flow_point_count=?,fluid_medium=?,calibration_quantity=?,
+                planned_start_date=?,required_date=?,purchase_order_override=?,notes=?,updated_at=CURRENT_TIMESTAMP WHERE id=?""",values)
+            audit_change(connection,"calibration_job",job_id,"edit",before=before,after={"title":values[0],"status":values[2],"method_id":values[3],"range":[flow_min,flow_max,values[14]],"flow_points":flow_points})
+            connection.commit();flash(f"Job {job[1]} updated.","success");return redirect(url_for("job_detail",job_id=job_id))
+        return render_template("job_edit.html",job=job,
+            methods=connection.execute("SELECT id,method_name,revision FROM calibration_methods WHERE is_active=1 OR status='Approved' ORDER BY method_name").fetchall(),
+            equipment_rows=connection.execute("SELECT id,equipment_name,asset_number,serial_number FROM laboratory_equipment WHERE is_active=1 ORDER BY equipment_name").fetchall(),
+            page_title=f"Edit Job · {job[1]}",page_subtitle="",active_nav="projects")
+    except ValueError as error:
+        connection.rollback();flash(str(error),"error")
+        return redirect(url_for("job_edit",job_id=job_id))
+    finally: connection.close()
+
+
 @app.get("/projects/jobs/<int:job_id>/report")
 def job_report_file(job_id):
     rows = query("SELECT attachment_path FROM calibration_jobs WHERE id=? AND is_deleted=0", (job_id,))
