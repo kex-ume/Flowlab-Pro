@@ -1,0 +1,18 @@
+{% extends 'base.html' %}
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='jobs.css') }}">
+<div class="service-preview-head">
+  <div><span class="eyebrow">Retained contract-review record</span><h1>Lab Service Request</h1><p>{{ record[1] }}</p></div>
+  <a class="button" href="{{ url_for('service_request_file',record_id=record_id,download=1) }}">Download original</a>
+</div>
+<section class="panel service-preview-summary">
+  {% for label,value in [('Request number',record[2]),('Revision',record[3]),('Request date',record[4]),('Company',record[5]),('Meter type',record[6]),('Serial number',record[7]),('Service',record[8]),('Requested range',record[9]),('Uploaded by',record[10]),('Uploaded',record[11])] %}
+  <div><span>{{label}}</span><strong>{{value or '—'}}</strong></div>
+  {% endfor %}
+</section>
+<section class="panel service-preview-sheet">
+  <div class="panel-head"><h2>Document preview</h2></div>
+  {% if preview_error %}<div class="service-preview-empty"><span>▤</span><strong>Preview unavailable</strong><p>{{preview_error}}</p></div>
+  {% else %}<div class="table-scroll"><table><tbody>{% for row in preview_rows %}<tr>{% for cell in row %}<td>{{cell}}</td>{% endfor %}</tr>{% endfor %}</tbody></table></div>{% endif %}
+</section>
+{% endblock %}

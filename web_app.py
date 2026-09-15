@@ -4157,9 +4157,31 @@ def generated_cover_delete(cover_id):
 
 @app.get("/service-requests/<int:record_id>/file")
 def service_request_file(record_id):
-    rows=query("SELECT file_path,original_filename FROM lab_service_requests WHERE id=?",(record_id,))
+    rows=query("""SELECT file_path,original_filename,request_number,revision,request_date,
+        company_name,meter_type,serial_number,service_type,requested_flow_range,uploaded_by,created_at
+        FROM lab_service_requests WHERE id=?""",(record_id,))
     if not rows or not Path(rows[0][0]).is_file(): abort(404)
-    return send_file(Path(rows[0][0]).resolve(),as_attachment=False,download_name=rows[0][1])
+    row=rows[0]; path=Path(row[0]).resolve(); extension=path.suffix.lower()
+    if request.args.get("download") == "1":
+        return send_file(path,as_attachment=True,download_name=row[1])
+    if extension == ".pdf":
+        return send_file(path,as_attachment=False,download_name=row[1],mimetype="application/pdf")
+    preview_rows=[];preview_error=None
+    if extension in {".xlsx", ".xlsm"}:
+        try:
+            from openpyxl import load_workbook
+            sheet=load_workbook(path,data_only=True,read_only=True).active
+            for values in sheet.iter_rows(max_row=200,max_col=30,values_only=True):
+                cells=["" if value is None else str(value) for value in values]
+                while cells and not cells[-1]: cells.pop()
+                if any(cells): preview_rows.append(cells)
+        except Exception:
+            preview_error="This spreadsheet could not be rendered safely in the browser."
+    else:
+        preview_error="Legacy Excel files cannot be rendered by the browser. The retained original remains available for download."
+    return render_template("service_request_preview.html",record_id=record_id,record=row,
+        preview_rows=preview_rows,preview_error=preview_error,page_title="Lab Service Request",
+        page_subtitle="",active_nav="projects")
 
 
 @app.get("/tools")
