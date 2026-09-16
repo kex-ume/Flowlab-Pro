@@ -4209,10 +4209,10 @@ def generate_cover_page():
                 if data["job_id"]!=selected_job: raise ValueError("The selected assessment does not belong to this Job.")
             else:
                 data=load_cover_data_without_conformity(connection,selected_job)
+            template=Path(os.environ.get("FLOWLAB_REPORT_COVER_TEMPLATE","data/templates/report_cover.xlsx"))
             if output_format=="xlsx":
-                template=Path(os.environ.get("FLOWLAB_REPORT_COVER_TEMPLATE","data/templates/report_cover.xlsx"))
                 output=generate_excel_cover(data,template)
-            elif output_format=="pdf": output=generate_pdf_cover(data)
+            elif output_format=="pdf": output=generate_pdf_cover(data,template)
             else: raise ValueError("Select Excel or PDF.")
             cover_id=register_generated_cover(connection,data,output,current_actor())
             audit_change(connection,"generated_report_cover",cover_id,"generate",

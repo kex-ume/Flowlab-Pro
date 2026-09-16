@@ -10,6 +10,8 @@ import json
 import os
 from pathlib import Path
 import re
+import subprocess
+import tempfile
 from typing import Any
 from uuid import uuid4
 
@@ -383,7 +385,35 @@ def _file_digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def _generate_cover_with_excel(data: dict[str, Any], template_path: Path, output_format: str) -> Path:
+    """Populate the controlled template through Excel, preserving its native print artwork."""
+    if os.name != "nt":
+        raise ValueError("The controlled cover template requires Microsoft Excel on the Windows server.")
+    if not template_path.is_file():
+        raise ValueError("The controlled REPORT COVER.xlsx template is not configured.")
+    output = _report_directory() / f"{data['job_number']}_{data['assessment_uid']}_cover.{output_format}"
+    script = Path(__file__).resolve().parents[2] / "scripts" / "populate_report_cover.ps1"
+    payload = dict(data); payload["conformity_required"] = bool(data.get("conformity_required"))
+    with tempfile.NamedTemporaryFile("w", suffix=".json", encoding="utf-8", delete=False) as stream:
+        json.dump(payload, stream, default=str); data_path = Path(stream.name)
+    try:
+        completed = subprocess.run(["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass",
+            "-File", str(script), "-TemplatePath", str(template_path.resolve()), "-DataPath", str(data_path),
+            "-OutputPath", str(output.resolve()), "-OutputFormat", output_format],
+            capture_output=True, text=True, timeout=90)
+        if completed.returncode != 0 or not output.is_file():
+            message = completed.stderr.strip() or completed.stdout.strip() or "No output file was created."
+            raise ValueError(f"Excel could not generate the controlled cover: {message}")
+        return output
+    finally:
+        data_path.unlink(missing_ok=True)
+
+
 def generate_excel_cover(data: dict[str, Any], template_path: Path) -> Path:
+    return _generate_cover_with_excel(data, template_path, "xlsx")
+
+
+def _legacy_generate_excel_cover(data: dict[str, Any], template_path: Path) -> Path:
     from openpyxl import load_workbook
     from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
@@ -458,7 +488,12 @@ def generate_excel_cover(data: dict[str, Any], template_path: Path) -> Path:
     return output
 
 
-def generate_pdf_cover(data: dict[str, Any]) -> Path:
+def generate_pdf_cover(data: dict[str, Any], template_path: Path | None = None) -> Path:
+    template_path = template_path or Path(os.environ.get("FLOWLAB_REPORT_COVER_TEMPLATE", "data/templates/report_cover.xlsx"))
+    return _generate_cover_with_excel(data, template_path, "pdf")
+
+
+def _legacy_generate_pdf_cover(data: dict[str, Any]) -> Path:
     from reportlab.lib import colors
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
