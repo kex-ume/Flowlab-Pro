@@ -299,7 +299,7 @@ def load_cover_data(connection, assessment_id: int) -> dict[str, Any]:
                   m.method_name,uc.calculation_uid,uc.revision,uc.coverage_factor,
                   COALESCE(lsr.request_number,''),COALESCE(lsr.revision,''),COALESCE(lsr.address,''),
                   COALESCE(lsr.city,''),COALESCE(lsr.state,''),COALESCE(lsr.country,''),
-                  COALESCE(lsr.request_date,''),COALESCE(lsr.file_path,'')
+                  COALESCE(CAST(lsr.request_date AS TEXT),''),COALESCE(lsr.file_path,'')
            FROM conformity_assessments ca JOIN calibration_jobs j ON j.id=ca.job_id
            LEFT JOIN customers c ON c.id=j.customer_id LEFT JOIN calibration_methods m ON m.id=j.method_id
            JOIN uncertainty_calculations uc ON uc.id=ca.uncertainty_calculation_id
@@ -339,7 +339,7 @@ def load_cover_data_without_conformity(connection, job_id: int) -> dict[str, Any
                   uc.id,uc.calculation_uid,uc.revision,uc.coverage_factor,
                   COALESCE(lsr.request_number,''),COALESCE(lsr.revision,''),COALESCE(lsr.address,''),
                   COALESCE(lsr.city,''),COALESCE(lsr.state,''),COALESCE(lsr.country,''),
-                  COALESCE(lsr.request_date,''),COALESCE(lsr.file_path,'')
+                  COALESCE(CAST(lsr.request_date AS TEXT),''),COALESCE(lsr.file_path,'')
            FROM calibration_jobs j
            LEFT JOIN customers c ON c.id=j.customer_id
            LEFT JOIN calibration_methods m ON m.id=j.method_id
