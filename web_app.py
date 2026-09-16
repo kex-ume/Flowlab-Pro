@@ -32,6 +32,7 @@ from app.modules.uncertainty.web_service import (
     SOURCE_TEMPLATES, calculate_payload, create_cmc_revision, create_revision, equipment_dict,
     equipment_rows, pdf_report, record_payload, retain_calculated_result, save_calculation, save_cmc,
     save_partial_draft, workflow,
+    xlsx_report,
 )
 from app.modules.auth.permissions import Permissions
 from app.modules.auth.service import AuthService
@@ -3923,6 +3924,22 @@ def uncertainty_csv(record_id):
         connection.close()
 
 
+@app.get("/uncertainty/records/<int:record_id>/xlsx")
+def uncertainty_xlsx(record_id):
+    require_permission("reports")
+    connection = get_connection()
+    try:
+        payload = record_payload(connection, record_id)
+        if payload.get("status") != "Approved":
+            abort(404)
+        return send_file(xlsx_report(payload),
+            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            as_attachment=True,
+            download_name=f"{payload.get('calculationId') or 'uncertainty-budget'}.xlsx")
+    finally:
+        connection.close()
+
+
 @app.get("/uncertainty")
 def uncertainty():
     standalone = request.args.get("standalone") == "1"
@@ -4192,10 +4209,11 @@ def generate_cover_page():
                 after={"job_id":selected_job,"assessment_id":assessment_id,"format":output_format})
             connection.commit()
             return redirect(url_for("generated_cover_file",cover_id=cover_id))
-        jobs=connection.execute("""SELECT DISTINCT j.id,j.job_number,COALESCE(j.job_title,j.mut_description),
+        jobs=connection.execute("""SELECT j.id,j.job_number,
+            COALESCE(NULLIF(j.job_title,''),NULLIF(j.mut_description,''),'Untitled Job'),
             COALESCE(c.customer_name,'') FROM calibration_jobs j
-            JOIN conformity_assessments ca ON ca.job_id=j.id AND ca.status='Approved' AND ca.is_deleted=0
-            LEFT JOIN customers c ON c.id=j.customer_id WHERE j.is_deleted=0 ORDER BY j.id DESC""").fetchall()
+            LEFT JOIN customers c ON c.id=j.customer_id
+            WHERE j.is_deleted=0 ORDER BY j.id DESC""").fetchall()
         assessments=[];readiness=None
         if selected_job:
             assessments=connection.execute("""SELECT id,assessment_uid,revision,overall_decision,approved_by,approved_at

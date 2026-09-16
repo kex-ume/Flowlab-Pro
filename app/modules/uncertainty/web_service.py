@@ -902,12 +902,18 @@ def pdf_report(payload):
 
     logo_path = Path(__file__).resolve().parents[3] / "static" / "eatl-logo.png"
     logo = Image(str(logo_path), width=105*mm, height=19.2*mm) if logo_path.exists() else p("ENGINEERING AUTOMATION TECHNOLOGY LIMITED", value)
-    header_text = [p("TESTING AND CALIBRATION LABORATORY", ParagraphStyle("Kicker", parent=small, fontName="Helvetica-Bold", textColor=red, fontSize=7.5)),
-        Paragraph("MEASUREMENT UNCERTAINTY REPORT", title), p(f"Controlled record {payload.get('calculationId','')} | Revision {payload.get('revision',1)}", small)]
-    header = Table([[logo, header_text]], colWidths=[112*mm, 135*mm])
-    header.setStyle(TableStyle([("VALIGN",(0,0),(-1,-1),"MIDDLE"),("LINEABOVE",(0,0),(-1,0),3,green),
-        ("LINEBELOW",(0,0),(-1,-1),.7,colors.HexColor("#bfcdd2")),("LEFTPADDING",(0,0),(-1,-1),0),
-        ("RIGHTPADDING",(0,0),(-1,-1),4),("TOPPADDING",(0,0),(-1,-1),7),("BOTTOMPADDING",(0,0),(-1,-1),8)]))
+    approved_date = str(payload.get("approvedAt") or payload.get("calcDate") or "")[:10]
+    identity_style = ParagraphStyle("Identity", parent=small, alignment=TA_RIGHT, fontSize=7.4, leading=10)
+    identity = [p(f"<b>REPORT NUMBER</b><br/>{payload.get('calculationId','')}", identity_style),
+        p(f"<b>DATE</b><br/>{approved_date}", identity_style)]
+    report_title = [p("TESTING AND CALIBRATION LABORATORY", ParagraphStyle("Kicker", parent=small, fontName="Helvetica-Bold", textColor=red, fontSize=7.5)),
+        Paragraph("MEASUREMENT UNCERTAINTY REPORT", title), p(f"Revision {payload.get('revision',1)} | Controlled approved record", small)]
+    header = Table([[logo, identity], [report_title, ""]], colWidths=[187*mm, 60*mm])
+    header.setStyle(TableStyle([("VALIGN",(0,0),(-1,-1),"TOP"),("SPAN",(0,1),(1,1)),
+        ("LINEABOVE",(0,0),(-1,0),3,green),("LINEBELOW",(0,0),(-1,0),.7,colors.HexColor("#bfcdd2")),
+        ("LEFTPADDING",(0,0),(-1,-1),0),("RIGHTPADDING",(0,0),(-1,-1),4),
+        ("TOPPADDING",(0,0),(-1,0),7),("BOTTOMPADDING",(0,0),(-1,0),8),
+        ("TOPPADDING",(0,1),(-1,1),9),("BOTTOMPADDING",(0,1),(-1,1),5)]))
     story = [header, Spacer(1, 6*mm), p("01  RECORD IDENTIFICATION", heading)]
     facts = [("Job", payload.get("jobNumber")), ("Project", f"{payload.get('projectNumber','')} {payload.get('projectName','')}"),
         ("Customer", payload.get("customer")), ("Analyst", payload.get("analyst")), ("MUT", payload.get("mut")),
@@ -945,7 +951,7 @@ def pdf_report(payload):
 
     story += [PageBreak(), header, p("REVIEW AND APPROVAL", heading), table([
         [p("Created by",label),p("Technical reviewer",label),p("Approving officer",label),p("Approved at",label)],
-        [p(payload.get("createdBy"),value),p(payload.get("reviewedBy"),value),p(payload.get("approvedBy") or payload.get("hodReviewer"),value),p(payload.get("approvedAt"),value)]], [61*mm]*4, header=False)]
+        [p(payload.get("createdBy"),value),p(payload.get("reviewedBy"),value),p(payload.get("approvedBy") or payload.get("hodReviewer"),value),p(approved_date,value)]], [61*mm]*4, header=False)]
 
     def footer(canvas, doc):
         canvas.saveState(); canvas.setStrokeColor(colors.HexColor("#c9d5da")); canvas.line(14*mm, 10*mm, page_size[0]-14*mm, 10*mm)
@@ -955,3 +961,186 @@ def pdf_report(payload):
 
     document.build(story, onFirstPage=footer, onLaterPages=footer)
     stream.seek(0); return stream
+
+
+def xlsx_report(payload):
+    """Render the locked uncertainty snapshot as a formatted Excel workbook."""
+    from openpyxl import Workbook
+    from openpyxl.drawing.image import Image as ExcelImage
+    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+    from openpyxl.utils import get_column_letter
+
+    stream = BytesIO()
+    workbook = Workbook()
+    summary_sheet = workbook.active
+    summary_sheet.title = "Report"
+    navy, teal, pale, grey, white = "173243", "087B83", "E9F0F2", "CFDBDF", "FFFFFF"
+    thin = Side(style="thin", color=grey)
+    approved_date = str(payload.get("approvedAt") or payload.get("calcDate") or "")[:10]
+    result = payload.get("backendResult", {})
+    method = result.get("method") or CALCULATION_TYPES.get(payload.get("calculationType"), ("", "", False))[1]
+
+    def value(number):
+        try:
+            return float(number)
+        except (TypeError, ValueError):
+            return number if number not in (None, "") else "-"
+
+    def setup_sheet(sheet, widths):
+        sheet.sheet_view.showGridLines = False
+        sheet.freeze_panes = "A8"
+        sheet.page_setup.orientation = "landscape"
+        sheet.page_setup.fitToWidth = 1
+        sheet.sheet_properties.pageSetUpPr.fitToPage = True
+        sheet.oddFooter.center.text = "Generated with FlowLab Pro"
+        sheet.oddFooter.center.size = 7
+        sheet.oddFooter.center.font = "Arial,Italic"
+        for index, width in enumerate(widths, 1):
+            sheet.column_dimensions[get_column_letter(index)].width = width
+
+    def report_header(sheet, last_column):
+        logo_path = Path(__file__).resolve().parents[3] / "static" / "eatl-logo.png"
+        if logo_path.exists():
+            logo = ExcelImage(str(logo_path)); logo.width = 395; logo.height = 72
+            sheet.add_image(logo, "A2")
+        else:
+            sheet["A2"] = "ENGINEERING AUTOMATION TECHNOLOGY LIMITED"
+            sheet["A2"].font = Font(name="Arial", size=15, bold=True, color=navy)
+        identity_col = max(2, last_column - 1)
+        sheet.merge_cells(start_row=2, start_column=identity_col, end_row=2, end_column=last_column)
+        sheet.cell(2, identity_col, f"REPORT NUMBER\n{payload.get('calculationId', '')}")
+        sheet.cell(2, identity_col).alignment = Alignment(horizontal="right", vertical="top", wrap_text=True)
+        sheet.cell(2, identity_col).font = Font(name="Arial", size=9, bold=True, color=navy)
+        sheet.merge_cells(start_row=3, start_column=identity_col, end_row=3, end_column=last_column)
+        sheet.cell(3, identity_col, f"DATE\n{approved_date}")
+        sheet.cell(3, identity_col).alignment = Alignment(horizontal="right", vertical="top", wrap_text=True)
+        sheet.cell(3, identity_col).font = Font(name="Arial", size=9, color=navy)
+        sheet.merge_cells(start_row=5, start_column=1, end_row=5, end_column=last_column)
+        sheet.cell(5, 1, "MEASUREMENT UNCERTAINTY REPORT")
+        sheet.cell(5, 1).font = Font(name="Arial", size=16, bold=True, color=navy)
+        sheet.merge_cells(start_row=6, start_column=1, end_row=6, end_column=last_column)
+        sheet.cell(6, 1, f"Revision {payload.get('revision', 1)}  |  Controlled approved record")
+        sheet.cell(6, 1).font = Font(name="Arial", size=9, italic=True, color="566F7E")
+        sheet.row_dimensions[2].height = 32; sheet.row_dimensions[3].height = 30
+        sheet.row_dimensions[5].height = 24
+
+    def section(sheet, row, title, last_column):
+        sheet.merge_cells(start_row=row, start_column=1, end_row=row, end_column=last_column)
+        cell = sheet.cell(row, 1, title)
+        cell.fill = PatternFill("solid", fgColor=navy)
+        cell.font = Font(name="Arial", size=10, bold=True, color=white)
+        cell.alignment = Alignment(vertical="center")
+        sheet.row_dimensions[row].height = 21
+        return row + 1
+
+    def table_header(sheet, row, labels):
+        for column, text in enumerate(labels, 1):
+            cell = sheet.cell(row, column, text)
+            cell.fill = PatternFill("solid", fgColor=pale)
+            cell.font = Font(name="Arial", size=9, bold=True, color=navy)
+            cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+            cell.border = Border(bottom=thin)
+        return row + 1
+
+    setup_sheet(summary_sheet, [22, 24, 24, 24, 24, 22, 22, 22])
+    report_header(summary_sheet, 8)
+    row = section(summary_sheet, 8, "01  RECORD IDENTIFICATION", 8)
+    facts = [
+        ("Calculation ID", payload.get("calculationId")), ("Job", payload.get("jobNumber")),
+        ("Project", f"{payload.get('projectNumber','')} {payload.get('projectName','')}".strip()),
+        ("Customer", payload.get("customer")), ("MUT", payload.get("mut")),
+        ("Asset / serial", f"{payload.get('mutAssetId','')} / {payload.get('serialNumber','')}"),
+        ("Analyst", payload.get("analyst")), ("Method", method),
+    ]
+    for index, (label_text, content) in enumerate(facts):
+        block = (index % 4) * 2 + 1
+        if index == 4: row += 2
+        summary_sheet.cell(row, block, label_text).font = Font(name="Arial", size=8, bold=True, color="566F7E")
+        summary_sheet.cell(row + 1, block, content or "-").font = Font(name="Arial", size=10, bold=True, color=navy)
+        summary_sheet.merge_cells(start_row=row, start_column=block, end_row=row, end_column=block + 1)
+        summary_sheet.merge_cells(start_row=row + 1, start_column=block, end_row=row + 1, end_column=block + 1)
+    row += 4
+    row = section(summary_sheet, row, "02  REPORTED UNCERTAINTY RESULT", 8)
+    summary = result.get("summary", {})
+    labels = ["Flow point", "Nominal flow", "n", "Mean error (%)", "Sample s (%)", "Combined u (%)", "k", "Expanded U (%)"]
+    row = table_header(summary_sheet, row, labels)
+    for point in result.get("points", []):
+        statistics, outcome = point.get("statistics", {}), point.get("result", {})
+        values = [point.get("label"), f"{value(point.get('nominalFlow'))} {point.get('flowUnit','')}",
+            statistics.get("n"), value(statistics.get("mean")), value(statistics.get("standard_deviation")),
+            value(outcome.get("combined_standard_uncertainty")), value(outcome.get("coverage_factor")),
+            value(outcome.get("expanded_uncertainty"))]
+        for column, content in enumerate(values, 1):
+            cell = summary_sheet.cell(row, column, content)
+            cell.font = Font(name="Arial", size=9, color=navy)
+            cell.border = Border(bottom=thin); cell.alignment = Alignment(vertical="center", wrap_text=True)
+        row += 1
+    row += 1
+    if summary:
+        summary_sheet.merge_cells(start_row=row, start_column=1, end_row=row, end_column=8)
+        summary_sheet.cell(row, 1, f"Reported expanded uncertainty: {value(summary.get('expanded_uncertainty'))} % at {summary.get('governing_point_label') or '-'}; k = {value(summary.get('coverage_factor'))}. Maximum across calculated flow points; points are not averaged.")
+        summary_sheet.cell(row, 1).font = Font(name="Arial", size=10, bold=True, color=teal)
+        summary_sheet.cell(row, 1).alignment = Alignment(wrap_text=True); summary_sheet.row_dimensions[row].height = 32
+    row += 2
+    row = section(summary_sheet, row, "03  REVIEW AND APPROVAL", 8)
+    approval_labels = ["Created by", "Technical reviewer", "Approving officer", "Approval date"]
+    for column, text in enumerate(approval_labels):
+        start = column * 2 + 1
+        summary_sheet.merge_cells(start_row=row, start_column=start, end_row=row, end_column=start + 1)
+        cell = summary_sheet.cell(row, start, text)
+        cell.fill = PatternFill("solid", fgColor=pale)
+        cell.font = Font(name="Arial", size=9, bold=True, color=navy)
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+        cell.border = Border(bottom=thin)
+    row += 1
+    approvals = [payload.get("createdBy"), payload.get("reviewedBy"), payload.get("approvedBy") or payload.get("hodReviewer"), approved_date]
+    for column, content in enumerate(approvals, 1):
+        summary_sheet.merge_cells(start_row=row, start_column=(column - 1) * 2 + 1, end_row=row, end_column=(column - 1) * 2 + 2)
+        cell = summary_sheet.cell(row, (column - 1) * 2 + 1, content or "-")
+        cell.font = Font(name="Arial", size=9, color=navy); cell.alignment = Alignment(vertical="center")
+    summary_sheet.print_area = f"A1:H{row + 1}"
+
+    for point_index, point in enumerate(result.get("points", []), 1):
+        sheet = workbook.create_sheet(f"Point {point_index}")
+        setup_sheet(sheet, [8, 20, 18, 18, 18, 18, 18, 18, 18, 16, 14])
+        report_header(sheet, 11)
+        row = section(sheet, 8, f"FLOW POINT {point_index}  ·  {point.get('label') or point.get('nominalFlow')}", 11)
+        statistics, outcome = point.get("statistics", {}), point.get("result", {})
+        metric_labels = ["Nominal flow", "n", "Mean error (%)", "Sample s (%)", "Type A u (%)", "Combined u (%)", "veff", "k", "Expanded U (%)"]
+        row = table_header(sheet, row, metric_labels)
+        metric_values = [f"{value(point.get('nominalFlow'))} {point.get('flowUnit','')}", statistics.get("n"), value(statistics.get("mean")),
+            value(statistics.get("standard_deviation")), value(statistics.get("standard_uncertainty")),
+            value(outcome.get("combined_standard_uncertainty")), value(outcome.get("effective_degrees_of_freedom")),
+            value(outcome.get("coverage_factor")), value(outcome.get("expanded_uncertainty"))]
+        for column, content in enumerate(metric_values, 1):
+            sheet.cell(row, column, content).font = Font(name="Arial", size=9, color=navy)
+        row += 2
+        row = section(sheet, row, "RETAINED OBSERVATIONS", 11)
+        observation_headers = ["Run", "Collected mass / master", "Time / correction", "Density", "MUT indication", "Reference flow", "Error (%)"]
+        row = table_header(sheet, row, observation_headers)
+        for index, observation in enumerate(point.get("observations", []), 1):
+            values = [index, observation.get("mass", observation.get("master", "-")), observation.get("time", observation.get("correction", "-")),
+                observation.get("density") or "-", observation.get("mut", "-"), value(observation.get("reference_flow")), value(observation.get("error_percent"))]
+            for column, content in enumerate(values, 1):
+                sheet.cell(row, column, content).font = Font(name="Arial", size=9, color=navy)
+                sheet.cell(row, column).border = Border(bottom=thin)
+            row += 1
+        row += 1
+        row = section(sheet, row, "UNCERTAINTY BUDGET", 11)
+        budget_headers = ["Source", "Type", "Origin / evidence", "Input", "Basis / distribution", "Divisor", "Standard u", "Sensitivity", "Contribution", "Share (%)", "DOF"]
+        row = table_header(sheet, row, budget_headers)
+        for component in outcome.get("components", []):
+            item = component.get("input", {})
+            values = [item.get("source"), item.get("source_type"), f"{item.get('source_origin','')} {item.get('evidence') or ''}".strip(),
+                f"{value(item.get('input_value'))} {item.get('unit','')}".strip(), f"{item.get('uncertainty_input_type','')} / {item.get('distribution','')}",
+                value(item.get("divisor")), value(component.get("standard_uncertainty")), value(item.get("sensitivity_coefficient")),
+                value(component.get("contribution")), value(component.get("contribution_percent")), item.get("degrees_of_freedom") if item.get("degrees_of_freedom") is not None else "Inf"]
+            for column, content in enumerate(values, 1):
+                cell = sheet.cell(row, column, content); cell.font = Font(name="Arial", size=8, color=navy)
+                cell.alignment = Alignment(vertical="top", wrap_text=True); cell.border = Border(bottom=thin)
+            row += 1
+        sheet.print_area = f"A1:K{row + 1}"
+
+    workbook.save(stream)
+    stream.seek(0)
+    return stream

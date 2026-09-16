@@ -1,7 +1,11 @@
 .approved-report { max-width: 1380px; }
-.report-hero { align-items: center; padding: 24px 30px; border: 1px solid #d7e2e6; border-top: 5px solid #176b43; border-radius: 10px; background: #fff; color: #173243; box-shadow: 0 10px 30px #12324712; }
-.report-brand { display: flex; align-items: center; gap: 22px; }
-.report-brand img { width: min(330px, 32vw); height: auto; }
+.report-hero { display: grid; grid-template-columns: 1fr auto; align-items: end; padding: 22px 30px 24px; border: 1px solid #d7e2e6; border-top: 5px solid #176b43; border-radius: 10px; background: #fff; color: #173243; box-shadow: 0 10px 30px #12324712; }
+.report-brand-row { grid-column: 1 / -1; display: flex; align-items: flex-start; justify-content: space-between; gap: 28px; padding-bottom: 17px; border-bottom: 1px solid #d7e2e6; }
+.report-brand-row img { width: min(440px, 44vw); height: auto; }
+.report-identity { display: grid; grid-template-columns: auto auto; gap: 5px 12px; text-align: right; }
+.report-identity span { color: #64798a; font-size: 8px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
+.report-identity strong { font-size: 11px; }
+.report-title { padding-top: 17px; }
 .report-kicker { color: #8e2630; font-size: 9px; }
 .report-hero h1 { font-size: 25px; }
 .report-hero p { color: #607888; }
@@ -19,6 +23,7 @@
 .report-footnote { margin-top: 20px; padding: 12px 4px; border-top: 1px solid #d7e2e6; color: #64798a; font-size: 9px; }
 .report-footnote em { float: right; font-size: 8px; font-weight: 400; }
 .approved-report + footer, .content > footer { font-weight: 400; }
-@media (max-width: 900px) { .report-brand { align-items: flex-start; flex-direction: column; } .report-brand img { width: min(360px, 75vw); } .overall-result-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 900px) { .report-hero { grid-template-columns: 1fr; } .report-brand-row img { width: min(360px, 65vw); } .report-controls { justify-content: flex-start; margin-top: 15px; } .overall-result-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 620px) { .report-brand-row { flex-direction: column; } .report-identity { text-align: left; } }
 @media (max-width: 560px) { .overall-result-grid { grid-template-columns: 1fr; } }
 @media print { .content > footer { display: none !important; } .report-footnote { position: running(report-footer); font-style: normal; } }

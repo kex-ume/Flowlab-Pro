@@ -4,8 +4,9 @@
 <nav class="breadcrumbs"><a href="{{url_for('job_detail',job_id=report.jobId)}}">{{report.jobNumber}}</a><span>›</span><span>Approved Uncertainty Report</span></nav>
 <article class="approved-report">
   <header class="report-hero">
-    <div class="report-brand"><img src="{{url_for('static',filename='eatl-logo.png')}}" alt="Engineering Automation Technology Limited"><div><span class="report-kicker">Testing and Calibration Laboratory</span><h1>Measurement Uncertainty Report</h1><p>{{report.calculationId}} · Revision {{report.revision}}</p></div></div>
-    <div class="report-controls"><span class="report-lock">● Approved · Read only</span><a href="{{url_for('uncertainty_csv',record_id=report.recordId)}}">Export CSV</a><a class="primary" href="{{url_for('uncertainty_pdf',record_id=report.recordId)}}">Export PDF</a></div>
+    <div class="report-brand-row"><img src="{{url_for('static',filename='eatl-logo.png')}}" alt="Engineering Automation Technology Limited"><div class="report-identity"><span>Report number</span><strong>{{report.calculationId}}</strong><span>Date</span><strong data-local-date="{{(report.approvedAt or report.calcDate or '')[:10]}}">{{(report.approvedAt or report.calcDate or '')[:10]}}</strong></div></div>
+    <div class="report-title"><span class="report-kicker">Testing and Calibration Laboratory</span><h1>Measurement Uncertainty Report</h1><p>Revision {{report.revision}} · Controlled approved record</p></div>
+    <div class="report-controls"><span class="report-lock">● Approved · Read only</span><a href="{{url_for('uncertainty_xlsx',record_id=report.recordId)}}">Export Excel</a><a class="primary" href="{{url_for('uncertainty_pdf',record_id=report.recordId)}}">Export PDF</a></div>
   </header>
 
   <section class="report-section"><div class="report-section-head"><span>01</span><h2>Record identification</h2></div><div class="report-facts">
