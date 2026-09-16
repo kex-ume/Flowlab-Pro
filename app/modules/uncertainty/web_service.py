@@ -6,6 +6,7 @@ from datetime import date, datetime
 from io import BytesIO
 import json
 from math import inf, sqrt
+from pathlib import Path
 from statistics import mean, stdev
 
 from app.modules.uncertainty.engine import GUMEngine, TypeAProcessor, UncertaintyInput
@@ -447,6 +448,23 @@ def save_calculation(connection, payload, result, actor):
     return {"id": calculation_id, "calculationId": uid, "revision": revision, "status": "Draft"}
 
 
+def retain_calculated_result(connection, calculation_id, payload, result, actor):
+    """Replace a calculation's retained result without changing its workflow state."""
+    governing = result.get("summary") or max(result["points"],
+        key=lambda point: point["result"]["expanded_uncertainty"])["result"]
+    connection.execute("DELETE FROM uncertainty_flow_points WHERE calculation_id=?", (calculation_id,))
+    connection.execute("DELETE FROM uncertainty_sources WHERE calculation_id=?", (calculation_id,))
+    connection.execute("""UPDATE uncertainty_calculations SET calculation_type=?,method_name=?,
+        quantity=?,fluid=?,analyst=?,snapshot_json=?,calculation_version='flp-gum-2.0',
+        combined_standard_uncertainty=?,coverage_factor=?,expanded_uncertainty=?,
+        last_edited_by=?,calculated_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?""",
+        (result["calculationTypeLabel"], result["method"], payload.get("quantity"), payload.get("fluid"),
+         payload.get("analyst") or actor, json.dumps(payload | {"backendResult": result}),
+         governing["combined_standard_uncertainty"], governing["coverage_factor"],
+         governing["expanded_uncertainty"], actor, calculation_id))
+    _save_children(connection, calculation_id, payload, result, actor)
+
+
 def save_partial_draft(connection, payload, actor):
     calculation_type = payload.get("calculationType")
     if calculation_type not in CALCULATION_TYPES:
@@ -534,6 +552,9 @@ def save_partial_draft(connection, payload, actor):
 
 
 def _save_children(connection, calculation_id, payload, result, actor):
+    def optional_number(value):
+        return None if value in (None, "") else float(value)
+
     result_by_index = {point["index"]: point for point in result["points"]}
     for index, point in enumerate(payload["points"]):
         computed = result_by_index[index]
@@ -542,17 +563,21 @@ def _save_children(connection, calculation_id, payload, result, actor):
              reference_pressure,coverage_mode,coverage_probability,manual_coverage_factor,
              cmc_expression,cmc_coefficient_a,cmc_coefficient_b)
             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""", (calculation_id, index, computed["label"],
-            computed["nominalFlow"], computed["flowUnit"], point.get("refTemp"), point.get("refPressure"),
-            point.get("coverageMode", "auto"), point.get("coverageProb", 95), point.get("manualK"),
-            point.get("cmcExpression"), point.get("cmcA"), point.get("cmcB"))).lastrowid
+            computed["nominalFlow"], computed["flowUnit"], optional_number(point.get("refTemp")),
+            optional_number(point.get("refPressure")), point.get("coverageMode", "auto"),
+            optional_number(point.get("coverageProb", 95)), optional_number(point.get("manualK")),
+            point.get("cmcExpression"), optional_number(point.get("cmcA")),
+            optional_number(point.get("cmcB")))).lastrowid
         for run_index, run in enumerate(computed["observations"], 1):
             connection.execute("""INSERT INTO uncertainty_observations
                 (flow_point_id,run_number,collected_mass,collection_time,density,density_unit,mut_indication,
                  master_equipment_id,master_indication,master_correction,correction_basis,
                  reference_flow,error_percent) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                (point_id, run_index, run.get("mass"), run.get("time"), run.get("density"),
+                (point_id, run_index, optional_number(run.get("mass")), optional_number(run.get("time")),
+                 optional_number(run.get("density")),
                  point.get("densityUnit") or "kg/m³", run.get("mut"),
-                 run.get("masterEquipmentId"), run.get("master"), run.get("correction"),
+                 int(run.get("masterEquipmentId")) if run.get("masterEquipmentId") not in (None, "") else None,
+                 optional_number(run.get("master")), optional_number(run.get("correction")),
                  run.get("correctionBasis"), run["reference_flow"], run["error_percent"]))
         result_snapshot = computed["result"]
         stats = computed["statistics"]
@@ -767,7 +792,7 @@ def record_payload(connection, record_id, record_type="calculation"):
     return payload
 
 
-def pdf_report(payload):
+def _legacy_pdf_report(payload):
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.colors import HexColor
     from reportlab.pdfgen.canvas import Canvas
@@ -827,3 +852,106 @@ def pdf_report(payload):
     line(f"Approved at: {payload.get('approvedAt') or ''}")
     line("This report is generated from the locked approved calculation snapshot.", 8, 12, False, "#5b7185")
     canvas.save(); stream.seek(0); return stream
+
+
+def pdf_report(payload):
+    """Render the locked uncertainty snapshot as a branded controlled PDF."""
+    from reportlab.lib import colors
+    from reportlab.lib.enums import TA_RIGHT
+    from reportlab.lib.pagesizes import A4, landscape
+    from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+    from reportlab.lib.units import mm
+    from reportlab.platypus import (Image, KeepTogether, PageBreak, Paragraph,
+        SimpleDocTemplate, Spacer, Table, TableStyle)
+
+    stream = BytesIO()
+    page_size = landscape(A4)
+    document = SimpleDocTemplate(stream, pagesize=page_size, leftMargin=14*mm,
+        rightMargin=14*mm, topMargin=14*mm, bottomMargin=15*mm,
+        title=f"Measurement Uncertainty Report {payload.get('calculationId','')}")
+    styles = getSampleStyleSheet()
+    navy, green, red, pale = colors.HexColor("#173243"), colors.HexColor("#176b43"), colors.HexColor("#8e2630"), colors.HexColor("#f2f6f7")
+    title = ParagraphStyle("ReportTitle", parent=styles["Title"], fontName="Helvetica-Bold",
+        fontSize=19, leading=22, textColor=navy, spaceAfter=4)
+    heading = ParagraphStyle("Section", parent=styles["Heading2"], fontName="Helvetica-Bold",
+        fontSize=11, leading=14, textColor=navy, spaceBefore=9, spaceAfter=6)
+    small = ParagraphStyle("Small", parent=styles["BodyText"], fontSize=7.2, leading=9, textColor=navy)
+    label = ParagraphStyle("Label", parent=small, fontName="Helvetica-Bold", textColor=colors.HexColor("#566f7e"))
+    value = ParagraphStyle("Value", parent=small, fontName="Helvetica-Bold", fontSize=8.4, leading=10)
+    result = payload.get("backendResult", {})
+    method = result.get("method") or CALCULATION_TYPES.get(payload.get("calculationType"), ("", "", False))[1]
+
+    def p(text, style=small):
+        return Paragraph(str(text or "-"), style)
+
+    def fmt(number):
+        try: return f"{float(number):.8g}"
+        except (TypeError, ValueError): return "-"
+
+    def table(data, widths=None, header=True, font_size=7):
+        item = Table(data, colWidths=widths, repeatRows=1 if header else 0, hAlign="LEFT")
+        commands = [("VALIGN", (0,0), (-1,-1), "TOP"), ("GRID", (0,0), (-1,-1), .35, colors.HexColor("#cfdbdf")),
+            ("LEFTPADDING", (0,0), (-1,-1), 5), ("RIGHTPADDING", (0,0), (-1,-1), 5),
+            ("TOPPADDING", (0,0), (-1,-1), 5), ("BOTTOMPADDING", (0,0), (-1,-1), 5),
+            ("FONTNAME", (0,0), (-1,-1), "Helvetica"), ("FONTSIZE", (0,0), (-1,-1), font_size),
+            ("TEXTCOLOR", (0,0), (-1,-1), navy)]
+        if header:
+            commands += [("BACKGROUND", (0,0), (-1,0), colors.HexColor("#e9f0f2")),
+                ("FONTNAME", (0,0), (-1,0), "Helvetica-Bold")]
+        item.setStyle(TableStyle(commands)); return item
+
+    logo_path = Path(__file__).resolve().parents[3] / "static" / "eatl-logo.png"
+    logo = Image(str(logo_path), width=105*mm, height=19.2*mm) if logo_path.exists() else p("ENGINEERING AUTOMATION TECHNOLOGY LIMITED", value)
+    header_text = [p("TESTING AND CALIBRATION LABORATORY", ParagraphStyle("Kicker", parent=small, fontName="Helvetica-Bold", textColor=red, fontSize=7.5)),
+        Paragraph("MEASUREMENT UNCERTAINTY REPORT", title), p(f"Controlled record {payload.get('calculationId','')} | Revision {payload.get('revision',1)}", small)]
+    header = Table([[logo, header_text]], colWidths=[112*mm, 135*mm])
+    header.setStyle(TableStyle([("VALIGN",(0,0),(-1,-1),"MIDDLE"),("LINEABOVE",(0,0),(-1,0),3,green),
+        ("LINEBELOW",(0,0),(-1,-1),.7,colors.HexColor("#bfcdd2")),("LEFTPADDING",(0,0),(-1,-1),0),
+        ("RIGHTPADDING",(0,0),(-1,-1),4),("TOPPADDING",(0,0),(-1,-1),7),("BOTTOMPADDING",(0,0),(-1,-1),8)]))
+    story = [header, Spacer(1, 6*mm), p("01  RECORD IDENTIFICATION", heading)]
+    facts = [("Job", payload.get("jobNumber")), ("Project", f"{payload.get('projectNumber','')} {payload.get('projectName','')}"),
+        ("Customer", payload.get("customer")), ("Analyst", payload.get("analyst")), ("MUT", payload.get("mut")),
+        ("Asset / serial", f"{payload.get('mutAssetId','')} / {payload.get('serialNumber','')}"),
+        ("Manufacturer / model", f"{payload.get('manufacturer','')} / {payload.get('model','')}"), ("Method", method)]
+    fact_rows = []
+    for index in range(0, len(facts), 4):
+        group = facts[index:index+4]; fact_rows.append([p(item[0],label) for item in group]); fact_rows.append([p(item[1],value) for item in group])
+    story += [table(fact_rows, [61*mm]*4, header=False), p("02  REPORTED UNCERTAINTY RESULT", heading)]
+    summary = result.get("summary", {})
+    if summary:
+        story += [table([[p("Calibration method",label),p("Flow points",label),p("Governing flow point",label),p("Reported expanded uncertainty",label)],
+            [p(method,value),p(summary.get("point_count"),value),p(f"{summary.get('governing_point_label')} | {fmt(summary.get('governing_nominal_flow'))} {summary.get('governing_flow_unit','')}",value),
+             p(f"U = {fmt(summary.get('expanded_uncertainty'))} % | k = {fmt(summary.get('coverage_factor'))} | 95% coverage",value)]], [61*mm]*4, header=False),
+            p("Reporting rule: maximum expanded uncertainty across the calculated flow points. Individual point results are not averaged.", small)]
+    story += [p("Applicable standards: ISO/IEC 17025:2017 | JCGM 100:2008 (GUM) | ILAC P14:09/2020", small)]
+
+    for point_index, point in enumerate(result.get("points", []), 1):
+        story += [PageBreak(), header, p(f"{point_index+2:02d}  FLOW POINT - {point.get('label') or point.get('nominalFlow')}", heading)]
+        outcome, statistics = point.get("result", {}), point.get("statistics", {})
+        story += [table([[p("Nominal flow",label),p("Mean error",label),p("Sample s",label),p("Type A standard u",label),p("Combined standard u",label),p("Effective degrees of freedom",label),p("Coverage factor k",label),p("Expanded uncertainty U",label)],
+            [p(f"{fmt(point.get('nominalFlow'))} {point.get('flowUnit','')}",value),p(f"{fmt(statistics.get('mean'))} %",value),p(f"{fmt(statistics.get('standard_deviation'))} %",value),p(f"{fmt(statistics.get('standard_uncertainty'))} %",value),p(f"{fmt(outcome.get('combined_standard_uncertainty'))} %",value),p(fmt(outcome.get('effective_degrees_of_freedom')),value),p(fmt(outcome.get('coverage_factor')),value),p(f"{fmt(outcome.get('expanded_uncertainty'))} %",value)]], [30.5*mm]*8, header=False)]
+        observations = [["Run","Collected mass / master","Time / correction","Density","MUT indication","Reference flow","Error (%)"]]
+        for index, observation in enumerate(point.get("observations", []),1):
+            observations.append([index, observation.get("mass", observation.get("master","-")), observation.get("time", observation.get("correction","-")), observation.get("density") or "-", observation.get("mut","-"), fmt(observation.get("reference_flow")), fmt(observation.get("error_percent"))])
+        story += [p("Retained observations", heading), table(observations, [18*mm,42*mm,38*mm,30*mm,35*mm,42*mm,30*mm])]
+        budget = [["Uncertainty source","Type","Origin / evidence","Input","Basis / distribution","Divisor","Standard u","Sensitivity","Contribution","Share","DOF"]]
+        for component in outcome.get("components", []):
+            item = component.get("input", {})
+            budget.append([p(item.get("source")), item.get("source_type"), p(f"{item.get('source_origin','')} {item.get('evidence') or ''}"),
+                f"{fmt(item.get('input_value'))} {item.get('unit','')}", p(f"{item.get('uncertainty_input_type','')} / {item.get('distribution','')}"), fmt(item.get("divisor")),
+                fmt(component.get("standard_uncertainty")), fmt(item.get("sensitivity_coefficient")), fmt(component.get("contribution")), f"{fmt(component.get('contribution_percent'))}%", item.get("degrees_of_freedom") if item.get("degrees_of_freedom") is not None else "Inf"])
+        story += [p("Uncertainty budget", heading), table(budget, [43*mm,12*mm,38*mm,27*mm,35*mm,16*mm,22*mm,20*mm,22*mm,18*mm,13*mm], font_size=6.2),
+            p("Automatic 95% from effective degrees of freedom uses the Welch-Satterthwaite effective degrees of freedom and the two-sided Student t coverage factor. A low value can produce k greater than 2.", small)]
+
+    story += [PageBreak(), header, p("REVIEW AND APPROVAL", heading), table([
+        [p("Created by",label),p("Technical reviewer",label),p("Approving officer",label),p("Approved at",label)],
+        [p(payload.get("createdBy"),value),p(payload.get("reviewedBy"),value),p(payload.get("approvedBy") or payload.get("hodReviewer"),value),p(payload.get("approvedAt"),value)]], [61*mm]*4, header=False)]
+
+    def footer(canvas, doc):
+        canvas.saveState(); canvas.setStrokeColor(colors.HexColor("#c9d5da")); canvas.line(14*mm, 10*mm, page_size[0]-14*mm, 10*mm)
+        canvas.setFillColor(colors.HexColor("#677d89")); canvas.setFont("Helvetica", 6.5); canvas.drawString(14*mm, 6.5*mm, "Engineering Automation Technology Limited - Controlled uncertainty record")
+        canvas.setFont("Helvetica-Oblique", 6); canvas.drawCentredString(page_size[0]/2, 6.5*mm, "Generated with FlowLab Pro")
+        canvas.setFont("Helvetica", 6.5); canvas.drawRightString(page_size[0]-14*mm, 6.5*mm, f"Page {doc.page}"); canvas.restoreState()
+
+    document.build(story, onFirstPage=footer, onLaterPages=footer)
+    stream.seek(0); return stream

@@ -16,6 +16,10 @@ class GUMEngineTests(unittest.TestCase):
         return UncertaintyInput(name, "B", "Test", value, "%", "Standard",
             "Normal", 1, 1, degrees_of_freedom=dof)
 
+    def test_automatic_coverage_uses_lower_tabulated_effective_dof(self):
+        self.assertEqual(GUMEngine.coverage_factor_95(1.99), 12.706)
+        self.assertEqual(GUMEngine.coverage_factor_95(2.01), 4.303)
+
     def test_gravimetric_mass_reference_and_error(self):
         result = GUMEngine.gravimetric_run(10, 2, 5.1)
         self.assertAlmostEqual(result["reference_flow"], 5)
@@ -272,6 +276,17 @@ class GUMWebWorkflowTests(unittest.TestCase):
         self.assertEqual(stored[0], self.job_id)
         self.assertAlmostEqual(stored[1], expected)
 
+    def test_blank_optional_point_numbers_are_saved_as_null(self):
+        saved = self.client.post("/uncertainty/api/save", json=self.payload())
+        self.assertEqual(saved.status_code, 200, saved.get_data(as_text=True))
+        record_id = saved.get_json()["record"]["id"]
+        connection = database.get_connection()
+        row = connection.execute("""SELECT reference_temperature,reference_pressure,
+            manual_coverage_factor,cmc_coefficient_a,cmc_coefficient_b
+            FROM uncertainty_flow_points WHERE calculation_id=?""", (record_id,)).fetchone()
+        connection.close()
+        self.assertEqual(tuple(row), (None, None, None, None, None))
+
     def test_expanded_rectangular_triangular_and_resolution_conversion(self):
         sources = [
             {"name":"Certificate","sourceType":"B","value":0.2,"unit":"%","basis":"expanded","distribution":"","certK":2,"sensitivity":1,"included":True},
@@ -387,6 +402,25 @@ class GUMWebWorkflowTests(unittest.TestCase):
             ("Approved", "Chief Metrologist", "Chief Metrologist", None, None))
         self.assertEqual([item[0] for item in history[-2:]], ["submit", "auto_approve"])
         self.assertEqual(tasks, 0)
+
+    def test_autosaved_input_only_draft_is_calculated_and_retained_before_chief_approval(self):
+        self.sign_in_as("Chief Metrologist", "Chief Meteorologist")
+        saved = self.client.post("/uncertainty/api/autosave", json=self.payload()).get_json()["record"]
+        response = self.client.post(
+            f"/uncertainty/api/records/calculation/{saved['id']}/workflow",
+            json={"action":"submit"})
+        self.assertEqual(response.status_code, 200, response.get_data(as_text=True))
+        connection = database.get_connection()
+        record = connection.execute("""SELECT status,combined_standard_uncertainty,
+            coverage_factor,expanded_uncertainty,snapshot_json FROM uncertainty_calculations WHERE id=?""",
+            (saved["id"],)).fetchone()
+        point_count = connection.execute("SELECT COUNT(*) FROM uncertainty_flow_points WHERE calculation_id=?",
+            (saved["id"],)).fetchone()[0]
+        connection.close()
+        self.assertEqual(record[0], "Approved")
+        self.assertIsNotNone(record[1]); self.assertIsNotNone(record[2]); self.assertIsNotNone(record[3])
+        self.assertIn("backendResult", json.loads(record[4]))
+        self.assertEqual(point_count, 1)
 
     def test_chief_can_take_over_review_and_approval_tasks(self):
         saved = self.client.post("/uncertainty/api/save", json=self.payload()).get_json()["record"]

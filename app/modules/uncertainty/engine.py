@@ -167,10 +167,14 @@ class GUMEngine:
                  (20, 2.086), (25, 2.060), (30, 2.042), (40, 2.021),
                  (50, 2.009), (60, 2.000), (80, 1.990), (100, 1.984),
                  (120, 1.980), (200, 1.972))
-        for limit, factor in table:
-            if degrees_of_freedom <= limit:
-                return factor
-        return 1.96
+        # Use the next lower tabulated degree of freedom. Rounding upward would
+        # understate k and therefore understate the expanded uncertainty.
+        factor = table[0][1]
+        for limit, candidate in table:
+            if degrees_of_freedom < limit:
+                break
+            factor = candidate
+        return factor
 
     @classmethod
     def calculate(cls, components: Iterable[UncertaintyInput], correlations=(),

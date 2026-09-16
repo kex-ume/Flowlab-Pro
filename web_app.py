@@ -30,7 +30,8 @@ from app.modules.uncertainty.matrix import MatrixResolver
 from app.modules.uncertainty.repository import UncertaintyRepository
 from app.modules.uncertainty.web_service import (
     SOURCE_TEMPLATES, calculate_payload, create_cmc_revision, create_revision, equipment_dict,
-    equipment_rows, pdf_report, record_payload, save_calculation, save_cmc, save_partial_draft, workflow,
+    equipment_rows, pdf_report, record_payload, retain_calculated_result, save_calculation, save_cmc,
+    save_partial_draft, workflow,
 )
 from app.modules.auth.permissions import Permissions
 from app.modules.auth.service import AuthService
@@ -3755,7 +3756,15 @@ def uncertainty_api_workflow(record_type, record_id):
             saved_payload = record_payload(connection, record_id,
                 "cmc" if record_type == "cmc" else "calculation")
             saved_payload.pop("backendResult", None)
-            calculate_payload(connection, saved_payload)
+            validated_result = calculate_payload(connection, saved_payload)
+            if is_cmc:
+                governing = validated_result["summary"]
+                connection.execute("""UPDATE cmc_revisions SET snapshot_json=?,coverage_factor=?,
+                    proposed_cmc=?,calculation_version='flp-gum-2.0',calculated_at=CURRENT_TIMESTAMP
+                    WHERE id=?""", (json.dumps(saved_payload | {"backendResult": validated_result}),
+                    governing["coverage_factor"], governing["expanded_uncertainty"], record_id))
+            else:
+                retain_calculated_result(connection, record_id, saved_payload, validated_result, current_actor())
         status = workflow(connection, "cmc" if record_type == "cmc" else "calculation",
             record_id, action, current_actor(), body.get("comment", ""), reviewer, approver,
             auto_approve=auto_approve, authority_override=workflow_authority())

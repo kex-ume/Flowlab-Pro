@@ -1,0 +1,24 @@
+.approved-report { max-width: 1380px; }
+.report-hero { align-items: center; padding: 24px 30px; border: 1px solid #d7e2e6; border-top: 5px solid #176b43; border-radius: 10px; background: #fff; color: #173243; box-shadow: 0 10px 30px #12324712; }
+.report-brand { display: flex; align-items: center; gap: 22px; }
+.report-brand img { width: min(330px, 32vw); height: auto; }
+.report-kicker { color: #8e2630; font-size: 9px; }
+.report-hero h1 { font-size: 25px; }
+.report-hero p { color: #607888; }
+.report-lock { color: #176b43; }
+.report-controls a { border-color: #bfd0d7; color: #31566b; }
+.overall-result { border-top: 4px solid #176b43; }
+.overall-result-grid { display: grid; grid-template-columns: 1fr .7fr 1.2fr 1.15fr; gap: 10px; }
+.overall-result-grid > div { min-height: 72px; padding: 14px; border: 1px solid #dce6e9; border-radius: 8px; background: #f8fafb; }
+.overall-result-grid span { display: block; margin-bottom: 7px; color: #64798a; font-size: 9px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
+.overall-result-grid strong { font-size: 13px; }
+.overall-result-grid .overall-expanded { border-color: #72ad8c; background: #eef8f2; }
+.overall-expanded strong { display: block; color: #176b43; font-size: 21px; }
+.overall-expanded small { color: #607888; }
+.result-basis { margin: 12px 0 0; color: #607888; font-size: 10px; }
+.report-footnote { margin-top: 20px; padding: 12px 4px; border-top: 1px solid #d7e2e6; color: #64798a; font-size: 9px; }
+.report-footnote em { float: right; font-size: 8px; font-weight: 400; }
+.approved-report + footer, .content > footer { font-weight: 400; }
+@media (max-width: 900px) { .report-brand { align-items: flex-start; flex-direction: column; } .report-brand img { width: min(360px, 75vw); } .overall-result-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 560px) { .overall-result-grid { grid-template-columns: 1fr; } }
+@media print { .content > footer { display: none !important; } .report-footnote { position: running(report-footer); font-style: normal; } }

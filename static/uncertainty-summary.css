@@ -8,3 +8,6 @@
 .summary-tag { display: inline-block; margin-left: 5px; padding: 3px 5px; border-radius: 99px; background: #dff3ea; color: var(--gum-green); font-size: 8px; font-weight: 800; }
 .gum-cardhead > span.incomplete { background: #fff0cf; color: var(--gum-amber); }
 @media (max-width: 760px) { .general-result-banner { grid-template-columns: 1fr; } }
+.record-actions { display: flex; flex-wrap: wrap; gap: 6px; min-width: 330px; }
+.record-actions button, .record-actions a { display: inline-flex; align-items: center; min-height: 30px; margin: 0 !important; padding: 6px 9px !important; border: 1px solid #c9d8e1 !important; border-radius: 6px; background: #fff !important; color: var(--gum-blue) !important; text-decoration: none; }
+.record-actions button:hover, .record-actions a:hover { border-color: var(--gum-blue) !important; background: #eef6fb !important; }
