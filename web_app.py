@@ -4196,6 +4196,10 @@ def generate_cover_page():
         if request.method=="POST":
             assessment_id=request.form.get("assessment_id",type=int)
             output_format=request.form.get("output_format","").lower()
+            if not selected_job:
+                raise ValueError("Select a Job before generating its cover page.")
+            if not assessment_id:
+                raise ValueError("This Job has no approved decision-rule assessment. Complete and approve its Decision Rule before generating the cover page.")
             data=load_cover_data(connection,assessment_id)
             if data["status"]!="Approved": raise ValueError("Only an approved conformity assessment can generate a controlled cover.")
             if data["job_id"]!=selected_job: raise ValueError("The selected assessment does not belong to this Job.")
