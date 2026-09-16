@@ -39,6 +39,7 @@ from app.modules.auth.service import AuthService
 from app.modules.decision_rules import (
     RULE_CODE, RULE_FORMULA, RULE_NAME, approved_uncertainty_points, build_assessment,
     calculate_dr02_point, generate_excel_cover, generate_pdf_cover, load_cover_data,
+    load_cover_data_without_conformity,
     parse_service_request, register_generated_cover,
 )
 
@@ -4198,11 +4199,16 @@ def generate_cover_page():
             output_format=request.form.get("output_format","").lower()
             if not selected_job:
                 raise ValueError("Select a Job before generating its cover page.")
-            if not assessment_id:
-                raise ValueError("This Job has no approved decision-rule assessment. Complete and approve its Decision Rule before generating the cover page.")
-            data=load_cover_data(connection,assessment_id)
-            if data["status"]!="Approved": raise ValueError("Only an approved conformity assessment can generate a controlled cover.")
-            if data["job_id"]!=selected_job: raise ValueError("The selected assessment does not belong to this Job.")
+            conformity_required=bool(connection.execute(
+                "SELECT conformity_required FROM calibration_jobs WHERE id=? AND is_deleted=0",(selected_job,)).fetchone()[0])
+            if conformity_required:
+                if not assessment_id:
+                    raise ValueError("This Job requires an approved decision-rule assessment before its cover can be generated.")
+                data=load_cover_data(connection,assessment_id)
+                if data["status"]!="Approved": raise ValueError("Only an approved conformity assessment can generate a controlled cover.")
+                if data["job_id"]!=selected_job: raise ValueError("The selected assessment does not belong to this Job.")
+            else:
+                data=load_cover_data_without_conformity(connection,selected_job)
             if output_format=="xlsx":
                 template=Path(os.environ.get("FLOWLAB_REPORT_COVER_TEMPLATE","data/templates/report_cover.xlsx"))
                 output=generate_excel_cover(data,template)
@@ -4227,12 +4233,14 @@ def generate_cover_page():
                 "service_request":bool(connection.execute("SELECT 1 FROM lab_service_requests WHERE job_id=?",(selected_job,)).fetchone()),
                 "uncertainty":bool(connection.execute("SELECT 1 FROM uncertainty_calculations WHERE job_id=? AND status='Approved'",(selected_job,)).fetchone()),
                 "decision_rule":bool(assessments),
+                "conformity_required":bool(connection.execute(
+                    "SELECT conformity_required FROM calibration_jobs WHERE id=?",(selected_job,)).fetchone()[0]),
                 "job":bool(connection.execute("""SELECT 1 FROM calibration_jobs WHERE id=? AND customer_id IS NOT NULL
                     AND mut_description IS NOT NULL AND method_id IS NOT NULL""",(selected_job,)).fetchone()),
             }
-        cover_sql="""SELECT g.id,g.cover_uid,j.job_number,ca.assessment_uid,g.output_format,
+        cover_sql="""SELECT g.id,g.cover_uid,j.job_number,COALESCE(ca.assessment_uid,'Not required'),g.output_format,
             g.original_filename,g.generated_by,g.generated_at FROM generated_report_covers g
-            JOIN calibration_jobs j ON j.id=g.job_id JOIN conformity_assessments ca ON ca.id=g.assessment_id
+            JOIN calibration_jobs j ON j.id=g.job_id LEFT JOIN conformity_assessments ca ON ca.id=g.assessment_id
             WHERE g.is_deleted=0
             """
         cover_params=()

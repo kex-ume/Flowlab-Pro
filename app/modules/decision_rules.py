@@ -326,6 +326,50 @@ def load_cover_data(connection, assessment_id: int) -> dict[str, Any]:
     point_keys = ("point_order","flow_value","flow_unit","error_percent","expanded_uncertainty",
                   "lower_tolerance","upper_tolerance","lower_acceptance","upper_acceptance","decision","rationale")
     data["points"] = [dict(zip(point_keys, point)) for point in points]
+    data["conformity_required"] = True
+    return data
+
+
+def load_cover_data_without_conformity(connection, job_id: int) -> dict[str, Any]:
+    """Load cover data for a Job where a conformity statement was not requested."""
+    row = connection.execute(
+        """SELECT j.id,j.job_number,j.job_title,c.customer_name,j.mut_description,
+                  j.mut_serial_number,j.manufacturer,j.model_number,j.meter_type,j.meter_size,
+                  j.flow_min,j.flow_max,j.flow_unit,j.fluid_medium,m.method_name,
+                  uc.id,uc.calculation_uid,uc.revision,uc.coverage_factor,
+                  COALESCE(lsr.request_number,''),COALESCE(lsr.revision,''),COALESCE(lsr.address,''),
+                  COALESCE(lsr.city,''),COALESCE(lsr.state,''),COALESCE(lsr.country,''),
+                  COALESCE(lsr.request_date,''),COALESCE(lsr.file_path,'')
+           FROM calibration_jobs j
+           LEFT JOIN customers c ON c.id=j.customer_id
+           LEFT JOIN calibration_methods m ON m.id=j.method_id
+           JOIN uncertainty_calculations uc ON uc.id=(SELECT id FROM uncertainty_calculations
+               WHERE job_id=j.id AND status='Approved' ORDER BY revision DESC,approved_at DESC,id DESC LIMIT 1)
+           LEFT JOIN lab_service_requests lsr ON lsr.id=(SELECT id FROM lab_service_requests
+               WHERE job_id=j.id ORDER BY id DESC LIMIT 1)
+           WHERE j.id=? AND j.is_deleted=0 AND COALESCE(j.conformity_required,0)=0""", (job_id,)
+    ).fetchone()
+    if not row:
+        raise ValueError("This Job either requires a Decision Rule or has no approved uncertainty calculation.")
+    keys = ("job_id","job_number","job_title","customer_name","mut_description","mut_serial_number",
+            "manufacturer","model_number","meter_type","meter_size","flow_min","flow_max","flow_unit",
+            "fluid_medium","method_name","uncertainty_calculation_id","calculation_uid","calculation_revision",
+            "coverage_factor","service_request_number","service_request_revision","address","city","state",
+            "country","request_date","service_request_path")
+    data = dict(zip(keys, row))
+    points = connection.execute(
+        """SELECT fp.point_order,fp.nominal_flow,fp.flow_unit,pr.mean_error,pr.expanded_uncertainty
+           FROM uncertainty_flow_points fp JOIN uncertainty_point_results pr ON pr.flow_point_id=fp.id
+           WHERE fp.calculation_id=? ORDER BY fp.point_order""", (data["uncertainty_calculation_id"],)
+    ).fetchall()
+    data.update({"assessment_id": None, "assessment_uid": "NOT-REQUIRED", "status": "Approved",
+        "rule_code": "N/A", "rule_revision": "", "specification_reference": "",
+        "specification_revision": "", "specification_clause": "", "lower_tolerance": None,
+        "upper_tolerance": None, "tolerance_unit": "", "overall_decision": "NOT REQUIRED",
+        "statement_text": "A statement of conformity was not requested for this Job; no decision rule was applied.",
+        "approved_by": "", "approved_at": "", "conformity_required": False})
+    data["points"] = [{"point_order": p[0], "flow_value": p[1], "flow_unit": p[2],
+        "error_percent": p[3], "expanded_uncertainty": p[4], "decision": "NOT APPLICABLE"} for p in points]
     return data
 
 
@@ -378,9 +422,12 @@ def generate_excel_cover(data: dict[str, Any], template_path: Path) -> Path:
     visible_points = data["points"][:5]
     tolerance_unit = data["tolerance_unit"] or "%"
     for offset, point in enumerate(visible_points, 34):
+        mpe = (f"{point['lower_tolerance']:.4g}{tolerance_unit} to {point['upper_tolerance']:.4g}{tolerance_unit}"
+               if data.get("conformity_required") else "Not requested")
+        acceptance = (f"{point['lower_acceptance']:.4g}{tolerance_unit} to {point['upper_acceptance']:.4g}{tolerance_unit}"
+                      if data.get("conformity_required") else "Not applicable")
         values = (f"{point['flow_value']:g} {point['flow_unit']}", f"{point['error_percent']:+.4g}%",
-                  f"{point['expanded_uncertainty']:.4g}%", f"{point['lower_tolerance']:.4g}{tolerance_unit} to {point['upper_tolerance']:.4g}{tolerance_unit}",
-                  f"{point['lower_acceptance']:.4g}{tolerance_unit} to {point['upper_acceptance']:.4g}{tolerance_unit}", point["decision"])
+                  f"{point['expanded_uncertainty']:.4g}%", mpe, acceptance, point["decision"])
         for start, width, value in zip(starts, widths, values):
             end=start+width-1; sheet.merge_cells(start_row=offset,start_column=start,end_row=offset,end_column=end)
             cell=sheet.cell(offset,start); cell.value=value; cell.alignment=Alignment(horizontal="center",vertical="center")
@@ -393,7 +440,8 @@ def generate_excel_cover(data: dict[str, Any], template_path: Path) -> Path:
     sheet.merge_cells(start_row=detail_row,start_column=2,end_row=detail_row,end_column=5)
     sheet.cell(detail_row,2).value="Decision rule"
     sheet.merge_cells(start_row=detail_row,start_column=6,end_row=detail_row,end_column=15)
-    sheet.cell(detail_row,6).value=f"{data['rule_code']} Rev. {data['rule_revision'] or 'TBC'} - Guarded acceptance, w=U"
+    sheet.cell(detail_row,6).value=(f"{data['rule_code']} Rev. {data['rule_revision'] or 'TBC'} - Guarded acceptance, w=U"
+        if data.get("conformity_required") else "Not applicable - conformity statement not requested")
     detail_row += 1
     sheet.merge_cells(start_row=detail_row,start_column=2,end_row=detail_row,end_column=5)
     sheet.cell(detail_row,2).value="Statement"
@@ -405,7 +453,7 @@ def generate_excel_cover(data: dict[str, Any], template_path: Path) -> Path:
             cell.border=Border(left=border,right=border,top=border,bottom=border)
             if cell.row > 32 and cell.font == Font(): cell.font=Font(size=8,color="123047")
     sheet.oddFooter.center.text = "Page &P of &N"
-    output = _report_directory() / f"{data['assessment_uid']}_cover.xlsx"
+    output = _report_directory() / f"{data['job_number']}_{data['assessment_uid']}_cover.xlsx"
     workbook.save(output)
     return output
 
@@ -417,7 +465,7 @@ def generate_pdf_cover(data: dict[str, Any]) -> Path:
     from reportlab.lib.units import mm
     from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
-    output = _report_directory() / f"{data['assessment_uid']}_cover.pdf"
+    output = _report_directory() / f"{data['job_number']}_{data['assessment_uid']}_cover.pdf"
     navy=colors.HexColor("#123047"); light=colors.HexColor("#EAF2F5"); line=colors.HexColor("#C9D7DF")
     styles=getSampleStyleSheet()
     cell=ParagraphStyle("coverCell",parent=styles["Normal"],fontName="Helvetica",fontSize=8,leading=10,textColor=navy)
@@ -438,9 +486,11 @@ def generate_pdf_cover(data: dict[str, Any]) -> Path:
     point_rows=[[p(x,bold) for x in ("Flow point","Error","Expanded U","MPE","Acceptance limit","Decision")]]
     tolerance_unit = data["tolerance_unit"] or "%"
     for point in data["points"]:
-        point_rows.append([p(f"{point['flow_value']:g} {point['flow_unit']}"),p(f"{point['error_percent']:+.4g}%"),p(f"{point['expanded_uncertainty']:.4g}%"),p(f"{point['lower_tolerance']:.4g}{tolerance_unit} to {point['upper_tolerance']:.4g}{tolerance_unit}"),p(f"{point['lower_acceptance']:.4g}{tolerance_unit} to {point['upper_acceptance']:.4g}{tolerance_unit}"),p(point["decision"],bold)])
+        mpe = f"{point['lower_tolerance']:.4g}{tolerance_unit} to {point['upper_tolerance']:.4g}{tolerance_unit}" if data.get("conformity_required") else "Not requested"
+        acceptance = f"{point['lower_acceptance']:.4g}{tolerance_unit} to {point['upper_acceptance']:.4g}{tolerance_unit}" if data.get("conformity_required") else "Not applicable"
+        point_rows.append([p(f"{point['flow_value']:g} {point['flow_unit']}"),p(f"{point['error_percent']:+.4g}%"),p(f"{point['expanded_uncertainty']:.4g}%"),p(mpe),p(acceptance),p(point["decision"],bold)])
     story += [Table(point_rows,colWidths=[31*mm,22*mm,25*mm,32*mm,39*mm,25*mm],repeatRows=1,style=TableStyle([("GRID",(0,0),(-1,-1),.35,line),("BACKGROUND",(0,0),(-1,0),light),("VALIGN",(0,0),(-1,-1),"MIDDLE"),("LEFTPADDING",(0,0),(-1,-1),4),("TOPPADDING",(0,0),(-1,-1),3),("BOTTOMPADDING",(0,0),(-1,-1),3)])),Spacer(1,2*mm),details([
-        ("Specification",f"{data['specification_reference']} {data['specification_revision']} {data['specification_clause']}"),("Uncertainty",f"Approved calculation {data['calculation_uid']} Rev. {data['calculation_revision']}; expanded uncertainty stated at each point."),("Decision rule",f"{data['rule_code']} Rev. {data['rule_revision'] or 'TBC'}. Guarded acceptance with w=U."),("Statement",data["statement_text"]),("Overall conformity",data["overall_decision"]),("Approved by",f"{data['approved_by'] or ''} {data['approved_at'] or ''}"),
+        ("Specification",f"{data['specification_reference']} {data['specification_revision']} {data['specification_clause']}" if data.get("conformity_required") else "Conformity statement not requested"),("Uncertainty",f"Approved calculation {data['calculation_uid']} Rev. {data['calculation_revision']}; expanded uncertainty stated at each point."),("Decision rule",f"{data['rule_code']} Rev. {data['rule_revision'] or 'TBC'}. Guarded acceptance with w=U." if data.get("conformity_required") else "Not applicable"),("Statement",data["statement_text"]),("Overall conformity",data["overall_decision"]),("Approved by",f"{data['approved_by'] or ''} {data['approved_at'] or ''}"),
     ])]
     def footer(canvas, document):
         canvas.saveState(); canvas.setFont("Helvetica",7); canvas.setFillColor(colors.HexColor("#526A79")); canvas.drawString(18*mm,8*mm,"Generated by FlowLab Pro from approved controlled records"); canvas.drawRightString(192*mm,8*mm,f"Page {document.page}"); canvas.restoreState()
@@ -454,7 +504,7 @@ def register_generated_cover(connection, data: dict[str, Any], output: Path, act
         """INSERT INTO generated_report_covers
            (cover_uid,job_id,assessment_id,output_format,original_filename,file_path,file_hash,generated_by)
            VALUES (?,?,?,?,?,?,?,?)""",
-        (f"COVER-{uuid4().hex[:12].upper()}",data["job_id"],data["assessment_id"],output.suffix[1:].upper(),
+        (f"COVER-{uuid4().hex[:12].upper()}",data["job_id"],data.get("assessment_id"),output.suffix[1:].upper(),
          output.name,str(output),digest,actor),
     )
     return cursor.lastrowid

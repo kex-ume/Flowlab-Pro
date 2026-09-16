@@ -309,7 +309,7 @@ def initialize_database():
             conn.execute("""CREATE TABLE IF NOT EXISTS generated_report_covers (
                 id BIGSERIAL PRIMARY KEY,cover_uid TEXT NOT NULL UNIQUE,
                 job_id BIGINT NOT NULL REFERENCES calibration_jobs(id),
-                assessment_id BIGINT NOT NULL REFERENCES conformity_assessments(id),output_format TEXT NOT NULL,
+                assessment_id BIGINT REFERENCES conformity_assessments(id),output_format TEXT NOT NULL,
                 original_filename TEXT NOT NULL,file_path TEXT NOT NULL,file_hash TEXT NOT NULL,
                 generated_by TEXT,generated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 is_deleted INTEGER NOT NULL DEFAULT 0,deleted_at TIMESTAMP,deleted_by TEXT)""")
@@ -319,6 +319,7 @@ def initialize_database():
             conn.execute("ALTER TABLE generated_report_covers ADD COLUMN IF NOT EXISTS is_deleted INTEGER NOT NULL DEFAULT 0")
             conn.execute("ALTER TABLE generated_report_covers ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP")
             conn.execute("ALTER TABLE generated_report_covers ADD COLUMN IF NOT EXISTS deleted_by TEXT")
+            conn.execute("ALTER TABLE generated_report_covers ALTER COLUMN assessment_id DROP NOT NULL")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_service_request_job ON lab_service_requests(job_id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_conformity_job ON conformity_assessments(job_id,status)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_report_cover_job ON generated_report_covers(job_id,generated_at)")
@@ -1389,7 +1390,7 @@ def initialize_database():
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS conformity_assessment_points (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            assessment_id INTEGER NOT NULL,
+            assessment_id INTEGER,
             uncertainty_flow_point_id INTEGER,
             point_order INTEGER NOT NULL,
             flow_value REAL NOT NULL,
