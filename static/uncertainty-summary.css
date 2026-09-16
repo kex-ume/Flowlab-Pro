@@ -11,3 +11,18 @@
 .record-actions { display: flex; flex-wrap: wrap; gap: 6px; min-width: 330px; }
 .record-actions button, .record-actions a { display: inline-flex; align-items: center; min-height: 30px; margin: 0 !important; padding: 6px 9px !important; border: 1px solid #c9d8e1 !important; border-radius: 6px; background: #fff !important; color: var(--gum-blue) !important; text-decoration: none; }
 .record-actions button:hover, .record-actions a:hover { border-color: var(--gum-blue) !important; background: #eef6fb !important; }
+.record-actions [data-load-record] { background: var(--gum-blue) !important; border-color: var(--gum-blue) !important; color: #fff !important; }
+.record-actions [data-load-record]:hover { background: #12598f !important; color: #fff !important; }
+.record-detail-card { width: min(1180px, 96vw); }
+.record-detail-summary { display: grid; grid-template-columns: repeat(4, minmax(150px, 1fr)); gap: 10px; margin-bottom: 16px; }
+.record-detail-summary article { padding: 12px; border: 1px solid #d8e3e9; border-radius: 8px; background: #f7fafb; }
+.record-detail-summary span, .record-detail-section>span { display: block; color: #617988; font-size: 9px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; }
+.record-detail-summary strong { display: block; margin-top: 5px; color: #173243; font-size: 14px; }
+.record-detail-section { margin-top: 15px; }
+.record-detail-section h4 { margin: 4px 0 9px; color: #173243; font-size: 14px; }
+.record-detail-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+.record-detail-table th { padding: 8px 9px; background: #edf3f5; color: #536b7a; text-align: left; }
+.record-detail-table td { padding: 9px; border-bottom: 1px solid #e1e8ec; color: #243746; vertical-align: top; }
+.record-detail-table td.detail-long { max-width: 360px; white-space: normal; overflow-wrap: anywhere; }
+.record-detail-empty { padding: 24px; border: 1px dashed #cbd9e0; border-radius: 8px; color: #6a7f8c; text-align: center; }
+@media(max-width:760px){.record-detail-summary{grid-template-columns:1fr 1fr}}
