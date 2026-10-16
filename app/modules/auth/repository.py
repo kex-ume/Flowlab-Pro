@@ -25,7 +25,7 @@ class AuthRepository:
             FROM users u
             JOIN roles r
                 ON u.role_id = r.id
-            WHERE u.username = ?
+            WHERE LOWER(u.username) = LOWER(?)
         """, (username,))
 
         row = cursor.fetchone()

@@ -1,0 +1,58 @@
+{% load static %}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Sign In · E&amp;I Lab</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{% static 'core/ei-login.css' %}?v=20261013c">
+</head>
+<body>
+  <main class="login-shell">
+    <section class="login-access">
+      <div class="login-panel">
+        <div class="login-form-head">
+          <span class="eyebrow">Secure E&amp;I workspace</span>
+          <h2>Welcome back</h2>
+          <p>Sign in to continue to the E&amp;I Laboratory.</p>
+        </div>
+        {% if form.errors %}<div class="flash error">Invalid username or password. Please try again.</div>{% endif %}
+        <form method="post" class="login-form">
+          {% csrf_token %}
+          {% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
+          <label for="id_username">Username{{ form.username }}</label>
+          <label for="id_password">Password
+            <span class="password-input">
+              {{ form.password }}
+              <button class="password-toggle" type="button" aria-label="Show password" aria-pressed="false" aria-controls="id_password">
+                <svg class="eye-open" viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"/><circle cx="12" cy="12" r="2.7"/></svg>
+                <svg class="eye-closed" viewBox="0 0 24 24" aria-hidden="true"><path d="m3 3 18 18M10.6 6.1A10.8 10.8 0 0 1 12 6c6 0 9.5 6 9.5 6a16.8 16.8 0 0 1-2.1 2.8M6.4 6.4C3.9 8 2.5 12 2.5 12s3.5 6 9.5 6a9.7 9.7 0 0 0 3-.5M9.9 9.9a3 3 0 0 0 4.2 4.2"/></svg>
+              </button>
+            </span>
+          </label>
+          <button type="submit">Sign In</button>
+        </form>
+        <div class="login-security"><span aria-hidden="true">✓</span> Role-controlled laboratory access</div>
+      </div>
+    </section>
+    <section class="login-visual" aria-label="Electrical and instrumentation calibration laboratory">
+      <div class="login-visual-copy">
+        <span class="login-kicker">Electrical &amp; instrumentation calibration laboratory</span>
+        <div class="login-brand-line"><span class="login-brand-mark" aria-hidden="true"><i></i></span><h1>E&amp;I Lab</h1></div>
+        <p>Controlled calibration workflows, technical records, equipment traceability and authorised review in one workspace.</p>
+        <div class="login-standards"><span>ISO/IEC 17025</span><span>Controlled workflows</span></div>
+      </div>
+    </section>
+  </main>
+  <nav class="login-nav" aria-label="Laboratory navigation">
+    <a class="module-switch" href="/login" aria-label="Open FlowLab Pro sign in"><span aria-hidden="true">↗</span>FlowLab Pro</a>
+    <a class="module-switch home-switch" href="/" aria-label="Return to the integrated laboratory landing page"><span aria-hidden="true">⌂</span>Home</a>
+  </nav>
+  <script>
+    const password=document.getElementById('id_password'),toggle=document.querySelector('.password-toggle');
+    toggle.addEventListener('click',()=>{const reveal=password.type==='password';password.type=reveal?'text':'password';toggle.setAttribute('aria-pressed',String(reveal));toggle.setAttribute('aria-label',reveal?'Hide password':'Show password');password.focus()});
+  </script>
+</body>
+</html>

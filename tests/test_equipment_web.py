@@ -389,7 +389,7 @@ class FreshDatabaseWebTests(unittest.TestCase):
         }
         connection.close()
         self.assertTrue(all(value == 0 for value in operational_counts.values()))
-        dashboard = self.client.get("/").get_data(as_text=True)
+        dashboard = self.client.get("/dashboard").get_data(as_text=True)
         self.assertGreaterEqual(dashboard.count(">0<"), 4)
         self.assertIn("No equipment has been added to the calibration programme.", dashboard)
         self.assertIn("No equipment has been added.", self.client.get("/equipment").get_data(as_text=True))
@@ -508,7 +508,7 @@ class FreshDatabaseWebTests(unittest.TestCase):
 
         with self.client.session_transaction() as login:
             login["user_id"] = chief_id; login["username"] = "chief-reset"
-            login["full_name"] = "Chief Reset"; login["role_name"] = "Chief Meteorologist"
+            login["full_name"] = "Chief Reset"; login["role_name"] = "Administrator"
         response = self.client.post("/users", data={"action":"reset_password",
             "user_id":technician_id,"password":"Temporary123"})
         self.assertEqual(response.status_code, 302)

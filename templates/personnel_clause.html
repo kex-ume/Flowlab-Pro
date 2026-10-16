@@ -11,8 +11,8 @@
   <section class="clause-requirement-head">
     <div><span>CLAUSE {{clause[1]}}</span><h1>{{clause[2]}}</h1><p>{{clause[3]}}</p></div>
     <div class="clause-head-actions"><span class="clause-state"><i>•</i>{{personnel|length}} personnel</span>
-      {% if pending_registrations and session.role_name in ('Chief Meteorologist','Administrator') %}<a class="button secondary" href="{{url_for('users')}}">{{pending_registrations}} pending registration{{'' if pending_registrations==1 else 's'}}</a>{% endif %}
-      <button type="button" class="button" data-scroll-to="personnelRegistration" aria-expanded="false">Add Personnel</button>
+      {% if pending_registrations and session.role_name in ('Chief Metrologist','Chief Meteorologist','Administrator') %}<a class="button secondary" href="{{url_for('chief_personnel')}}">{{pending_registrations}} pending registration{{'' if pending_registrations==1 else 's'}}</a>{% endif %}
+      {% if session.role_name in ('Chief Metrologist','Chief Meteorologist','Administrator','HOD') %}<a class="button" href="{{url_for('chief_personnel')}}">Add Personnel</a>{% else %}<button type="button" class="button" data-scroll-to="personnelRegistration" aria-expanded="false">Add Personnel</button>{% endif %}
     </div>
   </section>
   <section class="panel clause-subclause-panel"><div class="panel-head"><h3>Personnel Requirements</h3><span class="meta-pill">{{subclauses|length}} subclauses</span></div><div class="clause-subclause-list">{% for code,requirement in subclauses %}<div><strong>{{code}}</strong><span>{{requirement}}</span></div>{% endfor %}</div></section>
@@ -29,7 +29,7 @@
   {% if selected %}<section class="panel personnel-file-register">
     <div class="panel-head"><div><span class="eyebrow">Personnel file</span><h3>{{selected.user[1]}} · {{selected.user[4]}}</h3></div><span class="pill {{'ready' if selected.complete else 'due'}}">{{'Complete' if selected.complete else 'Records required'}}</span></div>
     <div class="table-scroll"><table><thead><tr><th>Record</th><th>Document No.</th><th>Revision</th><th>Issued</th><th>Status</th><th>Uploaded By</th><th>Approved By</th><th>Document</th><th>Actions</th></tr></thead><tbody>
-      {% for document in selected.documents %}<tr>
+      {% for document in selected.documents %}<tr data-record-kind="flow_personnel_document" data-record-id="{{document[0]}}">
         <td><strong>{{document[2]}}</strong>{% if document[7]=='Approved' and not document[12] %}<small class="superseded">Superseded</small>{% endif %}</td>
         <td class="mono">{{document[3]}}</td><td>{{document[4]}}</td><td data-local-date="{{document[5]}}">{{document[5]}}</td>
         <td><span class="pill {{'ready' if document[7]=='Approved' and document[12] else ('expired' if document[7]=='Reverted' or not document[12] else 'due')}}">{{'Superseded' if document[7]=='Approved' and not document[12] else document[7]}}</span>{% if document[10] %}<small class="review-comment">{{document[10]}}</small>{% endif %}</td>

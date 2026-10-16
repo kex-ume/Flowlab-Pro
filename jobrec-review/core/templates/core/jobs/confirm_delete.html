@@ -1,0 +1,43 @@
+{% extends 'core/base.html' %}
+{% block title %}Delete Job{% endblock %}
+
+{% block content %}
+<div class="max-w-lg mx-auto">
+
+{% url 'job_list' as back_href %}
+{% include 'core/partials/back_link.html' with back_label='Back to Jobs' %}    <div class="bg-white rounded-xl shadow-sm dark:bg-gray-800 p-6">
+        <div class="text-center mb-6">
+            <div class="w-16 h-16 bg-red-100 dark:bg-red-900/30 rounded-full flex items-center justify-center mx-auto mb-4">
+                <i class="fas fa-exclamation-triangle text-red-600 dark:text-red-400 text-2xl"></i>
+            </div>
+            <h1 class="text-xl font-bold text-gray-800 dark:text-gray-100 mb-2">Delete Job</h1>
+            <p class="text-gray-500 dark:text-gray-400">
+                Are you sure you want to delete job
+                <strong>{{ job.purchase_order_number|default:"No PO" }}</strong> for
+                <strong>{{ job.client.name }}</strong>?
+            </p>
+        </div>
+
+        <div class="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-lg p-4 mb-6 text-sm">
+            <p class="text-amber-800 dark:text-amber-300 font-medium mb-2"><i class="fas fa-info-circle mr-1"></i>This will permanently remove the job and its assignment records. Waybills and calibration logs are not affected.</p>
+            {% if related_count %}
+            <ul class="text-amber-700 dark:text-amber-400 space-y-1 mt-2">
+                <li>&bull; Assigned personnel: {{ related_count }}</li>
+            </ul>
+            {% endif %}
+        </div>
+
+        <form method="post" class="flex items-center justify-center space-x-3">
+            {% csrf_token %}
+            <a href="{% url 'job_detail' job.pk %}"
+               class="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors">
+                Cancel
+            </a>
+            <button type="submit"
+                    class="px-6 py-2 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700 transition-colors">
+                <i class="fas fa-trash mr-1"></i>Delete
+            </button>
+        </form>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,172 @@
+{% extends 'core/base.html' %}
+{% load permission_tags %}
+{% block title %}Client Equipment (UUT){% endblock %}
+
+{% block content %}
+{% url 'dashboard' as back_href %}
+{% include 'core/partials/back_link.html' with back_label='Back to Dashboard' %}
+<div class="space-y-4">
+    <header class="ei-register-heading"><div><p class="ei-register-eyebrow">E&amp;I Laboratory · Client Job Records</p><h1>Client Equipment (UUT)</h1></div></header>
+
+    <!-- Filters -->
+    <div class="ei-register-filter-panel">
+        <form method="get" class="flex flex-wrap gap-3 items-end">
+            <div>
+                <label class="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">Status</label>
+                <select name="status" class="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-gray-100">
+                    <option value="">All</option>
+                    {% for val, label in status_choices %}
+                    <option value="{{ val }}" {% if filters.status == val %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label class="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">Client</label>
+                <select name="client" class="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-gray-100">
+                    <option value="">All</option>
+                    {% for c in clients %}
+                    <option value="{{ c.id }}" {% if filters.client == c.id|stringformat:"s" %}selected{% endif %}>{{ c.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label class="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">PO Number</label>
+                <input type="text" name="po" value="{{ filters.po }}"
+                       class="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-gray-100"
+                       placeholder="Search PO...">
+            </div>
+            <div>
+                <label class="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">Search</label>
+                <input type="text" name="search" value="{{ filters.search }}"
+                       class="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-gray-100"
+                       placeholder="Equipment name or serial...">
+            </div>
+            <div>
+                <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700">
+                    <i class="fas fa-filter mr-1"></i>Filter
+                </button>
+                <a href="{% url 'ei_received_equipment' %}" class="px-4 py-2 text-sm text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100 ml-1">Clear</a>
+            </div>
+        </form>
+    </div>
+
+    <!-- Table -->
+    <div class="ei-register-table-panel">
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+                <thead>
+                    <tr class="text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider bg-gray-50 dark:bg-gray-700">
+                        <th class="px-3 py-3">Equipment</th>
+                        <th class="px-3 py-3">Serial No</th>
+                        <th class="px-3 py-3">Model</th>
+                        <th class="px-3 py-3">Manufacturer</th>
+                        <th class="px-3 py-3">Waybill</th>
+                        <th class="px-3 py-3">Client</th>
+                        <th class="px-3 py-3">PO Number</th>
+                        <th class="px-3 py-3">Status</th>
+                        <th class="px-3 py-3">Next Action</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100 dark:divide-gray-700">
+                    {% for eq in equipment %}
+                    <tr class="hover:bg-gray-50 dark:hover:bg-gray-700" data-record-kind="ei_received" data-record-id="{{eq.pk}}">
+                        <td class="px-3 py-2.5 font-medium">{{ eq.item.equipment_description }}</td>
+                        <td class="px-3 py-2.5 text-gray-600 dark:text-gray-300">{{ eq.item.serial_no }}</td>
+                        <td class="px-3 py-2.5 text-gray-600 dark:text-gray-300">{{ eq.item.model_no|default:"-" }}</td>
+                        <td class="px-3 py-2.5 text-gray-600 dark:text-gray-300">{{ eq.item.manufacturer|default:"-" }}</td>
+                        <td class="px-3 py-2.5">{{ eq.item.waybill.waybill_no }}</td>
+                        <td class="px-3 py-2.5">{{ eq.client.name|default:"-" }}</td>
+                        <td class="px-3 py-2.5 text-gray-600 dark:text-gray-300">{{ eq.po|default:"-" }}</td>
+                        <td class="px-3 py-2.5">
+                            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium
+                                {% if eq.item.status == 'completed' %}bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300
+                                {% elif eq.item.status == 'dispatched' %}bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300
+                                {% elif eq.item.status == 'repair_due' %}bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300
+                                {% elif eq.item.status == 'result_pending' %}bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300
+                                {% elif eq.item.status == 'cal_pending' %}bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300
+                                {% else %}bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300{% endif %}">
+                                {{ eq.item.get_status_display }}
+                            </span>
+                        </td>
+                        <td class="px-3 py-2.5">
+                            {% if eq.item.status == 'pre_cal_pending' %}
+                            <a href="{% url 'pre_calibration_create' eq.item.id %}"
+                               class="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-400 text-xs font-medium">
+                                <i class="fas fa-search mr-1"></i>Create Pre-Cal
+                            </a>
+                            {% elif eq.item.status == 'cal_pending' %}
+                            <a href="{% url 'calibration_log_create' eq.item.id %}"
+                               class="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-400 text-xs font-medium">
+                                <i class="fas fa-clipboard-check mr-1"></i>Create Calibration
+                            </a>
+                            {% elif eq.item.status == 'result_pending' %}
+                            {% with eq.item.calibration_logs.first as cal_log %}
+                            {% if cal_log %}
+                            <a href="{% url 'calibration_log_detail' cal_log.pk %}"
+                               class="text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-400 text-xs font-medium">
+                                <i class="fas fa-eye mr-1"></i>View Log
+                            </a>
+                            {% else %}
+                            <span class="text-xs text-gray-400 dark:text-gray-500">Pending</span>
+                            {% endif %}
+                            {% endwith %}
+                            {% elif eq.item.status == 'repair_due' %}
+                            <a href="{% url 'repair_complete' eq.item.id %}"
+                               class="text-orange-600 dark:text-orange-400 hover:text-orange-800 dark:hover:text-orange-400 text-xs font-medium">
+                                <i class="fas fa-wrench mr-1"></i>Mark Repaired
+                            </a>
+                            {% elif eq.item.status == 'completed' %}
+                            {% with eq.item.calibration_logs.first as cal_log %}
+                            {% if cal_log %}
+                            <a href="{% url 'calibration_log_detail' cal_log.pk %}"
+                               class="text-green-600 dark:text-green-400 hover:text-green-800 dark:hover:text-green-400 text-xs font-medium">
+                                <i class="fas fa-check-circle mr-1"></i>View Log
+                            </a>
+                            {% endif %}
+                            {% endwith %}
+                            {% elif eq.item.status == 'dispatched' %}
+                            <span class="text-xs text-gray-400 dark:text-gray-500">—</span>
+                            {% else %}
+                            <span class="text-xs text-gray-400 dark:text-gray-500">—</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="9" class="px-3 py-8 text-center text-gray-500 dark:text-gray-400">
+                            <i class="fas fa-tools text-3xl mb-2"></i>
+                            <p>No equipment found.</p>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        
+        {% if equipment.has_other_pages %}
+        <div class="px-4 py-3 border-t dark:border-gray-700 bg-gray-50 dark:bg-gray-700">
+            <p class="text-xs text-gray-500 dark:text-gray-400 text-center mb-2">Showing {{ equipment.start_index }}-{{ equipment.end_index }} of {{ equipment.paginator.count }}</p>
+            <nav class="flex items-center justify-center space-x-2">
+                {% if equipment.has_previous %}
+                <a href="?page=1{% if request.GET|strip_page %}&{{ request.GET|strip_page }}{% endif %}" class="px-3 py-1 text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700" title="First">
+                    <i class="fas fa-angle-double-left"></i>
+                </a>
+                <a href="?page={{ equipment.previous_page_number }}{% if request.GET|strip_page %}&{{ request.GET|strip_page }}{% endif %}" class="px-3 py-1 text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700" title="Previous">
+                    <i class="fas fa-angle-left"></i>
+                </a>
+                {% endif %}
+                <span class="px-3 py-1 text-sm text-gray-700 dark:text-gray-200">Page {{ equipment.number }} of {{ equipment.paginator.num_pages }}</span>
+                {% if equipment.has_next %}
+                <a href="?page={{ equipment.next_page_number }}{% if request.GET|strip_page %}&{{ request.GET|strip_page }}{% endif %}" class="px-3 py-1 text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700" title="Next">
+                    <i class="fas fa-angle-right"></i>
+                </a>
+                <a href="?page={{ equipment.paginator.num_pages }}{% if request.GET|strip_page %}&{{ request.GET|strip_page }}{% endif %}" class="px-3 py-1 text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700" title="Last">
+                    <i class="fas fa-angle-double-right"></i>
+                </a>
+                {% endif %}
+            </nav>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

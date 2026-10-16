@@ -1,0 +1,31 @@
+# PythonAnywhere free-tier OCR dependencies.
+#
+# JobRec ships PaddleOCR as a separate microservice (ocr_service/) for
+# production/VPS/cloud hosts. On PythonAnywhere's free tier a separate
+# always-on process, heavy RAM and libGL system library are not available,
+# so OCR instead runs IN-PROCESS via RapidOCR (PaddleOCR PP-OCR models
+# converted to ONNX through onnxruntime). Same models, ~80 MB install, no
+# system packages, no second service.
+#
+# Install order (do NOT let opencv-python replace the headless wheel):
+#   pip install -r requirements.txt
+#   pip install -r requirements-pa.txt
+#
+# rapidocr-onnxruntime declares opencv-python (needs libGL); to get the
+# libGL-free build, install it with --no-deps and supply its deps here
+# using the *headless* OpenCV wheel:
+#   pip install --no-deps rapidocr-onnxruntime==1.4.4
+#   pip install -r requirements-pa.txt
+# Then, if opencv-python was pulled in, remove it:
+#   pip uninstall -y opencv-python
+#
+rapidocr-onnxruntime>=1.4,<1.5
+opencv-python-headless>=4.5
+onnxruntime>=1.16
+numpy<3
+Pillow
+PyYAML
+six
+tqdm
+pyclipper
+Shapely!=2.0.4

@@ -1,0 +1,124 @@
+{% extends 'core/base.html' %}
+{% load permission_tags %}
+{% block title %}Primaries{% endblock %}
+
+{% block content %}
+<div class="max-w-7xl mx-auto">
+
+{% url 'dashboard' as back_href %}
+{% include 'core/partials/back_link.html' with back_label='Back to Dashboard' %}    <div class="flex items-center justify-between mb-6">
+        {% include 'core/partials/register_title.html' with title='Reference Standards' %}
+        {% if user|has_perm_tag:'approve_calibration' %}
+        <a href="{% url 'primary_create' %}"
+           class="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors">
+            <i class="fas fa-plus mr-1"></i>Add Primary
+        </a>
+        {% endif %}
+    </div>
+
+    <div class="bg-white rounded-xl shadow-sm dark:bg-gray-800 p-6">
+        <form method="get" class="mb-4">
+            <div class="flex gap-2">
+                <input type="text" name="search" value="{{ filters.search }}"
+                       placeholder="Search primaries..."
+                       class="flex-1 px-3 py-2 border border-gray-300 rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-gray-100">
+                <select name="status"
+                        class="px-3 py-2 border border-gray-300 rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-gray-100">
+                    <option value="">All statuses</option>
+                    {% for value, label in status_choices %}
+                    <option value="{{ value }}" {% if filters.status == value %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+                <button type="submit" class="px-4 py-2 bg-gray-100 dark:bg-gray-700 rounded-lg text-sm">Filter</button>
+                <a href="{% url 'primary_list' %}" class="px-4 py-2 text-gray-600 dark:text-gray-300 hover:text-gray-800 text-sm">Clear</a>
+            </div>
+        </form>
+
+        {% if primaries %}
+        <div class="overflow-x-auto">
+            <table class="w-full">
+                <thead>
+                    <tr class="text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-400">
+                        <th class="px-5 py-3">Name</th>
+                        <th class="px-5 py-3">Serial No</th>
+                        <th class="px-5 py-3">Scope</th>
+                        <th class="px-5 py-3">Unit(s)</th>
+                        <th class="px-5 py-3">Range</th>
+                        <th class="px-5 py-3">Last Calibrated</th>
+                        <th class="px-5 py-3">Due Date</th>
+                        <th class="px-5 py-3">Days Overdue</th>
+                        <th class="px-5 py-3">Status</th>
+                        <th class="px-5 py-3"></th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100 dark:divide-gray-700">
+                    {% for primary in primaries %}
+                    <tr data-record-kind="ei_equipment" data-record-id="{{primary.pk}}" class="hover:bg-gray-50 dark:hover:bg-gray-700">
+                        <td class="px-5 py-3 text-sm font-medium text-gray-900 dark:text-gray-100">{{ primary.name }}</td>
+                        <td class="px-5 py-3 text-sm text-gray-600 dark:text-gray-300">{{ primary.serial_no|default:"-" }}</td>
+                        <td class="px-5 py-3 text-sm text-gray-600 dark:text-gray-300">{{ primary.scope.name|default:"-" }}</td>
+                        <td class="px-5 py-3 text-sm text-gray-600 dark:text-gray-300">
+                            {% for u in primary.units.all %}
+                            <span class="inline-flex items-center px-2 py-0.5 rounded bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-200 text-xs mr-1">{{ u.symbol }}</span>
+                            {% empty %}{{ primary.unit.symbol|default:"-" }}{% endfor %}
+                        </td>
+                        <td class="px-5 py-3 text-sm text-gray-600 dark:text-gray-300">
+                            {% if primary.range_min or primary.range_max %}
+                            {{ primary.range_min|default:"0" }} – {{ primary.range_max }}{% else %}-{% endif %}
+                        </td>
+                        <td class="px-5 py-3 text-sm text-gray-600 dark:text-gray-300">{{ primary.last_calibrated|date:"d M Y"|default:"-" }}</td>
+                        <td class="px-5 py-3 text-sm text-gray-600 dark:text-gray-300">
+                            {{ primary.calibration_due_date|date:"d M Y"|default:"-" }}
+                            {% if primary.is_due %}<span class="text-red-600 dark:text-red-400 font-bold"> (Overdue)</span>{% endif %}
+                        </td>
+                        <td class="px-5 py-3 text-sm">
+                            {% if primary.is_due %}
+                            <span class="text-red-600 dark:text-red-400 font-bold">{{ primary.due_in_days|default:"0" }}</span>
+                            {% elif primary.due_in_days is not none and primary.due_in_days <= 90 %}
+                            <span class="text-yellow-600 dark:text-yellow-400">Due in {{ primary.due_in_days }} days</span>
+                            {% else %}-{% endif %}
+                        </td>
+                        <td class="px-5 py-3">
+                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
+                                {% if primary.status == 'active' %}bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300
+                                {% elif primary.status == 'pending_maintenance' %}bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300
+                                {% else %}bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-300{% endif %}">
+                                {{ primary.get_status_display }}
+                            </span>
+                        </td>
+                        <td class="px-5 py-3">
+                            <div class="flex items-center space-x-2">
+                                <a href="{% url 'primary_detail' primary.pk %}" class="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-400 text-sm"><i class="fas fa-eye"></i></a>
+                                {% if user|has_perm_tag:'approve_calibration' %}
+                                <a href="{% url 'primary_update' primary.pk %}" class="text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100 text-sm"><i class="fas fa-edit"></i></a>
+                                <a href="{% url 'primary_delete' primary.pk %}" class="text-red-600 dark:text-red-400 hover:text-red-800 dark:hover:text-red-500 text-sm"><i class="fas fa-trash"></i></a>
+                                {% endif %}
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% if is_paginated %}
+        <p class="text-xs text-gray-500 dark:text-gray-400 text-center mb-2">Showing {{ primaries.start_index }}-{{ primaries.end_index }} of {{ primaries.paginator.count }}</p>
+        <div class="px-4 py-3 border-t dark:border-gray-700 bg-gray-50 dark:bg-gray-700">
+            <nav class="flex items-center justify-center space-x-2">
+                {% if primaries.has_previous %}
+                <a href="?page=1{% if request.GET|strip_page %}&{{ request.GET|strip_page }}{% endif %}" class="px-3 py-1 text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700" title="First"><i class="fas fa-angle-double-left"></i></a>
+                <a href="?page={{ primaries.previous_page_number }}{% if request.GET|strip_page %}&{{ request.GET|strip_page }}{% endif %}" class="px-3 py-1 text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700" title="Previous"><i class="fas fa-angle-left"></i></a>
+                {% endif %}
+                <span class="px-3 py-1 text-sm text-gray-700 dark:text-gray-200">Page {{ primaries.number }} of {{ primaries.paginator.num_pages }}</span>
+                {% if primaries.has_next %}
+                <a href="?page={{ primaries.next_page_number }}{% if request.GET|strip_page %}&{{ request.GET|strip_page }}{% endif %}" class="px-3 py-1 text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700" title="Next"><i class="fas fa-angle-right"></i></a>
+                <a href="?page={{ primaries.paginator.num_pages }}{% if request.GET|strip_page %}&{{ request.GET|strip_page }}{% endif %}" class="px-3 py-1 text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700" title="Last"><i class="fas fa-angle-double-right"></i></a>
+                {% endif %}
+            </nav>
+        </div>
+        {% endif %}
+        {% else %}
+        <p class="text-gray-500 dark:text-gray-400 py-8"><i class="fas fa-flask text-3xl mb-2"></i><br>No primaries registered yet.</p>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

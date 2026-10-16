@@ -1,0 +1,123 @@
+{% extends 'core/base.html' %}
+{% load permission_tags %}
+
+{% block title %}Cert Layout — {{ scope.name }}{% endblock %}
+
+{% block content %}
+<div class="mb-3">
+    <a href="/settings/scopes/"
+       title="Back to Settings"
+       onclick="if (window.history.length > 1 && document.referrer && document.referrer.startsWith(window.location.origin)) { history.back(); return false; }"
+       class="inline-flex items-center text-sm font-medium text-gray-500 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded">
+        <i class="fas fa-arrow-left mr-1.5"></i>Back to Settings
+    </a>
+</div>
+
+<div class="max-w-5xl mx-auto">
+    <div class="flex items-center justify-between mb-4">
+        <div>
+            <h1 class="text-2xl font-bold text-gray-800 dark:text-gray-100">Certificate Layout — {{ scope.name }}</h1>
+            <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                Custom Django template that replaces the default certificate for every calibration log in this scope.
+            </p>
+        </div>
+        <span class="px-3 py-1 rounded-full text-xs font-semibold {% if scope.certificate_template %}bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300{% else %}bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300{% endif %}">
+            {% if scope.certificate_template %}Custom layout active{% else %}Using default layout{% endif %}
+        </span>
+    </div>
+
+    {% if error %}
+    <div class="mb-4 p-4 rounded-lg bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800">
+        <p class="text-sm font-medium text-red-700 dark:text-red-300 mb-1"><i class="fas fa-triangle-exclamation mr-1"></i>Template syntax error — not saved:</p>
+        <code class="text-xs text-red-600 dark:text-red-400 font-mono">{{ error }}</code>
+    </div>
+    {% endif %}
+
+    {% if messages %}
+    <div class="mb-4 space-y-2">
+        {% for message in messages %}
+        <div class="p-3 rounded-lg text-sm bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">{{ message }}</div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <form method="post" class="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-6">
+        {% csrf_token %}
+        <label for="id_certificate_template" class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">Template source</label>
+        <textarea id="id_certificate_template" name="certificate_template" rows="22" spellcheck="false"
+                  placeholder="Leave blank to use the default two-page certificate"
+                  class="w-full px-4 py-3 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-100 font-mono text-xs leading-relaxed focus:ring-2 focus:ring-blue-500 focus:border-blue-500">{{ scope.certificate_template|default:'' }}</textarea>
+
+        <div class="mt-3 flex flex-wrap items-center gap-3">
+            <button type="submit" name="action" value="save"
+                    class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium">
+                <i class="fas fa-save mr-1"></i>Save Template
+            </button>
+            {% if scope.certificate_template %}
+            <button type="submit" name="action" value="clear"
+                    onclick="return confirm('Clear the custom template and revert &#39;{{ scope.name|escapejs }}&#39; to the default certificate layout?')"
+                    class="px-4 py-2 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 rounded-lg text-sm font-medium">
+                <i class="fas fa-rotate-left mr-1"></i>Use Default Layout
+            </button>
+            {% endif %}
+            {% if preview_log %}
+            <a href="{% url 'calibration_certificate' preview_log.pk %}" target="_blank"
+               class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-medium">
+                <i class="fas fa-eye mr-1"></i>Preview (log #{{ preview_log.pk }})
+            </a>
+            {% else %}
+            <span class="text-xs text-gray-400 dark:text-gray-500 italic">Preview available once this scope has a log past review.</span>
+            {% endif %}
+        </div>
+    </form>
+
+    <div class="mt-6 grid md:grid-cols-2 gap-4">
+        <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-6">
+            <h2 class="text-sm font-semibold text-gray-800 dark:text-gray-100 mb-3"><i class="fas fa-code mr-1 text-blue-500"></i>Available variables</h2>
+            <ul class="text-xs text-gray-600 dark:text-gray-300 space-y-1.5">
+                <li><code class="text-blue-600 dark:text-blue-400">{% verbatim %}{{ log }}{% endverbatim %}</code> — the CalibrationLog (certificate_no, asset_id, date_of_issue, result, notes, expanded_uncertainty, coverage_factor, calibration_due, …)</li>
+                <li><code class="text-blue-600 dark:text-blue-400">{% verbatim %}{{ company }}{% endverbatim %}</code> — CompanyProfile (company_name, logo, abbreviation, accreditation_statement …)</li>
+                <li><code class="text-blue-600 dark:text-blue-400">{% verbatim %}{{ addresses }}{% endverbatim %}</code> — company address rows (label, address)</li>
+                <li><code class="text-blue-600 dark:text-blue-400">{% verbatim %}{{ readings }}{% endverbatim %}</code> — CalibrationLogReading rows (instrument_reading, uut_reading, error, unit)</li>
+                <li><code class="text-blue-600 dark:text-blue-400">{% verbatim %}{{ standards }}{% endverbatim %}</code> — reference standards used (name, serial_no, certificate_no, last_calibrated, calibration_due_date)</li>
+                <li><code class="text-blue-600 dark:text-blue-400">{% verbatim %}{{ specs }}{% endverbatim %}</code> — instrument specification rows (spec_name, spec_value)</li>
+                <li><code class="text-blue-600 dark:text-blue-400">{% verbatim %}{{ narrative }}{% endverbatim %}</code> — resolved traceability paragraph from Settings</li>
+                <li><code class="text-blue-600 dark:text-blue-400">{% verbatim %}{{ conformity }}{% endverbatim %}</code> — environmental conformity verdict or None</li>
+                <li><code class="text-blue-600 dark:text-blue-400">{% verbatim %}{{ date_received }}{% endverbatim %}</code>, <code class="text-blue-600 dark:text-blue-400">{% verbatim %}{{ previous_log }}{% endverbatim %}</code>, <code class="text-blue-600 dark:text-blue-400">{% verbatim %}{{ total_pages }}{% endverbatim %}</code></li>
+            </ul>
+            <p class="text-xs text-gray-500 dark:text-gray-400 mt-3">
+                Scope column labels:
+                <code class="font-mono">{% verbatim %}{{ log.scope.instrument_column_label }}{% endverbatim %}</code>,
+                <code class="font-mono">{% verbatim %}{{ log.scope.uut_column_label }}{% endverbatim %}</code>,
+                <code class="font-mono">{% verbatim %}{{ log.scope.error_column_label }}{% endverbatim %}</code>.
+            </p>
+        </div>
+        <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-6">
+            <h2 class="text-sm font-semibold text-gray-800 dark:text-gray-100 mb-3"><i class="fas fa-lightbulb mr-1 text-amber-500"></i>Starter snippet</h2>
+            <pre class="text-[11px] leading-relaxed font-mono bg-gray-50 dark:bg-gray-900 rounded-lg p-3 overflow-x-auto text-gray-700 dark:text-gray-300">{% verbatim %}<html>
+<head><style>@page{size:A4;margin:12mm}
+  body{font-family:Arial} table{width:100%;
+  border-collapse:collapse} td,th{border:1px solid #333;
+  padding:4px 6px}</style></head>
+<body>
+  <h2>{{ company.company_name }}</h2>
+  <p>CERTIFICATE OF CALIBRATION<br>
+     No. {{ log.certificate_no }}</p>
+  <p>{{ log.equipment_desc }} — SN {{ log.serial_no }}</p>
+  <table>
+    <tr><th>{{ log.scope.instrument_column_label }}
+        </th><th>{{ log.scope.uut_column_label }}</th>
+        <th>{{ log.scope.error_column_label }}</th></tr>
+    {% for r in readings %}
+    <tr><td>{{ r.instrument_reading }}</td>
+        <td>{{ r.uut_reading }}</td>
+        <td>{{ r.error }}</td></tr>
+    {% endfor %}
+  </table>
+  <p>Calibrated: {{ log.calibrated_at_date }} ·
+     Due: {{ log.calibration_due }}</p>
+</body></html>{% endverbatim %}</pre>
+        </div>
+    </div>
+</div>
+{% endblock %}

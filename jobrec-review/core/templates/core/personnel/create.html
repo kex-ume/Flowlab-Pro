@@ -1,0 +1,131 @@
+{% extends 'core/base.html' %}
+{% block title %}{% if is_edit %}Edit Personnel{% else %}Add Personnel{% endif %}{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto ei-personnel-ui ei-personnel-entry">
+
+{% url 'personnel_list' as back_href %}
+{% include 'core/partials/back_link.html' with back_label='Back to Personnel' %}    <div class="bg-white rounded-xl shadow-sm dark:bg-gray-800 p-6">
+        <h1 class="text-xl font-bold text-gray-800 dark:text-gray-100 mb-6">
+            <i class="fas fa-user-plus text-blue-600 dark:text-blue-400 mr-2"></i>{% if is_edit %}Edit Personnel{% else %}Add Personnel{% endif %}
+        </h1>
+
+        <form method="post" class="space-y-4">
+            {% csrf_token %}
+            {% if form.non_field_errors %}<div class="text-red-600">{{ form.non_field_errors }}</div>{% endif %}
+            {% if not is_edit %}<div><label for="{{ form.login_username.id_for_label }}">E&amp;I login username</label>{{ form.login_username }}{% if form.login_username.errors %}<p class="text-red-600">{{ form.login_username.errors.0 }}</p>{% endif %}</div><div><label for="{{ form.temporary_password.id_for_label }}">Initial E&amp;I login password</label>{{ form.temporary_password }}{% if form.temporary_password.errors %}<p class="text-red-600">{{ form.temporary_password.errors.0 }}</p>{% endif %}</div>{% endif %}
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div><label for="{{ form.position.id_for_label }}">Position / job title</label>{{ form.position }}</div>
+                <div><label for="{{ form.department.id_for_label }}">Department</label>{{ form.department }}</div>
+                <div><label for="{{ form.employment_status.id_for_label }}">Employment status</label>{{ form.employment_status }}</div>
+                <div><label for="{{ form.contact_phone.id_for_label }}">Contact phone</label>{{ form.contact_phone }}</div>
+                <div><label for="{{ form.experience_as_of.id_for_label }}">Experience as-of date</label>{{ form.experience_as_of }}</div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Full Name</label>
+                    {{ form.name }}
+                    {% if form.name.errors %}
+                    <p class="text-red-500 dark:text-red-400 text-xs mt-1">{{ form.name.errors.0 }}</p>
+                    {% endif %}
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Role</label>
+                    <select name="role" class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg">
+                        {% for role in roles %}
+                        <option value="{{ role.id }}" {% if form.role.value|stringformat:"s" == role.id|stringformat:"s" %}selected{% endif %}>
+                            {{ role.name }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                    {% if form.role.errors %}
+                    <p class="text-red-500 dark:text-red-400 text-xs mt-1">{{ form.role.errors.0 }}</p>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Years of Experience</label>
+                    {{ form.years_of_experience }}
+                    {% if form.years_of_experience.errors %}
+                    <p class="text-red-500 dark:text-red-400 text-xs mt-1">{{ form.years_of_experience.errors.0 }}</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Location</label>
+                {{ form.location_text }}
+                {% if form.location.errors %}
+                <p class="text-red-500 dark:text-red-400 text-xs mt-1">{{ form.location.errors.0 }}</p>
+                {% endif %}
+            </div>
+
+            <div>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Qualifications</label>
+                {{ form.qualifications }}
+                {% if form.qualifications.errors %}
+                <p class="text-red-500 dark:text-red-400 text-xs mt-1">{{ form.qualifications.errors.0 }}</p>
+                {% endif %}
+            </div>
+
+            <div>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Scope of Expertise</label>
+                <div x-data="{
+                    selected: [{% if form.instance.pk %}{% for ct in form.instance.scope_of_expertise.all %}'{{ ct.id }}'{% if not forloop.last %},{% endif %}{% endfor %}{% endif %}],
+                    search: '',
+                    init() {
+                        this.$watch('selected', () => this.syncSelect());
+                        this.$nextTick(() => this.syncSelect());
+                    },
+                    syncSelect() {
+                        let sel = this.$refs.scopeSelect;
+                        if (!sel) return;
+                        Array.from(sel.options).forEach(opt => {
+                            opt.selected = this.selected.includes(opt.value);
+                        });
+                    }
+                }">
+                    <div class="hidden">
+                        <select name="scope_of_expertise" multiple x-ref="scopeSelect">
+                            {% for ct in calibration_types %}
+                            <option value="{{ ct.id }}">{{ ct.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <input type="text" x-model="search" placeholder="Search scopes..."
+                           class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm mb-2">
+                    <div class="border border-gray-300 dark:border-gray-600 rounded-lg max-h-48 overflow-y-auto">
+                        {% for ct in calibration_types %}
+                        <label class="flex items-center px-3 py-2 hover:bg-blue-50 dark:hover:bg-blue-900/20 cursor-pointer border-b border-gray-100 dark:border-gray-700 last:border-0"
+                               x-show="search === '' || '{{ ct.name }}'.toLowerCase().includes(search.toLowerCase())">
+                            <input type="checkbox" value="{{ ct.id }}" x-model="selected"
+                                   class="h-4 w-4 text-blue-600 dark:text-blue-400 border-gray-300 dark:border-gray-600 rounded mr-3 focus:ring-blue-500">
+                            <span class="text-sm text-gray-700 dark:text-gray-200">{{ ct.name }}</span>
+                        </label>
+                        {% endfor %}
+                    </div>
+                    <p class="text-xs text-gray-500 dark:text-gray-400 mt-1"><span x-text="selected.length"></span> selected</p>
+                </div>
+                {% if form.scope_of_expertise.errors %}
+                <p class="text-red-500 dark:text-red-400 text-xs mt-1">{{ form.scope_of_expertise.errors.0 }}</p>
+                {% endif %}
+            </div>
+
+            <div class="flex items-center justify-end space-x-3 pt-4">
+                <a href="{% url 'personnel_list' %}"
+                   class="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors">
+                    Cancel
+                </a>
+                <button type="submit"
+                        class="px-6 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors">
+                    <i class="fas fa-save mr-1"></i>{% if is_edit %}Save Changes{% else %}Add Personnel{% endif %}
+                </button>
+            </div>
+            <p class="text-xs text-gray-400 dark:text-gray-500 text-right">Use the specified username and a secure temporary password. Registration does not grant technical authorization.</p>
+        </form>
+    </div>
+</div>
+{% endblock %}

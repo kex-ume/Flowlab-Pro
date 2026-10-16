@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Sign In · FlowLab Pro</title>
   <link rel="stylesheet" href="{{url_for('static',filename='app.css')}}">
-  <link rel="stylesheet" href="{{url_for('static',filename='responsive.css')}}">
+  <link rel="stylesheet" href="{{url_for('static',filename='responsive.css',v='20261013c')}}">
 </head>
 <body>
   <main class="login-shell">
@@ -49,6 +49,10 @@
       </div>
     </section>
   </main>
+  <nav class="login-nav" aria-label="Laboratory navigation">
+    <a class="module-switch" href="/ei-lab/login/" aria-label="Open E and I Lab sign in"><span aria-hidden="true">↗</span>E&amp;I Lab</a>
+    <a class="module-switch home-switch" href="/" aria-label="Return to the integrated laboratory landing page"><span aria-hidden="true">⌂</span>Home</a>
+  </nav>
   <script>
     const password=document.getElementById('loginPassword'),toggle=document.querySelector('.password-toggle');
     toggle.addEventListener('click',()=>{const reveal=password.type==='password';password.type=reveal?'text':'password';toggle.setAttribute('aria-pressed',String(reveal));toggle.setAttribute('aria-label',reveal?'Hide password':'Show password');password.focus()});

@@ -1,0 +1,6 @@
+{% extends 'core/base.html' %}
+{% block title %}Personnel Verification{% endblock %}
+{% block content %}<section class="ei-record-card ei-personnel-ui"><h1>Personnel Verification</h1>
+<dl class="ei-record-card-facts"><div><dt>Personnel ID</dt><dd>{{ person.pk }}</dd></div><div><dt>Name</dt><dd>{{ person.name }}</dd></div><div><dt>Position</dt><dd>{{ person.position|default:'Not recorded' }}</dd></div></dl>
+<p>Scope Specialty: {% for scope in person.scope_of_expertise.all %}{{ scope.name }}{% if not forloop.last %}, {% endif %}{% empty %}Not recorded{% endfor %}</p>
+<table class="ei-records-table"><thead><tr><th>Authorized Scope</th><th>Authorized Activity</th><th>Current Authorization Status</th></tr></thead><tbody>{% for grant in grants %}<tr><td>{{ grant.scope }}</td><td>{{ grant.activity }}</td><td>{{ grant.status }}</td></tr>{% empty %}<tr><td colspan="3">No current authorization recorded.</td></tr>{% endfor %}</tbody></table></section>{% endblock %}

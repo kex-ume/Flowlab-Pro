@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>{{ rec.doc_no }} — Environment Record</title>
+    <style>
+        body { font-family: Arial, Helvetica, sans-serif; margin: 24px; color: #111; }
+        h1 { font-size: 16px; border-bottom: 2px solid #111; padding-bottom: 8px; }
+        h2 { font-size: 13px; margin-top: 24px; }
+        table { border-collapse: collapse; width: 100%; font-size: 12px; margin-top: 8px; }
+        th, td { border: 1px solid #333; padding: 6px 8px; text-align: left; }
+        th { background: #eee; }
+        .muted { color: #555; font-size: 11px; }
+    </style>
+</head>
+<body>
+    <h1>ENVIRONMENTAL CONDITIONS RECORD</h1>
+    <p class="muted">Document No: {{ rec.doc_no }} &middot; Lab: {% firstof rec.location.name "-" %}</p>
+    <table>
+        <tr><th>Date</th><td>{{ rec.date }}</td></tr>
+        <tr><th>Time</th><td>{{ rec.get_time_display }}</td></tr>
+        <tr><th>Lab / Location</th><td>{% firstof rec.location.name "-" %}</td></tr>
+        <tr><th>Temperature</th><td>{{ rec.temperature }} &deg;C</td></tr>
+        <tr><th>Relative Humidity</th><td>{{ rec.relative_humidity }} %RH</td></tr>
+        <tr><th>Recorded By</th><td>{% firstof rec.recorded_by.get_full_name rec.recorded_by.username "-" %}</td></tr>
+    </table>
+    <p class="muted" style="margin-top:16px">Laboratory environmental conditions log. Tolerance limits per the calibration
+    laboratory quality manual and the reference-standard operating envelopes.</p>
+</body>
+</html>

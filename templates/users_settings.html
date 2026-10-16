@@ -1,0 +1,79 @@
+{% extends 'base.html' %}
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='users.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='users-integrated.css') }}">
+<div class="users-page"><a class="button secondary" href="{{url_for('settings')}}">Settings</a><p>Administrator credentials work in both modules after assignment. Technical competency and authorization remain separately controlled.</p>
+  <section class="users-summary">
+    <div><span class="eyebrow">Access governance</span><h1>Integrated User Management <button type="button" class="info-tip" data-info="Manage FlowLab Pro and E&I Lab accounts from one controlled administrator workspace."></button></h1></div><div class="user-add-actions"><button type="button" class="button" data-scroll-to="newUserForm" aria-controls="newUserForm" aria-expanded="false">+ FlowLab User</button><button type="button" class="button" data-scroll-to="newEiUserForm" aria-controls="newEiUserForm" aria-expanded="false">+ E&amp;I User</button></div>
+    <div class="users-count"><strong>{{ users|length + ei_users|length }}</strong><span>Total accounts</span></div>
+  </section>
+  <section class="panel user-create-card" id="newEiUserForm" data-collapsible-form hidden>
+    <div class="panel-head"><h3>Add E&amp;I Lab user</h3><button class="form-close-icon" type="button" data-close-form aria-label="Close E&I user form" title="Close">×</button></div>
+    <form method="post" class="user-create-form"><input type="hidden" name="_admin_csrf" value="{{admin_csrf_token()}}">
+      <input type="hidden" name="action" value="ei_create">
+      <label>Username *<input name="username" autocomplete="off" required></label><label>Full name *<input name="full_name" required></label><label>Email<input name="email" type="email"></label>
+      <label>E&amp;I role *<select name="role_id" required><option value="">Select role</option>{% for role in ei_roles %}<option value="{{role.id}}">{{role.name}}</option>{% endfor %}</select></label>
+      <label>Temporary password *<input name="password" type="password" minlength="10" autocomplete="new-password" required></label><button type="submit">Create E&amp;I user</button>
+    {% if session.get('role_name')=='Administrator' %}<label class="account-identity"><input type="checkbox" name="confirm_identity" value="1"> I confirm that a matching username in the other module belongs to this same person.</label>{% endif %}</form>
+  </section>
+  {% if pending_personnel %}
+  <section class="panel user-register personnel-approval-register"><div class="panel-head"><h3>Pending Personnel Registrations</h3><span class="pill due">{{pending_personnel|length}} Pending</span></div><div class="table-scroll"><table><thead><tr><th>Personnel</th><th>Requested Role</th><th>Initiated By</th><th>Submitted</th><th>Action</th></tr></thead><tbody>{% for item in pending_personnel %}<tr><td><strong>{{item[1]}}</strong><small class="user-name">{{item[2] or 'No email'}}</small></td><td>{{item[3]}}</td><td>{{item[4]}}</td><td data-local-datetime="{{item[5]}}">{{item[5]}}</td><td><a class="button secondary" href="{{url_for('users',registration_id=item[0])}}">Complete Registration</a></td></tr>{% endfor %}</tbody></table></div></section>{% endif %}
+  {% if selected_registration %}
+  <section class="panel user-create-card" id="completePersonnelRegistration"><div class="panel-head"><h3>Complete Personnel Registration · {{selected_registration[1]}}</h3></div><form method="post" class="user-create-form"><input type="hidden" name="_admin_csrf" value="{{admin_csrf_token()}}"><input type="hidden" name="action" value="approve_personnel"><input type="hidden" name="registration_id" value="{{selected_registration[0]}}"><label>Username *<input name="username" required></label><label>Full name *<input name="full_name" value="{{selected_registration[1]}}" required></label><label>Email<input type="email" name="email" value="{{selected_registration[2]}}"></label><label>Role *<select name="role_id" required><option value="">Select role</option>{% for role in roles %}<option value="{{role[0]}}" {% if role[1]==selected_registration[3] %}selected{% endif %}>{{role[1]}}</option>{% endfor %}</select></label><label>Temporary password *<input type="password" name="password" minlength="10" autocomplete="new-password" required></label><label>Approval note<input name="comment"></label><button>Create &amp; Approve Personnel</button><a class="button secondary" href="{{url_for('users')}}">Cancel / Close</a></form></section>
+  {% endif %}
+  <section class="panel user-create-card" id="newUserForm" data-collapsible-form hidden>
+    <div class="panel-head"><h3>Add user <button type="button" class="info-tip" data-info="New accounts are active immediately and every change is audited."></button></h3><button class="form-close-icon" type="button" data-close-form aria-label="Close Add User form" title="Close">×</button></div>
+    <form method="post" class="user-create-form"><input type="hidden" name="_admin_csrf" value="{{admin_csrf_token()}}">
+      <input type="hidden" name="action" value="create">
+      <label>Username *<input name="username" autocomplete="off" required></label>
+      <label>Full name *<input name="full_name" required></label>
+      <label>Email<input name="email" type="email"></label>
+      <label>Role *<select name="role_id" required><option value="">Select role</option>{% for role in roles %}<option value="{{ role[0] }}">{{ role[1] }}</option>{% endfor %}</select></label>
+      <label>Temporary password *<input name="password" type="password" minlength="10" autocomplete="new-password" required></label>
+      <button type="submit">Create user</button>
+    {% if session.get('role_name')=='Administrator' %}<label class="account-identity"><input type="checkbox" name="confirm_identity" value="1"> I confirm that a matching username in the other module belongs to this same person.</label>{% endif %}</form>
+  </section>
+  <section class="panel user-register">
+    <div class="panel-head"><h3>User register <button type="button" class="info-tip" data-info="Chief Meteorologist and Administrator access only."></button></h3><span class="pill ready">Controlled</span></div>
+    <div class="table-scroll"><table><thead><tr><th>User</th><th>Contact</th><th>Role</th><th>Status</th><th>Last sign-in</th><th>Account actions</th></tr></thead><tbody>
+      {% for user in users %}
+      <tr {% if user[0]!=session.get('user_id') %}data-record-kind="flow_user" data-record-id="{{user[0]}}"{% endif %}>
+        <td><strong>{{ user[2] }}</strong><small class="user-name">{{ user[1] }}</small></td>
+        <td>{{ user[3] or '—' }}</td>
+        <td><span class="role-chip">{{ user[4] }}</span></td>
+        <td><span class="pill {{ 'ready' if user[6] else 'expired' }}">{{ 'New password required' if user[9] and user[6] else ('Active' if user[6] else 'Inactive') }}</span></td>
+        <td data-local-datetime="{{ user[7] or '' }}">{{ user[7] or 'Never' }}</td>
+        <td class="user-actions">
+          {% if user[4] != 'Administrator' or session.get('role_name')=='Administrator' %}
+          <details><summary>Edit</summary><form method="post" class="user-inline-form"><input type="hidden" name="_admin_csrf" value="{{admin_csrf_token()}}"><input type="hidden" name="action" value="update"><input type="hidden" name="user_id" value="{{ user[0] }}"><label>Full name<input name="full_name" value="{{ user[2] }}" required></label><label>Email<input name="email" type="email" value="{{ user[3] }}"></label><label>Role<select name="role_id" required>{% for role in roles %}<option value="{{ role[0] }}" {% if role[0] == user[5] %}selected{% endif %}>{{ role[1] }}</option>{% endfor %}</select></label><button>Save changes</button><div class="form-actions"><button type="button" class="secondary" data-close-details>Cancel / Close</button></div>{% if session.get('role_name')=='Administrator' %}<label class="account-identity"><input type="checkbox" name="confirm_identity" value="1"> I confirm that a matching username in the other module belongs to this same person.</label>{% endif %}</form></details>
+          {% endif %}
+          <details><summary>Reset password</summary><form method="post" class="user-inline-form password-form"><input type="hidden" name="_admin_csrf" value="{{admin_csrf_token()}}"><input type="hidden" name="action" value="reset_password"><input type="hidden" name="user_id" value="{{ user[0] }}"><label>New password<input name="password" type="password" minlength="10" autocomplete="new-password" required></label><button>Reset password</button><div class="form-actions"><button type="button" class="secondary" data-close-details>Cancel / Close</button></div>{% if session.get('role_name')=='Administrator' %}<label class="account-identity"><input type="checkbox" name="confirm_identity" value="1"> I confirm that a matching username in the other module belongs to this same person.</label>{% endif %}</form></details>
+          <form method="post" data-confirm-delete="{{ 'Deactivate' if user[6] else 'Activate' }} {{ user[1] }}?"><input type="hidden" name="_admin_csrf" value="{{admin_csrf_token()}}"><input type="hidden" name="action" value="toggle_active"><input type="hidden" name="user_id" value="{{ user[0] }}"><button class="status-button {{ 'deactivate' if user[6] else 'activate' }}">{{ 'Deactivate' if user[6] else 'Activate' }}</button></form>
+        </td>
+      </tr>
+      {% else %}<tr><td colspan="6" class="empty">No user accounts are available.</td></tr>{% endfor %}
+    </tbody></table></div>
+  </section>
+  <section class="panel user-register ei-user-register">
+    <div class="panel-head"><h3>E&amp;I Lab user register</h3><span class="pill ready">Django authentication</span></div>
+    <div class="table-scroll"><table><thead><tr><th>User</th><th>Contact</th><th>Role</th><th>Status</th><th>Last sign-in</th><th>Account actions</th></tr></thead><tbody>
+      {% for user in ei_users %}<tr {% if user.username|lower!=session.get('username','')|lower %}data-record-kind="ei_user" data-record-id="{{user.id}}"{% endif %}>
+        <td><strong>{{user.full_name}}</strong><small class="user-name">{{user.username}}{% if user.is_superuser %} · E&amp;I Administrator{% endif %}</small></td><td>{{user.email or '—'}}</td><td><span class="role-chip">{{user.role}}</span></td><td><span class="pill {{'ready' if user.is_active else 'expired'}}">{{'Active' if user.is_active else 'Inactive'}}</span></td><td data-local-datetime="{{user.last_login or ''}}">{{user.last_login or 'Never'}}</td>
+        <td class="user-actions"><details><summary>Edit</summary><form method="post" class="user-inline-form"><input type="hidden" name="_admin_csrf" value="{{admin_csrf_token()}}"><input type="hidden" name="action" value="ei_update"><input type="hidden" name="user_id" value="{{user.id}}"><label>Full name<input name="full_name" value="{{user.full_name}}" required></label><label>Email<input name="email" type="email" value="{{user.email}}"></label><label>Role<select name="role_id" required>{% for role in ei_roles %}<option value="{{role.id}}" {% if role.id==user.role_id %}selected{% endif %}>{{role.name}}</option>{% endfor %}</select></label><button>Save changes</button><div class="form-actions"><button type="button" class="secondary" data-close-details>Cancel / Close</button></div>{% if session.get('role_name')=='Administrator' %}<label class="account-identity"><input type="checkbox" name="confirm_identity" value="1"> I confirm that a matching username in the other module belongs to this same person.</label>{% endif %}</form></details><details><summary>Reset password</summary><form method="post" class="user-inline-form password-form"><input type="hidden" name="_admin_csrf" value="{{admin_csrf_token()}}"><input type="hidden" name="action" value="ei_reset_password"><input type="hidden" name="user_id" value="{{user.id}}"><label>Temporary password<input name="password" type="password" minlength="10" autocomplete="new-password" required></label><button>Reset password</button><div class="form-actions"><button type="button" class="secondary" data-close-details>Cancel / Close</button></div>{% if session.get('role_name')=='Administrator' %}<label class="account-identity"><input type="checkbox" name="confirm_identity" value="1"> I confirm that a matching username in the other module belongs to this same person.</label>{% endif %}</form></details><form method="post" data-confirm-delete="{{'Deactivate' if user.is_active else 'Activate'}} E&I user {{user.username}}?"><input type="hidden" name="_admin_csrf" value="{{admin_csrf_token()}}"><input type="hidden" name="action" value="ei_toggle_active"><input type="hidden" name="user_id" value="{{user.id}}"><button class="status-button {{'deactivate' if user.is_active else 'activate'}}">{{'Deactivate' if user.is_active else 'Activate'}}</button></form></td>
+      </tr>{% else %}<tr><td colspan="6" class="empty">No E&amp;I Lab accounts are available.</td></tr>{% endfor %}
+    </tbody></table></div>
+  </section>
+  {% if reset_requests %}
+  <section class="panel user-register">
+    <div class="panel-head"><h3>Password reset requests <button type="button" class="info-tip" data-info="Set a temporary password and communicate it securely to the requesting user."></button></h3><span class="pill due">{{ reset_requests|length }} Pending</span></div>
+    <div class="table-scroll"><table><thead><tr><th>User</th><th>Requested</th><th>Set temporary password</th></tr></thead><tbody>
+      {% for item in reset_requests %}<tr><td><strong>{{ item[3] }}</strong><small class="user-name">{{ item[2] }}</small></td><td data-local-datetime="{{ item[4] }}">{{ item[4] }}</td><td><form method="post" class="user-inline-form password-form"><input type="hidden" name="_admin_csrf" value="{{admin_csrf_token()}}"><input type="hidden" name="action" value="reset_password"><input type="hidden" name="user_id" value="{{ item[1] }}"><label>Temporary password<input name="password" type="password" minlength="10" autocomplete="new-password" required></label><button>Issue temporary password</button>{% if session.get('role_name')=='Administrator' %}<label class="account-identity"><input type="checkbox" name="confirm_identity" value="1"> I confirm that a matching username in the other module belongs to this same person.</label>{% endif %}</form></td></tr>{% endfor %}
+    </tbody></table></div>
+  </section>
+  {% endif %}
+</div>
+<link rel="stylesheet" href="{{url_for('static',filename='record-removal.css')}}">
+<div id="recordRemovalConfig" data-endpoint="{{url_for('remove_user_accounts')}}" data-token="{{admin_csrf_token()}}" data-module="accounts" hidden></div>
+<p class="account-removal-help">Use the small trash icon beneath either user register to select accounts for removal. Accounts are deactivated and retained in the administrator Master Recycle Bin; their recorded work is not erased.</p>
+<script src="{{url_for('static',filename='record-removal.js')}}" defer></script>
+<style>.account-identity{display:flex;gap:8px;align-items:flex-start;font-size:12px}.account-identity input{width:16px;height:16px;flex:0 0 16px}.user-inline-form .form-actions{display:flex;gap:8px}</style><script src="{{url_for('static',filename='users-settings.js')}}" defer></script>{% endblock %}

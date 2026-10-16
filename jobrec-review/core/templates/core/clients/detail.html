@@ -1,0 +1,118 @@
+{% extends 'core/base.html' %}
+{% load permission_tags %}
+{% block title %}Client Detail{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto space-y-4">
+
+{% url 'client_list' as back_href %}
+{% include 'core/partials/back_link.html' with back_label='Back to Clients' %}    <div class="flex items-center justify-between flex-wrap gap-2">
+        <h1 class="text-2xl font-bold text-gray-800 dark:text-gray-100 flex items-center gap-3">
+            <i class="fas fa-building text-blue-600 dark:text-blue-400"></i>{{ client.name }}
+            {% if client.status == 'pending_info' %}
+            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300">
+                Pending Info
+            </span>
+            {% else %}
+            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300">
+                Active
+            </span>
+            {% endif %}
+        </h1>
+        <div class="flex items-center space-x-2">
+            <a href="{% url 'client_list' %}" class="text-sm text-gray-600 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400">
+                <i class="fas fa-arrow-left mr-1"></i>Back
+            </a>
+            {% if user|has_perm_tag:'create_clients' %}
+            <a href="{% url 'client_update' client.pk %}"
+               class="text-sm text-blue-600 dark:text-blue-400 hover:underline">
+                <i class="fas fa-edit mr-1"></i>Edit
+            </a>
+            <a href="{% url 'client_delete' client.pk %}"
+               class="text-sm text-red-600 dark:text-red-400 hover:underline">
+                <i class="fas fa-trash mr-1"></i>Delete
+            </a>
+            {% endif %}
+        </div>
+    </div>
+
+
+    <div class="bg-white rounded-xl shadow-sm dark:bg-gray-800 p-6">
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+            <div>
+                <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Email</h3>
+                <p class="text-base text-gray-800 dark:text-gray-100 mt-1">{{ client.email|default:"Not provided" }}</p>
+            </div>
+            <div>
+                <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Phone</h3>
+                <p class="text-base text-gray-800 dark:text-gray-100 mt-1">{{ client.phone|default:"Not provided" }}</p>
+            </div>
+            <div>
+                <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Address</h3>
+                <p class="text-base text-gray-800 dark:text-gray-100 mt-1">{{ client.address|default:"Not provided" }}</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="bg-white rounded-xl shadow-sm dark:bg-gray-800 overflow-hidden">
+        <div class="px-5 py-4 border-b dark:border-gray-700 flex items-center justify-between">
+            <h2 class="text-lg font-semibold text-gray-800 dark:text-gray-100">
+                <i class="fas fa-briefcase text-blue-600 dark:text-blue-400 mr-2"></i>Jobs for {{ client.name }}
+            </h2>
+            <a href="{% url 'job_create' %}?client={{ client.name|urlencode }}" class="text-sm text-blue-600 dark:text-blue-400 hover:underline">
+                <i class="fas fa-plus mr-1"></i>New Job
+            </a>
+        </div>
+        <div class="overflow-x-auto">
+        <table class="w-full">
+            <thead>
+                <tr class="text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider bg-gray-50 dark:bg-gray-700">
+                    <th class="px-5 py-3">PO Number</th>
+                    <th class="px-5 py-3">Serial No</th>
+                    <th class="px-5 py-3">Status</th>
+                    <th class="px-5 py-3">Invoice</th>
+                    <th class="px-5 py-3"></th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100 dark:divide-gray-700">
+                {% for job in jobs %}
+                <tr class="hover:bg-gray-50 dark:hover:bg-gray-700">
+                    <td class="px-5 py-3 text-sm font-medium text-gray-900 dark:text-gray-100">{{ job.purchase_order_number }}</td>
+                    <td class="px-5 py-3 text-sm text-gray-600 dark:text-gray-300">{{ job.serial_no }}</td>
+                    <td class="px-5 py-3">
+                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
+                            {% if job.job_status == 'completed' %}bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300
+                            {% elif job.job_status == 'dispatched' %}bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300
+                            {% elif job.job_status == 'not_received' %}bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300
+                            {% elif job.job_status == 'pre_calibration_pending' %}bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300
+                            {% elif job.job_status == 'calibration_pending' %}bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300
+                            {% else %}bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300{% endif %}">
+                            {{ job.get_job_status_display }}
+                        </span>
+                    </td>
+                    <td class="px-5 py-3">
+                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
+                            {% if job.invoice_status == 'paid' %}bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300
+                            {% else %}bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300{% endif %}">
+                            {{ job.get_invoice_status_display }}
+                        </span>
+                    </td>
+                    <td class="px-5 py-3">
+                        <a href="{% url 'job_detail' job.pk %}" class="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-400 text-sm">
+                            <i class="fas fa-eye"></i>
+                        </a>
+                    </td>
+                </tr>
+                {% empty %}
+                <tr>
+                    <td colspan="6" class="px-5 py-8 text-center text-gray-500 dark:text-gray-400">
+                        <p>No jobs for this client.</p>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

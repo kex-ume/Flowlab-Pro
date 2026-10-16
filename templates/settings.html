@@ -1,5 +1,7 @@
 {% extends 'base.html' %}
 {% block content %}
+{% if session.get('role_name')=='Administrator' %}<section class="panel"><div class="panel-head"><h3>Administration</h3></div><div class="equipment-actions"><a class="button" href="{{url_for('users')}}">User Management</a><a class="button secondary" href="{{url_for('record_maintenance')}}">Record Maintenance &amp; Archive</a></div><p>Manage accounts here. Administrative access does not replace E&amp;I technical competency or authorization.</p></section>{% endif %}
+{% if session.get('role_name') == 'Administrator' %}<div class="equipment-actions"><a class="button" href="{{url_for('settings_policies')}}">Upload Policies</a></div>{% endif %}
 <section class="panel compact-panel">
   <form method="post" class="form-grid single-record-form">
     <label>Equipment due-soon warning period (days) *<input type="number" name="equipment_due_soon_days" min="0" max="365" step="1" value="{{ due_soon_days }}" required></label>

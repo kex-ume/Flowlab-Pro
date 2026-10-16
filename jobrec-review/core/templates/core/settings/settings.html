@@ -1,0 +1,438 @@
+{% extends 'core/base.html' %}
+{% load permission_tags %}
+{% block title %}Settings{% endblock %}
+
+{% block content %}
+<div class="max-w-5xl mx-auto space-y-4">
+
+{% url 'dashboard' as back_href %}
+{% include 'core/partials/back_link.html' with back_label='Back to Dashboard' %}    <h1 class="text-2xl font-bold text-gray-800 dark:text-gray-100">
+        <i class="fas fa-cog text-blue-600 dark:text-blue-400 mr-2"></i>Settings
+    </h1>
+
+    {% if user.is_superuser or user.personnel_profile.role.name == 'Administrator' %}
+    <div class="flex flex-wrap gap-2"><a class="ei-btn ei-btn-primary" href="/settings/users">User Management</a></div>
+    {% elif user|has_perm_tag:'manage_personnel' %}
+    <div class="flex flex-wrap gap-2"><a class="ei-btn ei-btn-primary" href="{% url 'personnel_list' %}">E&amp;I Personnel Management</a></div>
+    {% endif %}
+    <!-- Tabs -->
+    <div class="flex flex-wrap gap-1 border-b border-gray-200 dark:border-gray-700">
+        {% for t in tabs %}
+        <a href="{% url 'settings_tab' t.key %}"
+           class="px-4 py-2.5 text-sm font-medium rounded-t-lg transition-colors
+                   {% if t.active %}bg-white dark:bg-gray-800 text-blue-700 dark:text-blue-400 border-l border-t border-r border-gray-200 dark:border-gray-600 -mb-px{% else %}text-gray-600 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-gray-50 dark:hover:bg-gray-700{% endif %}">
+            <i class="fas {{ t.icon }} mr-1.5"></i>{{ t.label }}
+        </a>
+        {% endfor %}
+    </div>
+
+    <!-- Company Profile Tab -->
+    {% if active_tab == 'company' %}
+    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-6">
+        <form method="post" enctype="multipart/form-data" class="space-y-4">
+            {% csrf_token %}
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Company Name</label>
+                    {{ form.company_name }}
+                    {% if form.company_name.errors %}
+                    <p class="text-red-500 dark:text-red-400 text-xs mt-1">{{ form.company_name.errors.0 }}</p>
+                    {% endif %}
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Abbreviation</label>
+                    {{ form.abbreviation }}
+                    {% if form.abbreviation.errors %}
+                    <p class="text-red-500 dark:text-red-400 text-xs mt-1">{{ form.abbreviation.errors.0 }}</p>
+                    {% endif %}
+                    <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">Short code used in certificate numbers (e.g. EATL). Falls back to company-name initials when blank.</p>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Phone</label>
+                    {{ form.phone }}
+                    {% if form.phone.errors %}
+                    <p class="text-red-500 dark:text-red-400 text-xs mt-1">{{ form.phone.errors.0 }}</p>
+                    {% endif %}
+                </div>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Email</label>
+                    {{ form.email }}
+                    {% if form.email.errors %}
+                    <p class="text-red-500 dark:text-red-400 text-xs mt-1">{{ form.email.errors.0 }}</p>
+                    {% endif %}
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Logo</label>
+                    {{ form.logo }}
+                    {% if form.logo.errors %}
+                    <p class="text-red-500 dark:text-red-400 text-xs mt-1">{{ form.logo.errors.0 }}</p>
+                    {% endif %}
+                    {% if profile.logo %}
+                    <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">Current: {{ profile.logo.name }}</p>
+                    {% endif %}
+                </div>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Certificate Footer</label>
+                {{ form.certificate_footer }}
+                {% if form.certificate_footer.errors %}
+                <p class="text-red-500 dark:text-red-400 text-xs mt-1">{{ form.certificate_footer.errors.0 }}</p>
+                {% endif %}
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Certificate Number Format</label>
+                {{ form.certificate_format }}
+                {% if form.certificate_format.errors %}
+                <p class="text-red-500 dark:text-red-400 text-xs mt-1">{{ form.certificate_format.errors.0 }}</p>
+                {% endif %}
+                <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">Placeholders: <code>{company_abbr}</code> <code>{client_abbr}</code> <code>{scope_abbr}</code> <code>{seq}</code> <code>{year}</code>. Example: <code>{company_abbr}/{client_abbr}/{scope_abbr}/{seq:04d}</code>. Per-scope overrides win when set. Sequence numbers are counted per client + scope.</p>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Accreditation Statement (certificate page 1)</label>
+                {{ form.accreditation_statement }}
+                {% if form.accreditation_statement.errors %}
+                <p class="text-red-500 dark:text-red-400 text-xs mt-1">{{ form.accreditation_statement.errors.0 }}</p>
+                {% endif %}
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Narrative Template (certificate paragraph)</label>
+                {{ form.narrative_template }}
+                {% if form.narrative_template.errors %}
+                <p class="text-red-500 dark:text-red-400 text-xs mt-1">{{ form.narrative_template.errors.0 }}</p>
+                {% endif %}
+                <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">Placeholders: <code>{uuc_description}</code> <code>{standard_used}</code> <code>{standard_cert_no}</code> <code>{traceability_body}</code> <code>{compliance_standard}</code> <code>{software}</code> <code>{procedure_manual}</code></p>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Traceability Body</label>
+                    {{ form.traceability_body }}
+                    {% if form.traceability_body.errors %}
+                    <p class="text-red-500 dark:text-red-400 text-xs mt-1">{{ form.traceability_body.errors.0 }}</p>
+                    {% endif %}
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Compliance Standard</label>
+                    {{ form.compliance_standard }}
+                    {% if form.compliance_standard.errors %}
+                    <p class="text-red-500 dark:text-red-400 text-xs mt-1">{{ form.compliance_standard.errors.0 }}</p>
+                    {% endif %}
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Software</label>
+                    {{ form.software }}
+                    {% if form.software.errors %}
+                    <p class="text-red-500 dark:text-red-400 text-xs mt-1">{{ form.software.errors.0 }}</p>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Addresses -->
+            <div class="border-t dark:border-gray-700 pt-4">
+                <h3 class="text-lg font-semibold text-gray-800 dark:text-gray-100 mb-3">Addresses</h3>
+                <div id="address-container" class="space-y-3">
+                    {% for addr in addresses %}
+                    <div class="address-block flex gap-2 items-start">
+                        <input type="hidden" name="address_id" value="{{ addr.pk }}">
+                        <div class="flex-1">
+                            <input type="text" name="address_label" value="{{ addr.label }}"
+                                   class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-gray-100"
+                                   placeholder="Label (e.g. Main Lab)">
+                        </div>
+                        <div class="flex-[2]">
+                            <input type="text" name="address_text" value="{{ addr.address }}"
+                                   class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-gray-100"
+                                   placeholder="Address">
+                        </div>
+                        <button type="button" onclick="this.closest('.address-block').remove()"
+                                class="text-red-500 hover:text-red-700 dark:hover:text-red-400 mt-2">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                    {% endfor %}
+                </div>
+                <button type="button" onclick="addAddressBlock()"
+                        class="mt-2 text-sm text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-400">
+                    <i class="fas fa-plus mr-1"></i>Add Address
+                </button>
+            </div>
+
+            <div class="flex justify-end pt-4">
+                <button type="submit" class="px-6 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700">
+                    <i class="fas fa-save mr-1"></i>Save
+                </button>
+            </div>
+        </form>
+    </div>
+
+    <script>
+    function addAddressBlock() {
+        const container = document.getElementById('address-container');
+        const div = document.createElement('div');
+        div.className = 'address-block flex gap-2 items-start';
+        div.innerHTML = `
+            <input type="hidden" name="address_id" value="new">
+            <div class="flex-1">
+                <input type="text" name="address_label"
+                       class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-gray-100"
+                       placeholder="Label (e.g. Main Lab)">
+            </div>
+            <div class="flex-[2]">
+                <input type="text" name="address_text"
+                       class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-gray-100"
+                       placeholder="Address">
+            </div>
+            <button type="button" onclick="this.closest('.address-block').remove()"
+                    class="text-red-500 hover:text-red-700 dark:hover:text-red-400 mt-2">
+                <i class="fas fa-times"></i>
+            </button>
+        `;
+        container.appendChild(div);
+    }
+    </script>
+
+    <!-- Scopes Tab -->
+    {% elif active_tab == 'scopes' %}
+    <div class="ei-scope-register">
+        <div class="ei-scope-heading">
+            <h2>Scope Records <span class="ei-scope-count">{{ scopes|length }}</span></h2>
+            <button type="button" class="ei-button" onclick="document.getElementById('add-scope-form').hidden = !document.getElementById('add-scope-form').hidden">Add Scope</button>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="ei-scope-table">
+                <thead>
+                    <tr class="text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider bg-gray-50 dark:bg-gray-700">
+                        <th class="px-3 py-2">Name</th>
+                        <th class="px-3 py-2">Abbreviation</th>
+                        <th class="px-3 py-2">Validity</th>
+                        <th class="px-3 py-2">Status</th>
+                        <th class="px-3 py-2">Actions</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100 dark:divide-gray-700">
+                    {% for scope in scopes %}
+                    <tr class="hover:bg-gray-50 dark:hover:bg-gray-700" data-record-kind="ei_scope" data-record-id="{{scope.pk}}">
+                        <td class="px-3 py-2 font-medium">{{ scope.name }}</td>
+                        <td class="px-3 py-2"><span class="px-2 py-0.5 rounded bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 text-xs font-mono font-medium">{{ scope.abbreviation|default:"-" }}</span></td>
+                        <td hidden class="px-3 py-2 text-xs text-gray-600 dark:text-gray-300">
+                            <span class="inline-flex items-center gap-1 mr-2"><span class="text-gray-400 dark:text-gray-500">Inst:</span>{{ scope.instrument_column_label }}</span>
+                            <span class="inline-flex items-center gap-1 mr-2"><span class="text-gray-400 dark:text-gray-500">UUT:</span>{{ scope.uut_column_label }}</span>
+                            <span class="inline-flex items-center gap-1"><span class="text-gray-400 dark:text-gray-500">Err:</span>{{ scope.error_column_label }}</span>
+                        </td>
+                        <td hidden class="px-3 py-2 text-xs text-gray-600 dark:text-gray-300 font-mono">{% firstof scope.certificate_format "global" %}</td>
+                        <td hidden class="px-3 py-2 text-xs">
+                            <a href="{% url 'scope_cert_template' scope.pk %}"
+                               class="inline-flex items-center gap-1 px-2 py-0.5 rounded font-medium {% if scope.certificate_template %}bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/50{% else %}bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600{% endif %}">
+                                <i class="fas {% if scope.certificate_template %}fa-file-code{% else %}fa-file{% endif %}"></i>
+                                {% if scope.certificate_template %}Custom{% else %}Default{% endif %}
+                            </a>
+                        </td>
+                        <td hidden class="px-3 py-2 text-xs">
+                            {% with sb=scope.uncertainty_budgets.all %}
+                            <a href="{% url 'scope_uncertainty_budget' scope.pk %}"
+                               class="inline-flex items-center gap-1 px-2 py-0.5 rounded font-medium {% if sb %}bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-900/50{% else %}bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600{% endif %}">
+                                <i class="fas {% if sb %}fa-scale-balanced{% else %}fa-plus{% endif %}"></i>
+                                {% if sb %}{{ sb.0.active|yesno:"Active,Choose active" }} ({{ sb|length }}){% else %}Upload{% endif %}
+                            </a>
+                            {% endwith %}
+                        </td>
+                        <td class="px-3 py-2 text-xs text-gray-600 dark:text-gray-300">{{ scope.validity_months }} mo</td>
+                        <td><span class="ei-scope-status {% if not scope.active %}is-archived{% endif %}">{% if scope.active %}Active{% else %}Archived{% endif %}</span></td>
+                        <td class="px-3 py-2">
+                            <button type="button" onclick="document.getElementById('edit-scope-{{ scope.pk }}').classList.toggle('hidden')"
+                                    class="ei-button" aria-label="Edit scope">
+                                <i class="fas fa-edit"></i> Edit
+                            </button>
+                            <form method="post" onsubmit="return confirm('Change scope availability? Existing records will be retained.')" class="inline">
+                                {% csrf_token %}
+                                <input type="hidden" name="{% if scope.active %}delete_scope{% else %}restore_scope{% endif %}" value="{{ scope.pk }}">
+                                <button type="submit" class="ei-button">
+                                    {% if scope.active %}Archive{% else %}Restore{% endif %}
+                                </button>
+                            </form>
+                        </td>
+                    </tr>
+                    <tr id="edit-scope-{{ scope.pk }}" class="hidden bg-gray-50 dark:bg-gray-700/50">
+                        <td colspan="5" class="px-3 py-3">
+                            <div class="ei-scope-config-actions">
+                                <a class="ei-button" href="{% url 'scope_cert_template' scope.pk %}">Certificate Layout</a>
+                                <a class="ei-button" href="{% url 'scope_uncertainty_budget' scope.pk %}">Uncertainty Budget</a>
+                                <a class="ei-button" href="{% url 'ei_scope_templates' scope.pk %}">Calibration Templates</a>
+                            </div>
+                            <form method="post" class="ei-scope-form">
+                                {% csrf_token %}
+                                <input type="hidden" name="edit_scope" value="{{ scope.pk }}">
+                                <div>
+                                    <label class="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">Name</label>
+                                    <input type="text" name="name" value="{{ scope.name }}" required
+                                           class="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-gray-100">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">Abbreviation</label>
+                                    <input type="text" name="abbreviation" value="{{ scope.abbreviation }}" required maxlength="10" style="text-transform:uppercase"
+                                           placeholder="e.g. PCAL"
+                                           class="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-mono uppercase dark:bg-gray-700 dark:text-gray-100">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">Description</label>
+                                    <input type="text" name="description" value="{{ scope.description|default:'' }}"
+                                           class="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-gray-100">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">Instrument Column Label</label>
+                                    <input type="text" name="instrument_column_label" value="{{ scope.instrument_column_label }}"
+                                           class="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-gray-100">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">UUT Column Label</label>
+                                    <input type="text" name="uut_column_label" value="{{ scope.uut_column_label }}"
+                                           class="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-gray-100">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">Error Column Label</label>
+                                    <input type="text" name="error_column_label" value="{{ scope.error_column_label }}"
+                                           class="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-gray-100">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">Cert No. Template (override)</label>
+                                    <input type="text" name="certificate_format" value="{{ scope.certificate_format|default:'' }}" placeholder="{company_abbr}/{client_abbr}/{scope_abbr}/{seq:04d}"
+                                           class="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-xs font-mono dark:bg-gray-700 dark:text-gray-100 w-72">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">Validity (months)</label>
+                                    <input type="number" name="validity_months" value="{{ scope.validity_months }}" min="1"
+                                           class="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-gray-100 w-24">
+                                </div>
+                                <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700">
+                                    <i class="fas fa-save mr-1"></i>Save
+                                </button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="5" class="px-3 py-6 text-center text-gray-500 dark:text-gray-400">No scope records. Select Add Scope to create one.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <div id="add-scope-form" class="mt-6 pt-6 border-t dark:border-gray-700" {% if not scope_form.errors %}hidden{% endif %}>
+            <h3 class="text-md font-semibold text-gray-800 dark:text-gray-100 mb-3">Add New Scope</h3>
+            {{ scope_form.errors }}
+            <form method="post" class="ei-scope-form">
+                {% csrf_token %}
+                <div class="flex-1">
+                    <label class="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">Name</label>
+                    {{ scope_form.name }}
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">Abbreviation</label>
+                    {{ scope_form.abbreviation }}
+                </div>
+                <div class="flex-[2]">
+                    <label class="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">Description</label>
+                    {{ scope_form.description }}
+                </div>
+                <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700">
+                    <i class="fas fa-plus mr-1"></i>Add
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Roles Tab -->
+    {% elif active_tab == 'roles' %}
+    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-6">
+        <div class="flex items-center justify-between mb-4">
+            <h2 class="text-lg font-semibold text-gray-800 dark:text-gray-100">Custom Roles</h2>
+            <a href="{% url 'role_create' %}" class="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700">
+                <i class="fas fa-plus mr-1"></i>New Role
+            </a>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+                <thead>
+                    <tr class="text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider bg-gray-50 dark:bg-gray-700">
+                        <th class="px-3 py-2">Name</th>
+                        <th class="px-3 py-2">Description</th>
+                        <th class="px-3 py-2">Permissions</th>
+                        <th class="px-3 py-2">Personnel</th>
+                        <th class="px-3 py-2">Actions</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100 dark:divide-gray-700">
+                    {% for role in roles %}
+                    <tr class="hover:bg-gray-50 dark:hover:bg-gray-700">
+                        <td class="px-3 py-2 font-medium">{{ role.name }}</td>
+                        <td class="px-3 py-2 text-gray-600 dark:text-gray-300">{{ role.description|default:"-" }}</td>
+                        <td class="px-3 py-2 text-xs">{{ role.permissions.count }} perm(s)</td>
+                        <td class="px-3 py-2 text-xs">{{ role.personnel.count }}</td>
+                        <td class="px-3 py-2 space-x-2">
+                            <a href="{% url 'role_edit' role.pk %}" class="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-400 text-xs">
+                                <i class="fas fa-edit"></i>
+                            </a>
+                            <form method="post" onsubmit="return confirm('Delete role &#39;{{ role.name|escapejs }}&#39;?')" class="inline">
+                                {% csrf_token %}
+                                <input type="hidden" name="delete_role" value="{{ role.pk }}">
+                                <button type="submit" class="text-red-500 hover:text-red-700 dark:hover:text-red-400 text-xs bg-transparent border-0 cursor-pointer p-0">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="5" class="px-3 py-6 text-center text-gray-500 dark:text-gray-400">No roles defined.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Permissions Tab -->
+    {% elif active_tab == 'permissions' %}
+    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-6">
+        <form method="post">
+            {% csrf_token %}
+            <div class="overflow-x-auto">
+                <table class="w-full text-sm">
+                    <thead>
+                        <tr class="text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider bg-gray-50 dark:bg-gray-700">
+                            <th class="px-3 py-2">Permission</th>
+                            {% for role in roles %}
+                            <th class="px-3 py-2 text-center">{{ role.name }}</th>
+                            {% endfor %}
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-gray-100 dark:divide-gray-700">
+                        {% for perm in all_permissions %}
+                        <tr class="hover:bg-gray-50 dark:hover:bg-gray-700">
+                            <td class="px-3 py-2">
+                                <span class="font-medium">{{ perm.name }}</span>
+                                <span class="text-xs text-gray-500 dark:text-gray-400 ml-1">({{ perm.codename }})</span>
+                            </td>
+                            {% for role in roles %}
+                            <td class="px-3 py-2 text-center">
+                                <input type="checkbox" name="perms_{{ role.id }}_{{ perm.codename }}"
+                                       value="1"
+                                       {% if perm in role.permissions.all %}checked{% endif %}
+                                       class="h-4 w-4 text-blue-600 dark:text-blue-400 border-gray-300 dark:border-gray-600 rounded">
+                            </td>
+                            {% endfor %}
+                        </tr>
+                        {% empty %}
+                        <tr><td colspan="99" class="px-3 py-6 text-center text-gray-500 dark:text-gray-400">No permissions defined.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <div class="flex justify-end pt-4">
+                <button type="submit" class="px-6 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700">
+                    <i class="fas fa-save mr-1"></i>Save Permissions
+                </button>
+            </div>
+        </form>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

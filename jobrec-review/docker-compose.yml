@@ -1,0 +1,30 @@
+services:
+  web:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/app
+      - media_data:/app/media
+    depends_on:
+      - ocr
+    environment:
+      - OCR_SERVICE_URL=http://ocr:8001
+
+  ocr:
+    build: ./ocr_service
+    ports:
+      - "8001:8000"
+    volumes:
+      - ocr_cache:/root/.paddleocr
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+volumes:
+  media_data:
+  ocr_cache:

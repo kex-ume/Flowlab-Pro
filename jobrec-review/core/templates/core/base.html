@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en"
+      x-data="{
+        dark: localStorage.getItem('darkMode') === 'true' ||
+              (!localStorage.getItem('darkMode') && window.matchMedia('(prefers-color-scheme: dark)').matches),
+        toggleDark() {
+          this.dark = !this.dark;
+          localStorage.setItem('darkMode', this.dark);
+          this.dark ? document.documentElement.classList.add('dark')
+                    : document.documentElement.classList.remove('dark');
+        }
+      }"
+      x-init="dark ? document.documentElement.classList.add('dark')
+                   : document.documentElement.classList.remove('dark')">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>E&amp;I Lab - {% block title %}Dashboard{% endblock %}</title>
+{% load static %}
+{% load permission_tags %}
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = { darkMode: 'class' }
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+    <style>
+        a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+            outline: 2px solid #3b82f6;
+            outline-offset: 2px;
+            border-radius: 0.5rem;
+        }
+    </style>
+    <link rel="stylesheet" href="{% static 'core/flowlab-theme.css' %}?v=20261014f">
+    <link rel="stylesheet" href="{% static 'core/ei-module-theme.css' %}?v=20261014c">
+</head>
+<body class="flowlab-ui bg-gray-100 dark:bg-gray-900 font-sans antialiased transition-colors duration-200">
+    <svg class="fl-icon-library" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+            <symbol id="ei-nav-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></symbol>
+            <symbol id="ei-nav-jobs" viewBox="0 0 24 24"><path d="M9 5H6a2 2 0 0 0-2 2v13h16V7a2 2 0 0 0-2-2h-3M9 2h6v5H9z"/></symbol>
+            <symbol id="ei-nav-records" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v7c0 4 16 4 16 0V5M4 12v7c0 4 16 4 16 0v-7"/></symbol>
+            <symbol id="ei-nav-docs" viewBox="0 0 24 24"><path d="M6 2h9l5 5v15H6zM14 2v6h6M9 13h6M9 17h6"/></symbol>
+            <symbol id="ei-nav-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/></symbol>
+        </defs>
+    </svg>
+    {% if user.is_authenticated %}
+    <div id="toast-container" class="fixed top-4 right-4 z-[100] space-y-2 w-80 max-w-[calc(100vw-2rem)] print:hidden" aria-live="polite"></div>
+    <div x-data="{ sidebarOpen: false }" class="fl-layout min-h-screen flex flex-col lg:flex-row print:min-h-0">
+        <!-- Mobile Top Bar -->
+        <div class="fl-mobilebar lg:hidden flex items-center justify-between bg-white dark:bg-gray-800 px-4 py-3 shadow-sm border-b dark:border-gray-700 print:hidden">
+            <div class="flex items-center">
+                <button @click="sidebarOpen = !sidebarOpen" class="text-gray-600 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 mr-3 focus:outline-none focus:ring-2 focus:ring-blue-500 rounded-lg" aria-label="Toggle navigation menu">
+                    <i class="fas fa-bars text-xl"></i>
+                </button>
+                <img src="{{ company_logo }}" alt="E&amp;I Lab" class="h-12 w-auto rounded-lg mr-2">
+            </div>
+            <div class="fl-mobile-actions flex items-center space-x-2">
+                <a href="{% url 'notification_list' %}" class="relative text-gray-400 hover:text-blue-600 rounded-lg" title="Notifications" aria-label="Notifications">
+                    <i class="fas fa-bell text-lg"></i>{% if unread_notification_count %}<span class="fl-bell-count">{{ unread_notification_count }}</span>{% endif %}
+                </a>
+                <a href="{% url 'profile' %}" class="fl-mobile-user" title="My Profile" aria-label="My Profile">
+                    <span>{{ user.get_full_name|default:user.username }}</span>
+                </a>
+                <form method="post" action="{% url 'logout' %}" onsubmit="return confirm('Are you sure you want to log out?');">
+                    {% csrf_token %}
+                    <button type="submit" class="fl-mobile-signout" aria-label="Sign out">
+                        <span>Sign Out</span>
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Sidebar Overlay -->
+        <template x-teleport="body">
+            <div x-show="sidebarOpen" @click="sidebarOpen = false"
+                 class="fixed inset-0 bg-black/40 z-40 lg:hidden print:hidden" style="display: none;"></div>
+        </template>
+
+        <!-- Sidebar -->
+        <aside class="fl-sidebar fixed lg:static inset-y-0 left-0 z-50 transform -translate-x-full lg:translate-x-0 transition-transform duration-200 print:hidden flex flex-col"
+               :class="sidebarOpen ? 'translate-x-0' : '-translate-x-full'">
+            <div class="fl-brand flex items-center justify-between p-4 border-b dark:border-gray-700">
+                <div class="flex items-center space-x-2">
+                    <div class="fl-brand-lockup select-none">
+                        <span class="fl-brand-mark"><i class="fas fa-bolt"></i></span>
+                        <span><strong>E&amp;I Lab</strong><small>ISO/IEC 17025 Calibration</small></span>
+                    </div>
+                    <button @click="toggleDark()" class="fl-theme-toggle text-gray-400 dark:text-gray-500 hover:text-yellow-500 dark:hover:text-yellow-400 transition-colors ml-2 focus:outline-none focus:ring-2 focus:ring-blue-500 rounded-lg" title="Toggle dark mode" aria-label="Toggle dark mode">
+                        <i x-show="!dark" class="fas fa-moon"></i>
+                        <i x-show="dark" class="fas fa-sun" style="display: none;"></i>
+                    </button>
+                </div>
+                <button @click="sidebarOpen = false" class="lg:hidden text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 rounded-lg" aria-label="Close sidebar">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <nav class="fl-nav p-4 space-y-1 overflow-y-auto" aria-label="Main navigation">
+                <div class="fl-nav-section-title">Main</div>
+                <a href="{% url 'dashboard' %}"
+                   class="flex items-center px-3 py-2.5 rounded-lg text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500
+                          {% if request.resolver_match.url_name == 'dashboard' %}bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400{% else %}text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700{% endif %}">
+                    <svg class="fl-nav-icon"><use href="#ei-nav-grid"/></svg>Dashboard
+                </a>
+
+                <div class="fl-nav-section-title">Operations</div>
+                {% if user|has_perm_tag:'view_jobs' %}
+                <a href="{% url 'job_list' %}" class="flex items-center px-3 py-2.5 rounded-lg text-sm font-medium transition-colors {% if request.resolver_match.url_name == 'job_list' %}bg-blue-50{% endif %}">
+                    <svg class="fl-nav-icon"><use href="#ei-nav-jobs"/></svg>Jobs
+                </a>
+                <details {% if 'jobs' in request.path or 'waybills' in request.path or 'pre-calibration' in request.path or 'calibration-logs' in request.path or 'entry-dispatch' in request.path or 'environment' in request.path %}open{% endif %}>
+                    <summary><svg class="fl-nav-icon"><use href="#ei-nav-records"/></svg>Job workflow<i class="fas fa-chevron-down"></i></summary>
+                    <div class="fl-subnav">
+                        <a href="{% url 'job_list' %}?add=1">New Job</a>
+                        {% if user|has_perm_tag:'view_waybills' %}<a href="{% url 'waybill_list' %}">Waybills</a>{% endif %}
+                        {% if user|has_perm_tag:'view_equipment' %}<a href="{% url 'ei_received_equipment' %}">Client Equipment (UUT)</a>{% endif %}
+                        {% if user|has_perm_tag:'perform_pre_calibration' or user|has_perm_tag:'review_pre_calibration' %}<a href="{% url 'pre_calibration_list' %}">Pre-Calibration</a>{% endif %}
+                        {% if user|has_perm_tag:'edit_calibration' %}<a href="{% url 'calibration_log_list' %}">Calibration Logs</a>{% endif %}
+                        {% if user|has_perm_tag:'edit_calibration' %}<a href="{% url 'calibration_log_list' %}">Certificates</a>{% endif %}
+                        <a href="{% url 'entry_dispatch' %}">Entry &amp; Dispatch</a>
+                    </div>
+                </details>
+                {% endif %}
+
+                <details {% if 'clients' in request.path or 'personnel' in request.path or 'equipment' in request.path or 'primaries' in request.path or 'environment' in request.path %}open{% endif %}>
+                    <summary><svg class="fl-nav-icon"><use href="#ei-nav-records"/></svg>Records<i class="fas fa-chevron-down"></i></summary>
+                    <div class="fl-subnav">
+                        {% if user|has_perm_tag:'create_clients' %}<a href="{% url 'client_list' %}">Client Records</a>{% endif %}
+                        <a href="{% url 'personnel_list' %}">Personnel Records</a>
+                        <a href="{% url 'environment_list' %}">Environmental Logs</a>
+                        <a href="{% url 'ei_capa_list' %}">CAPA &amp; NCR</a>
+                        <a href="{% url 'ei_retained_records' %}">Retained Records</a>
+                        {% if user|has_perm_tag:'view_equipment' or user|has_perm_tag:'manage_ei_jobs' or user.is_superuser %}<a href="{% url 'equipment_list' %}">Lab Equipment</a><a href="{% url 'ei_calibration_programme' %}">Lab Calibration Programme</a>{% endif %}
+                    </div>
+                </details>
+
+                <details {% if 'procedures' in request.path or 'documents' in request.path %}open{% endif %}>
+                    <summary><svg class="fl-nav-icon"><use href="#ei-nav-docs"/></svg>Documents<i class="fas fa-chevron-down"></i></summary>
+                    <div class="fl-subnav">
+                        <a href="{% url 'procedure_list' %}">Procedures</a>
+                        <span class="fl-missing" title="Dedicated register not yet implemented">Work Instructions · pending</span>
+                        <span class="fl-missing" title="Dedicated register not yet implemented">Forms · pending</span>
+                        {% if user|has_perm_tag:'view_waybills' or user|has_perm_tag:'approve_calibration' %}<a href="{% url 'documents_list' %}">Records Archive</a>{% endif %}
+                        <a href="/lab-policies">Lab Policies</a>
+                    </div>
+                </details>
+
+            </nav>
+            {% if user|has_perm_tag:'view_settings' %}
+            <div class="fl-sidebar-settings">
+                <div class="fl-nav-section-title">System</div>
+                <details {% if 'settings' in request.path %}open{% endif %}>
+                    <summary><svg class="fl-nav-icon"><use href="#ei-nav-settings"/></svg>Settings<i class="fas fa-chevron-down"></i></summary>
+                    <div class="fl-subnav">
+                        <a href="{% url 'settings' %}">General Settings</a>
+                        {% if user.is_superuser or user.personnel_profile.role.name == 'Administrator' %}<a href="/settings/records">Master Record Maintenance &amp; Archive</a>{% else %}<a href="{% url 'ei_retained_records' %}">Retained Records &amp; Audit</a>{% endif %}
+                        <a href="{% url 'settings_tab' 'scopes' %}">Scope</a>
+                        <a href="{% url 'ei_log_templates' %}">Calibration Log Templates</a>
+                    </div>
+                </details>
+            </div>
+            {% endif %}
+        </aside>
+
+        <main class="fl-main flex-1 overflow-y-auto lg:ml-64 print:overflow-visible print:ml-0">
+            <header class="fl-topbar hidden lg:flex print:hidden">
+                <div class="fl-topbar-actions">
+                    <a href="{% url 'notification_list' %}" class="fl-topbar-bell" title="Notifications" aria-label="Notifications">
+                        <i class="fas fa-bell"></i>{% if unread_notification_count %}<span class="fl-bell-count">{{ unread_notification_count }}</span>{% endif %}
+                    </a>
+                    <a href="{% url 'profile' %}" class="fl-topbar-user" title="Open profile">
+                        <span class="fl-user-avatar">{{ user.username|first|upper }}</span>
+                        <span class="fl-user-copy"><strong>{% firstof user.personnel_profile.name user.get_full_name user.username %}</strong><small>{% firstof user.personnel_profile.role.name 'E&I Laboratory user' %}</small></span>
+                    </a>
+                    <form method="post" action="{% url 'logout' %}" onsubmit="return confirm('Are you sure you want to sign out?');">
+                        {% csrf_token %}
+                        <button type="submit" class="fl-signout">Sign Out</button>
+                    </form>
+                </div>
+            </header>
+            <div class="fl-content p-4 sm:p-6">
+            {% include 'core/partials/breadcrumbs.html' %}
+    {% else %}
+    <main class="w-full">
+        <div class="p-0">
+    {% endif %}
+            {% if messages %}
+            <div class="mb-4 space-y-2">
+                {% for message in messages %}
+                <div class="px-4 py-3 rounded-lg text-sm font-medium flex items-center justify-between
+                            {% if message.tags == 'success' %}bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 border border-green-200 dark:border-green-800
+                            {% elif message.tags == 'error' %}bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 border border-red-200 dark:border-red-800
+                            {% elif message.tags == 'warning' %}bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400 border border-yellow-200 dark:border-yellow-800
+                            {% else %}bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-800{% endif %}">
+                    <span>{{ message }}</span>
+                    <button onclick="this.parentElement.remove()" class="ml-4 text-current opacity-60 hover:opacity-100">&times;</button>
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+
+            <div class="ei-content-body ei-module-theme">{% block content %}{% endblock %}</div>
+            <footer class="ei-module-footer">EATL · E&amp;I Laboratory <span>·</span> <em>FlowLab Pro</em></footer>
+        </div>
+    </main>
+    {% if user.is_authenticated %}</div>{% endif %}
+
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <script>
+    document.addEventListener('submit', function(e) {
+        if (e.defaultPrevented) return;
+        var btn = e.target.querySelector('button[type="submit"]');
+        if (btn) setTimeout(function() { btn.disabled = true; btn.classList.add('opacity-50', 'cursor-not-allowed'); }, 0);
+    });
+    document.addEventListener('DOMContentLoaded', function() {
+        document.querySelectorAll('[class*="border-green"], [class*="border-red"], [class*="border-yellow"], [class*="border-blue"]').forEach(function(el) {
+            if (el.closest('.mb-4') && el.querySelector('button')) {
+                setTimeout(function() { el.style.transition = 'opacity 0.5s'; el.style.opacity = '0'; setTimeout(function() { el.remove(); }, 500); }, 5000);
+            }
+        });
+    });
+    </script>
+    {% if user.is_authenticated %}
+    <script>
+    (function() {
+        var USER_ID = {{ user.id|default:0 }};
+        if (!USER_ID) return;
+        var KEY = 'ei_lab_popup_' + USER_ID;
+        var URL = '{% url "notification_popups" %}';
+        var last = parseInt(localStorage.getItem(KEY) || '0', 10) || 0;
+        var initialized = false;
+
+        function showToast(item) {
+            var container = document.getElementById('toast-container');
+            if (!container) return;
+            var el = document.createElement('div');
+            el.className = 'px-4 py-3 rounded-lg text-sm font-medium bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-800 shadow-lg flex items-start justify-between cursor-pointer';
+            var text = document.createElement('span'); text.className = 'mr-3'; text.textContent = item.message;
+            var dismiss = document.createElement('button'); dismiss.className = 'text-current opacity-60 hover:opacity-100'; dismiss.setAttribute('aria-label', 'Close'); dismiss.textContent = '×';
+            el.appendChild(text); el.appendChild(dismiss);
+            var closeBtn = el.querySelector('button');
+            closeBtn.addEventListener('click', function(e) { e.stopPropagation(); el.remove(); });
+            el.addEventListener('click', function() {
+                if (item.link) window.location.href = '/notifications/' + item.id + '/read/';
+            });
+            container.appendChild(el);
+            setTimeout(function() {
+                el.style.transition = 'opacity 0.5s';
+                el.style.opacity = '0';
+                setTimeout(function() { el.remove(); }, 500);
+            }, 6000);
+        }
+
+        async function poll() {
+            try {
+                var r = await fetch(URL + '?after=' + last, { headers: { 'Accept': 'application/json' } });
+                var data = await r.json();
+                if (!initialized) {
+                    last = data.max_id || last;
+                    localStorage.setItem(KEY, String(last));
+                    initialized = true;
+                    return;
+                }
+                (data.items || []).forEach(showToast);
+                if (data.max_id && data.max_id > last) {
+                    last = data.max_id;
+                    localStorage.setItem(KEY, String(last));
+                }
+            } catch (e) {}
+        }
+        setTimeout(poll, 1500);
+        setInterval(poll, 30000);
+    })();
+    </script>
+    {% endif %}
+{% if can_remove_records %}
+<link rel="stylesheet" href="/static/record-removal.css">
+<div id="recordRemovalConfig" data-endpoint="{% url 'ei_record_remove' %}" data-module="ei" hidden>{% csrf_token %}</div>
+<script src="/static/record-removal.js" defer></script>
+{% endif %}
+</body>
+</html>

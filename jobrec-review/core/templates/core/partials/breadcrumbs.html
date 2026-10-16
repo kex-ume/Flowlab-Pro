@@ -1,0 +1,6 @@
+{% if breadcrumbs %}
+<link rel="stylesheet" href="/static/breadcrumbs.css?v=20261016">
+<nav class="app-breadcrumbs" aria-label="Breadcrumb"><ol>
+{% for crumb in breadcrumbs %}<li><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m6 3 5 5-5 5"/></svg><a href="{{crumb.url}}" {% if crumb.current %}aria-current="page"{% endif %}>{{crumb.label}}</a></li>{% endfor %}
+</ol></nav><script src="/static/breadcrumbs.js?v=20261016" defer></script>
+{% endif %}

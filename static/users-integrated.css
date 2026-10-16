@@ -1,0 +1,24 @@
+.user-add-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.user-add-actions .button {
+  white-space: nowrap;
+}
+
+.ei-user-register {
+  border-top: 3px solid var(--teal);
+}
+.user-inline-form{max-height:min(70vh,520px);overflow-y:auto}
+.user-editor-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;position:sticky;top:-13px;background:#fff;padding:4px 0 8px;z-index:1}
+.user-inline-form .user-editor-close{display:inline-flex;align-items:center;justify-content:center;width:26px;min-width:26px;height:26px;min-height:26px;padding:0;border:1px solid #c7dadd;border-radius:6px;background:#fff;color:#006d73;font-size:20px;line-height:1}
+.user-inline-form .form-actions{position:sticky;bottom:-13px;background:#fff;padding:8px 0 2px}
+.user-inline-form .form-actions button{background:#edf5f5;color:#07535a;border:1px solid #c7dadd}
+
+@media (max-width: 850px) {
+  .users-summary {
+    flex-wrap: wrap;
+  }
+}

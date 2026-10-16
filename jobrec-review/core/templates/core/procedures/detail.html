@@ -1,0 +1,116 @@
+{% extends 'core/base.html' %}
+{% block title %}Procedure: {{ procedure.title }}{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto">
+    {% url 'procedure_list' as back_href %}
+    {% include 'core/partials/back_link.html' with back_label='Back to Procedures' %}
+
+    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-6">
+        <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-5">
+            <div>
+                <h1 class="text-xl font-bold text-gray-800 dark:text-gray-100">
+                    <i class="fas fa-book-open text-blue-600 dark:text-blue-400 mr-2"></i>{{ procedure.title }}
+                    <span class="text-sm font-normal text-gray-500 dark:text-gray-400">v{{ procedure.version }}</span>
+                </h1>
+                <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                    Scope: <span class="font-medium">{{ procedure.scope.name }}</span>
+                    {% if procedure.manual_reference %} &middot; Reference: {{ procedure.manual_reference }}{% endif %}
+                </p>
+                <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                    Document No: <span class="font-mono font-medium">{% firstof procedure.doc_no "-" %}</span>
+                </p>
+            </div>
+            <div class="flex items-center gap-2">
+                {% if procedure.status == 'active' %}
+                <span class="px-3 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300">{{ procedure.get_status_display }}</span>
+                {% elif procedure.status == 'pending_approval' %}
+                <span class="px-3 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-300">{{ procedure.get_status_display }}</span>
+                {% elif procedure.status == 'rejected' %}
+                <span class="px-3 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300">{{ procedure.get_status_display }}</span>
+                {% else %}
+                <span class="px-3 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300">{{ procedure.get_status_display }}</span>
+                {% endif %}
+            </div>
+        </div>
+
+        {% if procedure.status == 'rejected' and procedure.review_notes %}
+        <div class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 px-4 py-3 rounded-lg text-sm mb-4">
+            <strong>Reviewer notes:</strong> {{ procedure.review_notes }}
+        </div>
+        {% endif %}
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6 text-sm">
+            <div class="border border-gray-200 dark:border-gray-700 rounded-lg p-3">
+                <p class="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">Assigned To</p>
+                <p class="text-gray-800 dark:text-gray-100">{% firstof procedure.assigned_to.name "Unassigned" %}</p>
+            </div>
+            <div class="border border-gray-200 dark:border-gray-700 rounded-lg p-3">
+                <p class="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">Created By / Approved By</p>
+                <p class="text-gray-800 dark:text-gray-100">
+                    {% firstof procedure.created_by.get_full_name procedure.created_by.username "-" %}
+                    &middot; {% if procedure.approved_by %}{% firstof procedure.approved_by.get_full_name procedure.approved_by.username %}{% else %}&mdash;{% endif %}
+                </p>
+            </div>
+        </div>
+
+        <h2 class="text-lg font-semibold text-gray-800 dark:text-gray-100 mb-2">Instructions</h2>
+        <ol class="list-decimal list-inside space-y-1 text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4 mb-6">
+            {% for step in steps %}
+            <li>{{ step }}</li>
+            {% empty %}
+            <li class="list-none text-gray-500 dark:text-gray-400">No instructions recorded.</li>
+            {% endfor %}
+        </ol>
+
+        <h2 class="text-lg font-semibold text-gray-800 dark:text-gray-100 mb-2">
+            Test Points
+            {% if procedure.tolerance_pct is not None %}
+            <span class="text-sm font-normal text-gray-500 dark:text-gray-400">(tolerance &plusmn;{{ procedure.tolerance_pct }}%)</span>
+            {% endif %}
+        </h2>
+        <div class="flex flex-wrap gap-2 mb-6">
+            {% for p in test_points %}
+            <span class="px-3 py-1 bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded-lg text-sm font-medium">{{ p }}%</span>
+            {% empty %}
+            <span class="text-sm text-gray-500 dark:text-gray-400">No test points defined.</span>
+            {% endfor %}
+        </div>
+
+        <div class="flex flex-wrap items-center gap-3 pt-4 border-t dark:border-gray-700">
+            {% if can_edit %}
+            <a href="{% url 'procedure_edit' procedure.pk %}"
+               class="inline-flex items-center px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors">
+                <i class="fas fa-pen mr-2"></i>Edit Draft
+            </a>
+            <form method="post" action="{% url 'procedure_submit' procedure.pk %}" onsubmit="return confirm('Submit this procedure for approval?');">
+                {% csrf_token %}
+                <button type="submit"
+                        class="inline-flex items-center px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition-colors">
+                    <i class="fas fa-paper-plane mr-2"></i>Submit for Approval
+                </button>
+            </form>
+            {% endif %}
+            {% if can_review %}
+            <form method="post" onsubmit="return confirm('Approve this procedure and set it active?');" class="inline-flex gap-2">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="approve">
+                <button type="submit"
+                        class="inline-flex items-center px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition-colors">
+                    <i class="fas fa-check mr-2"></i>Approve
+                </button>
+            </form>
+            <form method="post" onsubmit="var r = prompt('Rejection notes (returned to the technician):'); if (r === null) return false; this.querySelector('[name=notes]').value = r;" class="inline-flex">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="reject">
+                <input type="hidden" name="notes" value="">
+                <button type="submit"
+                        class="inline-flex items-center px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700 transition-colors">
+                    <i class="fas fa-times mr-2"></i>Reject
+                </button>
+            </form>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}

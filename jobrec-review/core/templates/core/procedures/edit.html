@@ -1,0 +1,58 @@
+{% extends 'core/base.html' %}
+{% block title %}Edit Procedure: {{ procedure.title }}{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto">
+    {% url 'procedure_detail' procedure.pk as back_href %}
+    {% include 'core/partials/back_link.html' with back_label='Back to Procedure' %}
+
+    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-6">
+        <h1 class="text-xl font-bold text-gray-800 dark:text-gray-100 mb-1">
+            <i class="fas fa-pen text-blue-600 dark:text-blue-400 mr-2"></i>{{ procedure.title }}
+        </h1>
+        <p class="text-sm text-gray-500 dark:text-gray-400 mb-5">Scope: {{ procedure.scope.name }}</p>
+
+        <form method="post" class="space-y-4">
+            {% csrf_token %}
+            <div>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Title</label>
+                {{ form.title }}
+                {% if form.title.errors %}<p class="text-red-500 dark:text-red-400 text-xs mt-1">{{ form.title.errors.0 }}</p>{% endif %}
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Manual / Document Reference</label>
+                {{ form.manual_reference }}
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Instructions (one step per line)</label>
+                {{ form.instructions }}
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Test Points (% of range)</label>
+                    {{ form.test_points_percent }}
+                    <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">JSON list, e.g. [0, 25, 50, 75, 100]</p>
+                    {% if form.test_points_percent.errors %}<p class="text-red-500 dark:text-red-400 text-xs mt-1">{{ form.test_points_percent.errors.0 }}</p>{% endif %}
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Tolerance (% of value)</label>
+                    {{ form.tolerance_pct }}
+                </div>
+            </div>
+            <div class="flex flex-wrap items-center justify-end gap-3 pt-2">
+                <a href="{% url 'procedure_detail' procedure.pk %}"
+                   class="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors">Cancel</a>
+                <button type="submit" name="submit" value="save"
+                        class="px-5 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors">
+                    <i class="fas fa-save mr-1"></i>Save Draft
+                </button>
+                <button type="submit" name="submit" value="submit"
+                        onclick="return confirm('Submit this procedure for approval?');"
+                        class="px-5 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition-colors">
+                    <i class="fas fa-paper-plane mr-1"></i>Save &amp; Submit for Approval
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

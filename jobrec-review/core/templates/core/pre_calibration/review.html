@@ -1,0 +1,128 @@
+{% extends 'core/base.html' %}
+{% block title %}Review Pre-Calibration{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto">
+
+{% url 'pre_calibration_detail' pre_log.pk as back_href %}
+{% include 'core/partials/back_link.html' with back_label='Back to Pre-Cal Log' %}
+        <h1 class="text-xl font-bold text-gray-800 dark:text-gray-100 mb-6">
+            <i class="fas fa-clipboard-check text-orange-600 dark:text-orange-400 mr-2"></i>Review Pre-Calibration
+        </h1>
+
+        <div class="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4 mb-6">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <p class="text-sm font-medium text-gray-500 dark:text-gray-400">Equipment</p>
+                    <p class="text-base font-semibold text-gray-800 dark:text-gray-100">{{ pre_log.waybill_item.equipment_description }}</p>
+                </div>
+                <div>
+                    <p class="text-sm font-medium text-gray-500 dark:text-gray-400">Serial No</p>
+                    <p class="text-base text-gray-800 dark:text-gray-100">{{ pre_log.waybill_item.serial_no }}</p>
+                </div>
+                <div>
+                    <p class="text-sm font-medium text-gray-500 dark:text-gray-400">Physical Condition</p>
+                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
+                        {% if pre_log.physical_condition == 'good' %}bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300
+                        {% elif pre_log.physical_condition == 'fair' %}bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-300
+                        {% elif pre_log.physical_condition == 'poor' %}bg-orange-100 dark:bg-orange-900/30 text-orange-800 dark:text-orange-300
+                        {% else %}bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300{% endif %}">
+                        {{ pre_log.get_physical_condition_display }}
+                    </span>
+                </div>
+                <div>
+                    <p class="text-sm font-medium text-gray-500 dark:text-gray-400">Inspected By</p>
+                    <p class="text-base text-gray-800 dark:text-gray-100">{% firstof pre_log.inspected_by.get_full_name pre_log.inspected_by.username "-" %}</p>
+                </div>
+            </div>
+            {% if pre_log.issues_found %}
+            <div class="mt-4">
+                <p class="text-sm font-medium text-gray-500 dark:text-gray-400">Issues Found</p>
+                <p class="text-sm text-gray-700 dark:text-gray-200 mt-1">{{ pre_log.issues_found|linebreaks }}</p>
+            </div>
+            {% endif %}
+            <div class="mt-2">
+                <p class="text-sm font-medium text-gray-500 dark:text-gray-400">Status</p>
+                <p class="text-sm text-red-600 dark:text-red-400 font-medium"><i class="fas fa-times-circle mr-1"></i> Not Ready for Calibration</p>
+            </div>
+        </div>
+
+        <form method="post" enctype="multipart/form-data" class="space-y-6">
+            {% csrf_token %}
+
+            {% if form.non_field_errors %}
+            <div class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 px-4 py-3 rounded-lg text-sm">
+                {{ form.non_field_errors }}
+            </div>
+            {% endif %}
+
+            <div>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-2">Decision</label>
+                <div class="space-y-3">
+                    {% for radio in form.decision %}
+                    <label class="flex items-start p-4 border dark:border-gray-600 rounded-lg cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors" id="decision-{{ forloop.counter }}">
+                        {{ radio.tag }}
+                        <span class="ml-3 text-sm font-medium text-gray-700 dark:text-gray-200">{{ radio.choice_label }}</span>
+                    </label>
+                    {% endfor %}
+                </div>
+                {% if form.decision.errors %}
+                <p class="text-red-600 dark:text-red-400 text-sm mt-1">{{ form.decision.errors }}</p>
+                {% endif %}
+            </div>
+
+            <div>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Review Notes / Repair Instructions</label>
+                {{ form.review_notes }}
+            </div>
+
+            <div id="dispatchFields" class="hidden border-t dark:border-gray-700 pt-4">
+                <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-200 mb-3">Outgoing Waybill (Required for Dispatch)</h3>
+                <div class="grid grid-cols-1 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Waybill Number *</label>
+                        {{ form.waybill_no }}
+                        {% if form.waybill_no.errors %}
+                        <p class="text-red-600 dark:text-red-400 text-sm mt-1">{{ form.waybill_no.errors }}</p>
+                        {% endif %}
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Waybill Document</label>
+                        {{ form.waybill_file }}
+                    </div>
+                </div>
+            </div>
+
+            <div class="flex items-center justify-between pt-4 border-t dark:border-gray-700">
+                <a href="{% url 'pre_calibration_detail' pre_log.pk %}"
+                   class="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors">
+                    Cancel
+                </a>
+                <button type="submit"
+                        class="px-6 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors">
+                    <i class="fas fa-check mr-1"></i>Submit Decision
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const dispatchFields = document.getElementById('dispatchFields');
+    const radios = document.querySelectorAll('input[name="decision"]');
+
+    function toggleDispatchFields() {
+        const selected = document.querySelector('input[name="decision"]:checked');
+        if (selected && selected.value === 'dispatch') {
+            dispatchFields.classList.remove('hidden');
+        } else {
+            dispatchFields.classList.add('hidden');
+        }
+    }
+
+    radios.forEach(r => r.addEventListener('change', toggleDispatchFields));
+    toggleDispatchFields();
+});
+</script>
+{% endblock %}

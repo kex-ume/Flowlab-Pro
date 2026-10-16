@@ -1,0 +1,437 @@
+{% extends 'core/base.html' %}
+{% load permission_tags %}
+{% block title %}Calibration Log Detail{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto space-y-4">
+
+{% url 'calibration_log_list' as back_href %}
+{% include 'core/partials/back_link.html' with back_label='Back to Calibration Logs' %}    <div class="flex items-center justify-between flex-wrap gap-2">
+        <h1 class="text-2xl font-bold text-gray-800 dark:text-gray-100">
+            <i class="fas fa-clipboard-check text-blue-600 dark:text-blue-400 mr-2"></i>Calibration Log
+        </h1>
+        <div class="flex items-center space-x-2">
+            {% if log.status != 'approved' and user|has_perm_tag:'edit_calibration' %}
+            <a href="{% url 'calibration_log_update' log.pk %}"
+               class="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors">
+                <i class="fas fa-edit mr-1"></i>Edit
+            </a>
+            {% endif %}
+            {% if log.status == 'rejected' and user|has_perm_tag:'edit_calibration' %}
+            <a href="{% url 'calibration_log_create' log.waybill_item_id %}"
+               class="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors">
+                <i class="fas fa-redo-alt mr-1"></i>Run Another Calibration
+            </a>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-6">
+        <!-- Status Badge -->
+        <div class="mb-4">
+            <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium
+                {% if log.status == 'approved' %}bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300
+                {% elif log.status == 'rejected' %}bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300
+                {% elif log.status == 'pending_review' %}bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-300
+                {% elif log.status == 'pending_qhse' %}bg-purple-100 dark:bg-purple-900/30 text-purple-800 dark:text-purple-300
+                {% elif log.status == 'pending_approval' %}bg-orange-100 dark:bg-orange-900/30 text-orange-800 dark:text-orange-300
+                {% else %}bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-300{% endif %}">
+                <i class="fas fa-circle mr-1 text-xs"></i>{{ log.get_status_display }}
+            </span>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+                <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Equipment</h3>
+                <p class="text-base font-semibold text-gray-800 dark:text-gray-100 mt-1">{{ log.equipment_desc|default:"-" }}</p>
+            </div>
+            <div>
+                <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Serial No</h3>
+                <p class="text-base font-semibold text-gray-800 dark:text-gray-100 mt-1">{{ log.serial_no|default:"-" }}</p>
+            </div>
+            <div>
+                <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Scope(s)</h3>
+                <div class="mt-1">
+                    {% for s in log.scopes.all %}
+                    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-300 mr-1">{{ s.name }}</span>
+                    {% empty %}
+                    <p class="text-base text-gray-800 dark:text-gray-100">{{ log.scope.name|default:"-" }}</p>
+                    {% endfor %}
+                </div>
+            </div>
+            <div>
+                <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Equipment Owner</h3>
+                <p class="text-base text-gray-800 dark:text-gray-100 mt-1">{{ log.equipment_owner.name|default:"-" }}</p>
+            </div>
+            <div>
+                <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Reference Standards</h3>
+                {% if log.standards.all %}
+                {% for s in log.standards.all %}
+                <p class="text-base text-gray-800 dark:text-gray-100 mt-1">{{ s.name }} ({{ s.serial_no|default:'' }})</p>
+                {% endfor %}
+                {% else %}
+                <p class="text-base text-gray-400 dark:text-gray-500 mt-1">-</p>
+                {% endif %}
+            </div>
+            <div>
+                <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Manufacturer</h3>
+                <p class="text-base text-gray-800 dark:text-gray-100 mt-1">{{ log.manufacturer|default:"-" }}</p>
+            </div>
+            <div>
+                <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Model No</h3>
+                <p class="text-base text-gray-800 dark:text-gray-100 mt-1">{{ log.model_no|default:"-" }}</p>
+            </div>
+            <div>
+                <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Range</h3>
+                <p class="text-base text-gray-800 dark:text-gray-100 mt-1">{{ log.range_value|default:"-" }}</p>
+            </div>
+            <div>
+                <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Physical Condition</h3>
+                <p class="text-base text-gray-800 dark:text-gray-100 mt-1">{{ log.physical_condition|default:"-" }}</p>
+            </div>
+            <div>
+                <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Calibrated By</h3>
+                <p class="text-base text-gray-800 dark:text-gray-100 mt-1">{{ log.calibrated_by.name|default:"-" }}</p>
+            </div>
+            <div>
+                <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Reviewer</h3>
+                {% if log.reviewer %}
+                <p class="text-base text-gray-800 dark:text-gray-100 mt-1">{% firstof log.reviewer.get_full_name log.reviewer.username "-" %}</p>
+                {% else %}
+                <p class="text-base text-gray-400 dark:text-gray-500 mt-1">-</p>
+                {% endif %}
+            </div>
+            <div>
+                <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Calibrated At</h3>
+                <p class="text-base text-gray-800 dark:text-gray-100 mt-1">{{ log.calibrated_at_location.name|default:"-" }}</p>
+            </div>
+            <div>
+                <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Certificate No.</h3>
+                {% if log.certificate_no %}
+                <p class="text-base font-mono font-medium text-gray-800 dark:text-gray-100 mt-1">{{ log.certificate_no }}</p>
+                {% else %}
+                <p class="text-base text-gray-400 dark:text-gray-500 mt-1">Not issued yet</p>
+                {% endif %}
+            </div>
+            <div>
+                <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Calibration Date</h3>
+                <p class="text-base text-gray-800 dark:text-gray-100 mt-1">{{ log.calibrated_at_date|date:"d M Y" }}</p>
+            </div>
+            <div>
+                <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Result</h3>
+                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium mt-1
+                    {% if log.pass_fail == 'pass' %}bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300
+                    {% elif log.pass_fail == 'fail' %}bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300
+                    {% elif log.pass_fail == 'conditional' %}bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-300
+                    {% else %}bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-300{% endif %}">
+                    {{ log.get_pass_fail_display }}
+                </span>
+            </div>
+        </div>
+
+        <!-- Signed Calibration Result -->
+        <div class="mt-6 pt-6 border-t dark:border-gray-700">
+            <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Signed Calibration Result</h3>
+            <div class="flex flex-wrap items-center gap-3 mt-1">
+                {% if log.certificate %}
+                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300">
+                    <i class="fas fa-check-circle mr-1"></i>Uploaded
+                </span>
+                <a href="{{ log.certificate.url }}" target="_blank"
+                   class="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-400 text-sm">
+                    <i class="fas fa-file-download mr-1"></i>View File
+                </a>
+                {% else %}
+                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-300">
+                    <i class="fas fa-clock mr-1"></i>Pending Upload
+                </span>
+                {% endif %}
+                {% if log.status == 'pending_approval' and user|has_perm_tag:'edit_calibration' and not is_assigned_reviewer %}
+                <form method="post" enctype="multipart/form-data"
+                      action="{% url 'calibration_log_upload_certificate' log.pk %}"
+                      class="flex flex-wrap items-center gap-2">
+                    {% csrf_token %}
+                    <input type="file" name="certificate" accept=".pdf,.png,.jpg,.jpeg" required
+                           class="text-xs text-gray-600 dark:text-gray-300 file:mr-2 file:px-3 file:py-1.5 file:rounded-lg file:border-0 file:bg-gray-100 file:dark:bg-gray-700 file:text-gray-700 file:dark:text-gray-200 file:text-xs file:font-medium file:cursor-pointer"
+                           aria-label="Choose signed calibration result file">
+                    <button type="submit"
+                            class="px-3 py-1.5 bg-orange-600 text-white text-xs font-medium rounded-lg hover:bg-orange-700 transition-colors">
+                        <i class="fas fa-upload mr-1"></i>{% if log.certificate %}Replace File{% else %}Upload{% endif %}
+                    </button>
+                </form>
+                {% endif %}
+                {% if log.status == 'approved' or log.status == 'pending_qhse' or log.status == 'pending_approval' %}
+                <a href="{% url 'calibration_certificate' log.pk %}" target="_blank"
+                   class="text-green-600 dark:text-green-400 hover:text-green-800 dark:hover:text-green-400 text-sm font-medium">
+                    <i class="fas fa-file-alt mr-1"></i>Generate Certificate
+                </a>
+                {% if user|has_perm_tag:'approve_calibration' %}
+                <form method="post" action="{% url 'calibration_log_reissue_cert' log.pk %}" class="inline"
+                      onsubmit="return confirm('Re-issue the certificate number from the current numbering settings (Settings → Scopes / Company)? Sequence stays the same.')">
+                    {% csrf_token %}
+                    <button type="submit"
+                            class="text-gray-500 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 text-xs font-medium bg-transparent border-0 cursor-pointer p-0">
+                        <i class="fas fa-arrows-rotate mr-1"></i>Re-issue No.
+                    </button>
+                </form>
+                {% endif %}
+                {% endif %}
+            </div>
+            {% if not log.certificate and log.status == 'approved' %}
+            <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">Equipment cannot be dispatched until the signed result is uploaded.</p>
+            {% endif %}
+        </div>
+
+        <!-- Readings: As Found / As Left -->
+        {% if readings_found or readings_left %}
+        <div class="mt-6 pt-6 border-t dark:border-gray-700">
+            <h3 class="text-lg font-semibold text-gray-800 dark:text-gray-100 mb-3">
+                <i class="fas fa-table text-blue-600 dark:text-blue-400 mr-2"></i>Readings
+            </h3>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                    <h4 class="text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">As Found</h4>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-sm">
+                            <thead>
+                                <tr class="text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider bg-gray-50 dark:bg-gray-700">
+                                    <th class="px-3 py-2">#</th>
+                                    <th class="px-3 py-2">{{ log.scope.instrument_column_label|default:"Instrument Reading" }}{% if readings_found.first.unit %} ({{ readings_found.first.unit.symbol }}){% endif %}</th>
+                                    <th class="px-3 py-2">{{ log.scope.uut_column_label|default:"UUT Reading" }}{% if readings_found.first.unit %} ({{ readings_found.first.unit.symbol }}){% endif %}</th>
+                                    <th class="px-3 py-2">{{ log.scope.error_column_label|default:"Error" }}</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-100 dark:divide-gray-700">
+                                {% for reading in readings_found %}
+                                <tr class="hover:bg-gray-50 dark:hover:bg-gray-700">
+                                    <td class="px-3 py-2 text-gray-500 dark:text-gray-400">{{ forloop.counter }}</td>
+                                    <td class="px-3 py-2 text-gray-800 dark:text-gray-100">{{ reading.instrument_reading }}</td>
+                                    <td class="px-3 py-2 text-gray-800 dark:text-gray-100">{{ reading.uut_reading }}</td>
+                                    <td class="px-3 py-2 font-medium {% if reading.error %}{% if reading.error < 0 %}text-red-600 dark:text-red-400{% else %}text-green-600 dark:text-green-400{% endif %}{% endif %}">
+                                        {{ reading.error|default:"-" }}
+                                    </td>
+                                </tr>
+                                {% empty %}
+                                <tr><td colspan="4" class="px-3 py-3 text-center text-gray-400">No As Found readings.</td></tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <div>
+                    <h4 class="text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">
+                        As Left
+                    </h4>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-sm">
+                            <thead>
+                                <tr class="text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider bg-gray-50 dark:bg-gray-700">
+                                    <th class="px-3 py-2">#</th>
+                                    <th class="px-3 py-2">{{ log.scope.instrument_column_label|default:"Instrument Reading" }}{% if readings_left.first.unit %} ({{ readings_left.first.unit.symbol }}){% endif %}</th>
+                                    <th class="px-3 py-2">{{ log.scope.uut_column_label|default:"UUT Reading" }}{% if readings_left.first.unit %} ({{ readings_left.first.unit.symbol }}){% endif %}</th>
+                                    <th class="px-3 py-2">{{ log.scope.error_column_label|default:"Error" }}</th>
+                                    <th class="px-3 py-2">MPE (&plusmn;)</th>
+                                    <th class="px-3 py-2">Remark</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-100 dark:divide-gray-700">
+                                {% for reading in readings_left %}
+                                <tr class="hover:bg-gray-50 dark:hover:bg-gray-700">
+                                    <td class="px-3 py-2 text-gray-500 dark:text-gray-400">{{ forloop.counter }}</td>
+                                    <td class="px-3 py-2 text-gray-800 dark:text-gray-100">{{ reading.instrument_reading }}</td>
+                                    <td class="px-3 py-2 text-gray-800 dark:text-gray-100">{{ reading.uut_reading }}</td>
+                                    <td class="px-3 py-2 font-medium {% if reading.error %}{% if reading.error < 0 %}text-red-600 dark:text-red-400{% else %}text-green-600 dark:text-green-400{% endif %}{% endif %}">
+                                        {{ reading.error|default:"-" }}
+                                    </td>
+                                    <td class="px-3 py-2 text-gray-800 dark:text-gray-100">{{ reading.maximum_permissible_error|default:"-" }}</td>
+                                    <td class="px-3 py-2 text-xs font-medium">
+                                        {% if reading.remark == 'Accepted' %}
+                                        <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300">
+                                            <i class="fas fa-check mr-1"></i>Accepted
+                                        </span>
+                                        {% elif reading.remark == 'Rejected' %}
+                                        <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300">
+                                            <i class="fas fa-times mr-1"></i>Rejected
+                                        </span>
+                                        {% else %}
+                                        <span class="text-gray-400">-</span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                {% empty %}
+                                <tr><td colspan="6" class="px-3 py-3 text-center text-gray-400">No As Left readings.</td></tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% if remarks_total %}
+                    <p class="text-xs text-gray-600 dark:text-gray-300 mt-1">
+                        Remarks: {{ remarks_accepted }} / {{ remarks_total }} Accepted (majority {% if remarks_majority_pass %}Pass{% else %}Fail{% endif %}).
+                    </p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <div class="mt-6 pt-6 border-t dark:border-gray-700 grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+                <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Environmental Condition</h3>
+                {% if log.use_manual_env %}
+                <p class="text-base text-gray-800 dark:text-gray-100 mt-1">
+                    {{ log.manual_temperature|default:"-" }}&deg;C / {{ log.manual_humidity|default:"-" }}% (Manual)
+                </p>
+                {% elif log.environmental_condition %}
+                <p class="text-base text-gray-800 dark:text-gray-100 mt-1">
+                    {{ log.environmental_condition.temperature }}&deg;C / {{ log.environmental_condition.relative_humidity }}%
+                    <span class="text-sm text-gray-500 dark:text-gray-400">({{ log.environmental_condition.date|date:"d M Y" }} {{ log.environmental_condition.get_time_display }})</span>
+                </p>
+                {% else %}
+                <p class="text-base text-gray-400 dark:text-gray-500 mt-1">Not recorded</p>
+                {% endif %}
+            </div>
+            <div>
+                <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Environment Conformity</h3>
+                {% if conformity %}
+                <div class="mt-1 space-y-1">
+                    {% for var, res in conformity.variables.items %}
+                    <div class="flex items-center gap-2">
+                        <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium
+                            {% if res.ok %}bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300
+                            {% else %}bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300{% endif %}">
+                            {% if res.ok %}<i class="fas fa-check mr-1"></i>{% else %}<i class="fas fa-times mr-1"></i>{% endif %}
+                            {{ var|title }}: {{ res.value|floatformat:2 }} ({{ res.min|floatformat:2 }}&ndash;{{ res.max|floatformat:2 }})
+                        </span>
+                    </div>
+                    {% endfor %}
+                    {% if conformity.conforms is not None %}
+                    <p class="text-sm font-semibold {% if conformity.conforms %}text-green-600 dark:text-green-400{% else %}text-red-600 dark:text-red-400{% endif %}">
+                        {% if conformity.conforms %}Conforms to {{ primary_name|default:"reference standard" }} operating envelope{% else %}Out of {{ primary_name|default:"reference standard" }} operating envelope{% endif %}
+                    </p>
+                    {% endif %}
+                </div>
+                {% elif log.standards.all %}
+                <p class="text-base text-gray-400 dark:text-gray-500 mt-1">No operating limits defined for {% for s in log.standards.all %}{{ s.name }}{% if not forloop.last %}, {% endif %}{% endfor %}</p>
+                {% else %}
+                <p class="text-base text-gray-400 dark:text-gray-500 mt-1">No reference standard selected</p>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="mt-6 pt-6 border-t dark:border-gray-700 grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+                <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Comments</h3>
+                <p class="text-base text-gray-800 dark:text-gray-100 mt-1">{{ log.notes|default:"- Not recorded -"|linebreaks }}</p>
+            </div>
+        </div>
+
+        <div class="mt-6 pt-6 border-t dark:border-gray-700">
+            <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Measurement Uncertainty</h3>
+            <div class="mt-1 flex flex-wrap items-center gap-3">
+                {% if log.expanded_uncertainty is not None %}
+                <span class="text-base font-semibold text-gray-800 dark:text-gray-100">U = {{ log.expanded_uncertainty }}%</span>
+                {% if log.uncertainty_in_tolerance is not None %}
+                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
+                    {% if log.uncertainty_in_tolerance %}bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300
+                    {% else %}bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300{% endif %}">
+                    {% if log.uncertainty_in_tolerance %}<i class="fas fa-check mr-1"></i>Within tolerance
+                    {% else %}<i class="fas fa-times mr-1"></i>Exceeds tolerance{% endif %}
+                </span>
+                {% endif %}
+                {% if log.primary %}
+                <span class="text-xs text-gray-500 dark:text-gray-400">Eq: <code>{{ log.primary.uncertainty_equation }}</code></span>
+                {% endif %}
+                {% else %}
+                <span class="text-base text-gray-400 dark:text-gray-500 mt-1">Not computed</span>
+                <span class="text-xs text-gray-500 dark:text-gray-400">Set u_std on the reference standard to enable the uncertainty budget.</span>
+                {% endif %}
+            </div>
+        </div>
+
+        {% if log.notes %}
+        <div class="mt-6 pt-6 border-t dark:border-gray-700">
+            <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Notes</h3>
+            <p class="text-base text-gray-800 dark:text-gray-100 mt-1">{{ log.notes|linebreaks }}</p>
+        </div>
+        {% endif %}
+
+        <!-- Review Details -->
+        {% if log.reviewed_by %}
+        <div class="mt-6 pt-6 border-t dark:border-gray-700">
+            <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Review</h3>
+            <p class="text-base text-gray-800 dark:text-gray-100 mt-1">
+                Reviewed by {% firstof log.reviewed_by.get_full_name log.reviewed_by.username "-" %}
+                on {{ log.reviewed_at|date:"d M Y H:i" }}
+            </p>
+        </div>
+        {% endif %}
+
+        {% if log.approved_by %}
+        <div class="mt-6 pt-6 border-t dark:border-gray-700">
+            <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Approval</h3>
+            <p class="text-base text-gray-800 dark:text-gray-100 mt-1">
+                Approved by {% firstof log.approved_by.get_full_name log.approved_by.username "-" %}
+                on {{ log.approved_at|date:"d M Y H:i" }}
+            </p>
+        </div>
+        {% endif %}
+
+        {% if log.rejection_reason %}
+        <div class="mt-6 pt-6 border-t dark:border-gray-700">
+            <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Rejection Reason</h3>
+            <p class="text-base text-gray-800 dark:text-gray-100 mt-1">{{ log.rejection_reason|linebreaks }}</p>
+        </div>
+        {% endif %}
+
+        {% if log.reviewer_signature %}
+        <div class="mt-6 pt-6 border-t dark:border-gray-700">
+            <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Reviewed By</h3>
+            {% if log.reviewed_by %}
+            <p class="text-base text-gray-800 dark:text-gray-100 mt-1">{% firstof log.reviewed_by.get_full_name log.reviewed_by.username "-" %}</p>
+            {% endif %}
+            <img src="{{ log.reviewer_signature }}" alt="Reviewer signature"
+                 class="mt-2 h-24 border border-gray-200 dark:border-gray-600 rounded-lg bg-white object-contain">
+        </div>
+        {% endif %}
+
+        <!-- Action Buttons -->
+        <div class="mt-6 pt-6 border-t dark:border-gray-700 flex flex-wrap gap-2">
+            {% if log.status == 'pending_review' %}
+                {% if can_review %}
+                <form method="post" action="{% url 'calibration_log_review' log.pk %}"
+                      onsubmit="return confirm('Are you sure you want to review this log and send it for certificate upload?');">
+                    {% csrf_token %}
+                    <button type="submit"
+                            class="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors">
+                        <i class="fas fa-check-circle mr-1"></i>Review &amp; Send for Certificate Upload
+                    </button>
+                </form>
+                <a href="{% url 'calibration_log_reject' log.pk %}"
+                   onclick="return confirm('Are you sure you want to reject this calibration log?');"
+                   class="bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 px-4 py-2 rounded-lg text-sm font-medium hover:bg-red-200 dark:hover:bg-red-900/50 transition-colors">
+                    <i class="fas fa-times mr-1"></i>Reject
+                </a>
+                {% endif %}
+            {% elif log.status == 'pending_approval' %}
+                {% if user|has_perm_tag:'edit_calibration' %}
+                <p class="text-sm text-gray-600 dark:text-gray-300 w-full">
+                    <i class="fas fa-info-circle mr-1 text-orange-500"></i>Upload the signed result above to push this log for QHSE approval.
+                </p>
+                {% endif %}
+            {% elif log.status == 'pending_qhse' %}
+                {% if can_approve %}
+                <a href="{% url 'calibration_log_approve' log.pk %}"
+                   class="bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-700 transition-colors">
+                    <i class="fas fa-check mr-1"></i>Approve (Chief / Admin)
+                </a>
+                <a href="{% url 'calibration_log_reject' log.pk %}"
+                   onclick="return confirm('Are you sure you want to reject this calibration log?');"
+                   class="bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 px-4 py-2 rounded-lg text-sm font-medium hover:bg-red-200 dark:hover:bg-red-900/50 transition-colors">
+                    <i class="fas fa-times mr-1"></i>Reject
+                </a>
+                {% endif %}
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}

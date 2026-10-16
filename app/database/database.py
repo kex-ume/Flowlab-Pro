@@ -137,7 +137,7 @@ def get_connection():
         return PostgreSQLConnection(psycopg.connect(database_url()))
 
     DATABASE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    connection = sqlite3.connect(DATABASE_PATH)
+    connection = sqlite3.connect(DATABASE_PATH, timeout=30)
     connection.execute("PRAGMA foreign_keys = ON")
     return connection
 

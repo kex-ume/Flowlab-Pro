@@ -1,0 +1,154 @@
+{% extends 'core/base.html' %}
+{% block title %}Approve Calibration Log{% endblock %}
+
+{% block content %}
+<div class="max-w-lg mx-auto">
+
+{% url 'calibration_log_detail' log.pk as back_href %}
+{% include 'core/partials/back_link.html' with back_label='Back to Log' %}
+        <h1 class="text-xl font-bold text-gray-800 dark:text-gray-100 mb-4">
+            <i class="fas fa-check-circle text-green-600 dark:text-green-400 mr-2"></i>Approve Calibration Log
+        </h1>
+
+        <div class="bg-gray-50 dark:bg-gray-700 rounded-lg p-4 mb-6">
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <p class="text-sm font-medium text-gray-500 dark:text-gray-400">Equipment</p>
+                    <p class="text-base font-semibold text-gray-800 dark:text-gray-100">{{ log.equipment_desc }}</p>
+                </div>
+                <div>
+                    <p class="text-sm font-medium text-gray-500 dark:text-gray-400">Serial No</p>
+                    <p class="text-base text-gray-800 dark:text-gray-100">{{ log.serial_no }}</p>
+                </div>
+                <div>
+                    <p class="text-sm font-medium text-gray-500 dark:text-gray-400">Calibrated By</p>
+                    <p class="text-base text-gray-800 dark:text-gray-100">{{ log.calibrated_by.name|default:"-" }}</p>
+                </div>
+                <div>
+                    <p class="text-sm font-medium text-gray-500 dark:text-gray-400">Reviewed By</p>
+                    <p class="text-base text-gray-800 dark:text-gray-100">{% firstof log.reviewed_by.get_full_name log.reviewed_by.username "-" %}</p>
+                </div>
+                <div>
+                    <p class="text-sm font-medium text-gray-500 dark:text-gray-400">Reviewer</p>
+                    {% if log.reviewer %}
+                    <p class="text-base text-gray-800 dark:text-gray-100">{% firstof log.reviewer.get_full_name log.reviewer.username "-" %}</p>
+                    {% else %}
+                    <p class="text-base text-gray-400 dark:text-gray-500">-</p>
+                    {% endif %}
+                </div>
+                <div>
+                    <p class="text-sm font-medium text-gray-500 dark:text-gray-400">Result</p>
+                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
+                        {% if log.pass_fail == 'pass' %}bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300
+                        {% elif log.pass_fail == 'fail' %}bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300
+                        {% elif log.pass_fail == 'conditional' %}bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-300
+                        {% else %}bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-300{% endif %}">
+                        {{ log.get_pass_fail_display }}
+                    </span>
+                </div>
+                <div>
+                    <p class="text-sm font-medium text-gray-500 dark:text-gray-400">Certificate</p>
+                    {% if log.certificate %}
+                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300">
+                        Uploaded
+                    </span>
+                    {% else %}
+                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-300">
+                        Not Uploaded
+                    </span>
+                    {% endif %}
+                </div>
+            </div>
+            {% if readings_found or readings_left %}
+            <div class="mt-4 pt-4 border-t dark:border-gray-600">
+                <p class="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">Readings</p>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <p class="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">As Found</p>
+                        <table class="w-full text-xs">
+                            <thead>
+                                <tr class="text-left text-gray-500 dark:text-gray-400">
+                                    <th class="pr-2">#</th>
+                                    <th class="pr-2">Instrument</th>
+                                    <th class="pr-2">UUT</th>
+                                    <th>{{ log.scope.error_column_label|default:"Error" }}</th>
+                                </tr>
+                            </thead>
+                            <tbody class="text-gray-800 dark:text-gray-100">
+                                {% for r in readings_found %}
+                                <tr>
+                                    <td class="pr-2">{{ forloop.counter }}</td>
+                                    <td class="pr-2">{{ r.instrument_reading }}</td>
+                                    <td class="pr-2">{{ r.uut_reading }}</td>
+                                    <td>{{ r.error|default:"-" }}</td>
+                                </tr>
+                                {% empty %}
+                                <tr><td colspan="4">-</td></tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    <div>
+                        <p class="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">As Left</p>
+                        <table class="w-full text-xs">
+                            <thead>
+                                <tr class="text-left text-gray-500 dark:text-gray-400">
+                                    <th class="pr-2">#</th>
+                                    <th class="pr-2">Instrument</th>
+                                    <th class="pr-2">UUT</th>
+                                    <th class="pr-2">{{ log.scope.error_column_label|default:"Error" }}</th>
+                                    <th class="pr-2">MPE</th>
+                                    <th>Remark</th>
+                                </tr>
+                            </thead>
+                            <tbody class="text-gray-800 dark:text-gray-100">
+                                {% for r in readings_left %}
+                                <tr>
+                                    <td class="pr-2">{{ forloop.counter }}</td>
+                                    <td class="pr-2">{{ r.instrument_reading }}</td>
+                                    <td class="pr-2">{{ r.uut_reading }}</td>
+                                    <td class="pr-2">{{ r.error|default:"-" }}</td>
+                                    <td class="pr-2">{{ r.maximum_permissible_error|default:"-" }}</td>
+                                    <td>{{ r.remark|default:"-" }}</td>
+                                </tr>
+                                {% empty %}
+                                <tr><td colspan="6">-</td></tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+            {% if log.notes %}
+            <div class="mt-4 pt-4 border-t dark:border-gray-600">
+                <p class="text-sm font-medium text-gray-500 dark:text-gray-400">Comments</p>
+                <p class="text-sm text-gray-800 dark:text-gray-100 mt-1">{{ log.notes|linebreaks }}</p>
+            </div>
+            {% endif %}
+        </div>
+
+        <div class="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-700 rounded-lg p-4 mb-6">
+            <p class="text-sm text-yellow-800 dark:text-yellow-300">
+                <i class="fas fa-info-circle mr-1"></i>
+                Approving marks the log <strong>approved</strong> (QHSE sign-off), completes the equipment when the
+                signed certificate is uploaded, and advances the job status. The reviewer's signature is printed on
+                the certificate; no signature is required from you.
+            </p>
+        </div>
+
+        <form method="post" id="approveForm" class="flex items-center justify-between pt-4 border-t dark:border-gray-700">
+            {% csrf_token %}
+            <a href="{% url 'calibration_log_detail' log.pk %}"
+               class="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors">
+                Cancel
+            </a>
+            <button type="submit"
+                    class="px-6 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition-colors">
+                <i class="fas fa-check mr-1"></i>Confirm QHSE Approval
+            </button>
+        </form>
+    </div>
+</div>
+
+{% endblock %}

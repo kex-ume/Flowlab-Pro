@@ -1,0 +1,155 @@
+{% extends 'core/base.html' %}
+{% load permission_tags %}
+{% block title %}Entry &amp; Dispatch Log{% endblock %}
+
+{% block content %}
+{% url 'waybill_list' as back_href %}
+{% include 'core/partials/back_link.html' with back_label='Back to Waybills' %}
+<div class="space-y-4">
+    <div class="flex items-center justify-between flex-wrap gap-2">
+        <h1 class="text-2xl font-bold text-gray-800 dark:text-gray-100">
+            <i class="fas fa-clipboard-list text-blue-600 dark:text-blue-400 mr-2"></i>Entry &amp; Dispatch Log
+        </h1>
+        <a href="{% url 'waybill_list' %}"
+           class="text-sm text-gray-600 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400">
+            <i class="fas fa-arrow-left mr-1"></i>Waybills
+        </a>
+    </div>
+
+    <form method="get" class="flex gap-3 items-end">
+        <div>
+            <label class="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">Search</label>
+            <input type="text" name="q" value="{{ filters.q }}"
+                   class="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-gray-100"
+                   placeholder="Equipment, serial, model, waybill no...">
+        </div>
+        <div>
+            <label class="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">Status</label>
+            <select name="status"
+                    class="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-gray-100">
+                <option value="">All</option>
+                {% for value, label in status_choices %}
+                <option value="{{ value }}" {% if filters.status == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div>
+            <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700">
+                <i class="fas fa-search mr-1"></i>Filter
+            </button>
+            <a href="{% url 'entry_dispatch' %}" class="px-4 py-2 text-sm text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100 ml-1">Clear</a>
+        </div>
+    </form>
+
+    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm overflow-hidden">
+        <div class="overflow-x-auto">
+        <table class="w-full text-sm min-w-[1600px]">
+            <thead>
+                <tr class="text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider bg-gray-50 dark:bg-gray-700">
+                    <th class="px-4 py-3">Equipment Description</th>
+                    <th class="px-4 py-3">Serial No.</th>
+                    <th class="px-4 py-3">Model No.</th>
+                    <th class="px-4 py-3">Range</th>
+                    <th class="px-4 py-3">Owner/Client</th>
+                    <th class="px-4 py-3">Date Received</th>
+                    <th class="px-4 py-3">Incoming Waybill No.</th>
+                    <th class="px-4 py-3">Date Calibrated</th>
+                    <th class="px-4 py-3">Date Returned</th>
+                    <th class="px-4 py-3">Outgoing Waybill No.</th>
+                    <th class="px-4 py-3">Certificate No.</th>
+                    <th class="px-4 py-3">Service</th>
+                    <th class="px-4 py-3">Remarks</th>
+                    <th class="px-4 py-3">Initial</th>
+                    <th class="px-4 py-3">Category/Scope</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100 dark:divide-gray-700">
+                {% for row in rows %}
+                <tr class="hover:bg-gray-50 dark:hover:bg-gray-700">
+                    <td class="px-4 py-3 text-gray-900 dark:text-gray-100">{{ row.item.equipment_description }}</td>
+                    <td class="px-4 py-3 text-gray-600 dark:text-gray-300">{{ row.item.serial_no }}</td>
+                    <td class="px-4 py-3 text-gray-600 dark:text-gray-300">{{ row.item.model_no|default:"-" }}</td>
+                    <td class="px-4 py-3 text-gray-600 dark:text-gray-300">{{ row.item.range_field|default:"-" }}</td>
+                    <td class="px-4 py-3 text-gray-600 dark:text-gray-300">{{ row.client_name }}</td>
+                    <td class="px-4 py-3 text-gray-600 dark:text-gray-300">{{ row.date_received|date:"d M Y" }}</td>
+                    <td class="px-4 py-3">
+                        <a href="{% url 'waybill_detail' row.item.waybill.pk %}"
+                           class="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-400">
+                            {{ row.item.waybill.waybill_no }}
+                        </a>
+                    </td>
+                    <td class="px-4 py-3 text-gray-600 dark:text-gray-300">{{ row.date_calibrated|date:"d M Y"|default:"-" }}</td>
+                    <td class="px-4 py-3 text-gray-600 dark:text-gray-300">{{ row.date_returned|date:"d M Y"|default:"-" }}</td>
+                    <td class="px-4 py-3">
+                        {% if row.outgoing %}
+                        <a href="{% url 'outgoing_waybill_detail' row.outgoing.pk %}"
+                           class="text-green-600 dark:text-green-400 hover:text-green-800 dark:hover:text-green-400">
+                            {{ row.outgoing.waybill_no }}
+                        </a>
+                        {% else %}<span class="text-gray-400 dark:text-gray-500">-</span>{% endif %}
+                    </td>
+                    <td class="px-4 py-3">
+                        {% if row.certificate_no %}
+                        {% if row.cal_log.status == 'approved' %}
+                        <a href="{% url 'calibration_certificate' row.cal_log.pk %}" target="_blank"
+                           class="text-purple-600 dark:text-purple-400 hover:text-purple-800 dark:hover:text-purple-400">
+                            {{ row.certificate_no }}
+                        </a>
+                        {% else %}
+                        <a href="{% url 'calibration_log_detail' row.cal_log.pk %}"
+                           class="text-purple-600 dark:text-purple-400 hover:text-purple-800 dark:hover:text-purple-400">
+                            {{ row.certificate_no }}
+                        </a>
+                        {% endif %}
+                        {% else %}<span class="text-gray-400 dark:text-gray-500">-</span>{% endif %}
+                    </td>
+                    <td class="px-4 py-3">
+                        <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium
+                            {% if row.service_short == 'Cal + Repair' %}bg-orange-100 dark:bg-orange-900/30 text-orange-800 dark:text-orange-300
+                            {% else %}bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-300{% endif %}">
+                            <span class="hidden sm:inline">{{ row.service_full }}</span>
+                            <span class="sm:hidden">{{ row.service_short }}</span>
+                        </span>
+                    </td>
+                    <td class="px-4 py-3 text-gray-500 dark:text-gray-400 max-w-[220px] truncate" title="{{ row.remarks }}">{{ row.remarks|default:"-" }}</td>
+                    <td class="px-4 py-3 text-gray-600 dark:text-gray-300">{{ row.initials }}</td>
+                    <td class="px-4 py-3 text-gray-600 dark:text-gray-300">{{ row.scope_name }}</td>
+                </tr>
+                {% empty %}
+                <tr><td colspan="15" class="px-4 py-8 text-center text-gray-500 dark:text-gray-400">No equipment found.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        </div>
+
+        {% if rows.has_other_pages %}
+        <div class="px-4 py-3 border-t dark:border-gray-700 bg-gray-50 dark:bg-gray-700">
+            <p class="text-xs text-gray-500 dark:text-gray-400 text-center mb-2">Showing {{ start_index }}-{{ end_index }} of {{ total_count }}</p>
+            <nav class="flex items-center justify-center space-x-2" aria-label="Pagination">
+                {% if rows.has_previous %}
+                <a href="?page=1{% if request.GET|strip_page %}&{{ request.GET|strip_page }}{% endif %}" class="px-3 py-1 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700" title="First">
+                    <i class="fas fa-angle-double-left"></i>
+                </a>
+                <a href="?page={{ rows.previous_page_number }}{% if request.GET|strip_page %}&{{ request.GET|strip_page }}{% endif %}" class="px-3 py-1 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700" title="Previous">
+                    <i class="fas fa-angle-left"></i>
+                </a>
+                {% endif %}
+
+                <span class="px-3 py-1 text-sm text-gray-700 dark:text-gray-300">
+                    Page {{ rows.number }} of {{ rows.paginator.num_pages }}
+                </span>
+
+                {% if rows.has_next %}
+                <a href="?page={{ rows.next_page_number }}{% if request.GET|strip_page %}&{{ request.GET|strip_page }}{% endif %}" class="px-3 py-1 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700" title="Next">
+                    <i class="fas fa-angle-right"></i>
+                </a>
+                <a href="?page={{ rows.paginator.num_pages }}{% if request.GET|strip_page %}&{{ request.GET|strip_page }}{% endif %}" class="px-3 py-1 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700" title="Last">
+                    <i class="fas fa-angle-double-right"></i>
+                </a>
+                {% endif %}
+            </nav>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

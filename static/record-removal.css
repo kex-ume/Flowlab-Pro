@@ -1,0 +1,11 @@
+.record-removal-tools{display:flex;justify-content:flex-end;align-items:center;gap:8px;padding:10px 4px 4px;clear:both}
+.record-removal-tools button.record-remove-toggle{width:28px;height:28px;min-width:28px;min-height:28px;padding:5px;border:1px solid #ccdee0;border-radius:6px;background:transparent;color:#527078;box-shadow:none;display:inline-flex;align-items:center;justify-content:center}
+.record-remove-toggle svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.7}
+.record-removal-tools button{font:inherit;font-size:12px;line-height:1.3;min-height:28px;padding:5px 9px;border-radius:6px}
+.record-removal-tools button:focus-visible,.record-removal-choice:focus-visible{outline:2px solid #00858b;outline-offset:3px}
+.record-removal-tools .record-remove-confirm{color:#fff;background:#aa3434;border:1px solid #aa3434}
+.record-removal-choice{width:16px!important;height:16px!important;min-width:16px!important;min-height:16px!important;margin:0 8px 0 0!important;padding:0!important;accent-color:#007e84;vertical-align:middle;display:inline-block!important}
+.record-removal-selected{outline:1px solid #79b4b6;outline-offset:-1px;background-color:#edf7f7!important}
+.record-removal-status{font-size:12px;color:#36565c}
+.record-removal-tools [hidden]{display:none!important}
+@media print{.record-removal-tools,.record-removal-choice{display:none!important}}

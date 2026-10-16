@@ -170,14 +170,15 @@ class GUMWebWorkflowTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.get_data(as_text=True))
         return response.get_json()["result"]
 
-    def test_new_page_replaces_v61_and_has_no_local_storage(self):
+    def test_new_page_replaces_v61_and_has_resilient_draft_storage(self):
         text = self.client.get("/uncertainty").get_data(as_text=True)
         self.assertIn("Measurement Uncertainty Budget", text)
+        self.assertNotIn('id="globalSearch"', text)
         self.assertNotIn("<h2>GUM Uncertainty Budget</h2>", text)
         self.assertIn("Budget Calculator", text)
         self.assertIn("CMC Comparison", text)
         self.assertNotIn("Uncertainty V6.1", text)
-        self.assertNotIn("localStorage", text)
+        self.assertRegex(text, r'/static/uncertainty\.js\?v=[^"\s]+')
         self.assertIn("Weighing scale calibration uncertainty", text)
         self.assertIn("uncertainty-equipment-autofill.js", text)
         script = Path("static/uncertainty.js").read_text(encoding="utf-8")
@@ -186,6 +187,8 @@ class GUMWebWorkflowTests(unittest.TestCase):
         self.assertIn("refreshObservationPreview", script)
         self.assertIn("standardDeviation/Math.sqrt(n)", script)
         self.assertIn("navigator.sendBeacon('/uncertainty/api/autosave'", script)
+        self.assertIn("flowlab:uncertainty:draft:", script)
+        self.assertIn("Your unfinished uncertainty draft was restored.", script)
         self.assertIn("Assign and Submit for Review", script)
         self.assertIn("Complete budget calculated and saved against the selected Job.", script)
 
@@ -207,6 +210,9 @@ class GUMWebWorkflowTests(unittest.TestCase):
         saved = self.client.post("/uncertainty/api/autosave", json=partial)
         self.assertEqual(saved.status_code, 200, saved.get_data(as_text=True))
         record_id = saved.get_json()["record"]["id"]
+        page = self.client.get("/uncertainty").get_data(as_text=True)
+        self.assertIn('id="jobPicker"', page)
+        self.assertNotIn('id="jobSearch"', page)
         latest = self.payload(); latest["points"][0]["runs"] = latest["points"][0]["runs"][:2]
         resumed = self.client.post("/uncertainty/api/autosave", json=latest)
         self.assertEqual(resumed.status_code, 200, resumed.get_data(as_text=True))
@@ -352,6 +358,16 @@ class GUMWebWorkflowTests(unittest.TestCase):
         self.assertEqual(self.client.post("/uncertainty/api/save", json=locked).status_code, 422)
         revision = self.client.post(f"/uncertainty/api/records/calculation/{record_id}/revision",
             json={"reason":"Updated calibration evidence"})
+        self.assertEqual(revision.status_code, 422)
+        self.assertIn('Job Completed', revision.get_json()['error'])
+        job_id = int(self.payload()['jobId'])
+        self.client.post(f'/projects/jobs/{job_id}/request-reopen', data={'reason':'Updated calibration evidence'})
+        connection = database.get_connection()
+        request_id = connection.execute('SELECT id FROM job_reopen_requests WHERE job_id=? AND status=\'Pending\'', (job_id,)).fetchone()[0]
+        connection.close()
+        self.client.post(f'/projects/jobs/{job_id}/authorize-reopen', data={'request_id':request_id, 'comment':'HOD authorizes controlled revision'})
+        revision = self.client.post(f"/uncertainty/api/records/calculation/{record_id}/revision",
+            json={"reason":"Updated calibration evidence"})
         self.assertEqual(revision.status_code, 200, revision.get_data(as_text=True))
         self.assertNotEqual(revision.get_json()["record"]["id"], record_id)
 
@@ -371,7 +387,7 @@ class GUMWebWorkflowTests(unittest.TestCase):
         tasks = connection.execute("""SELECT task_type,assigned_to,status FROM workflow_tasks
             WHERE entity_type='uncertainty_calculation' AND entity_id=? ORDER BY id""", (saved["id"],)).fetchall()
         connection.close()
-        self.assertEqual(tuple(statuses), ("Draft", "Submitted for Review", "Technical Reviewer", "HOD Reviewer"))
+        self.assertEqual(tuple(statuses), ("In Progress", "Submitted for Review", "Technical Reviewer", "HOD Reviewer"))
         self.assertEqual(tuple(tasks[0]), ("Technical Review", "Technical Reviewer", "Pending"))
 
     def test_creator_cannot_approve_own_uncertainty_record(self):

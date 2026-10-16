@@ -1,0 +1,257 @@
+{% extends 'core/base.html' %}
+{% load permission_tags %}
+{% block title %}{% if object %}Edit Primary{% else %}New Primary{% endif %}{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto ei-equipment-entry">
+
+{% url 'primary_list' as back_href %}
+{% include 'core/partials/back_link.html' with back_label='Back to Primaries' %}    <div class="bg-white rounded-xl shadow-sm dark:bg-gray-800 p-6">
+        <h1 class="text-xl font-bold text-gray-800 dark:text-gray-100 mb-6">
+            <i class="fas fa-flask text-blue-600 dark:text-blue-400 mr-2"></i>
+            {% if object %}Edit E&amp;I Equipment{% else %}Register E&amp;I Equipment{% endif %}
+        </h1>
+
+        <form method="post" class="space-y-4">
+            {% csrf_token %}
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4"><div><label for="{{ form.asset_number.id_for_label }}">Equipment ID</label>{{ form.asset_number }}{{ form.asset_number.errors }}</div><div><label for="{{ form.equipment_type.id_for_label }}">Equipment Type</label>{{ form.equipment_type }}</div><div><label for="{{ form.laboratory_location.id_for_label }}">Lab / Location</label>{{ form.laboratory_location }}</div><div><label>{{ form.is_reference }} Primary / reference standard</label><label>{{ form.include_programme }} Include in calibration programme</label></div></div>
+            {% if form.non_field_errors %}
+            <div class="bg-red-5 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 px-4 py-3 rounded-lg text-sm">
+                {{ form.non_field_errors }}
+            </div>
+            {% endif %}
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Name</label>
+                    {{ form.name }}
+                    {% if form.name.errors %}<p class="text-red-500 dark:text-red-400 text-xs mt-1">{{ form.name.errors.0 }}</p>{% endif %}
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Serial No</label>
+                    {{ form.serial_no }}
+                    {% if form.serial_no.errors %}<p class="text-red-500 dark:text-red-400 text-xs mt-1">{{ form.serial_no.errors.0 }}</p>{% endif %}
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Manufacturer</label>
+                    {{ form.manufacturer }}
+                    {% if form.manufacturer.errors %}<p class="text-red-500 dark:text-red-400 text-xs mt-1">{{ form.manufacturer.errors.0 }}</p>{% endif %}
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Model Number</label>
+                    {{ form.model_no }}
+                    {% if form.model_no.errors %}<p class="text-red-500 dark:text-red-400 text-xs mt-1">{{ form.model_no.errors.0 }}</p>{% endif %}
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Scope</label>
+                    {{ form.scope }}
+                    {% if form.scope.errors %}<p class="text-red-500 dark:text-red-400 text-xs mt-1">{{ form.scope.errors.0 }}</p>{% endif %}
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Calibration Frequency (months)</label>
+                    {{ form.calibration_frequency }}
+                    {% if form.calibration_frequency.errors %}<p class="text-red-500 dark:text-red-400 text-xs mt-1">{{ form.calibration_frequency.errors.0 }}</p>{% endif %}
+                </div>
+            </div>
+
+            <div class="border-t dark:border-gray-700 pt-4">
+                <div class="flex items-center justify-between mb-1">
+                    <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-200">Unit(s) of Measurement</h3>
+                    <button type="button" id="units-refresh" class="text-xs px-2 py-1 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600">
+                        <i class="fas fa-sync-alt mr-1"></i>Refresh
+                    </button>
+                </div>
+                <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">
+                    Select the unit(s) this reference standard serves. Required for Active primaries — the pre-calibration
+                    page only offers units backed by an active standard.
+                </p>
+                <div id="units-loading" class="hidden text-sm text-gray-500 dark:text-gray-400">
+                    <i class="fas fa-spinner fa-spin mr-1"></i>Loading units…
+                </div>
+                <div id="units-error" class="hidden text-sm text-red-600 dark:text-red-400 mb-2"></div>
+                <div id="units-container" class="grid grid-cols-2 md:grid-cols-4 gap-2">
+                    <p class="text-xs text-gray-400 col-span-full">Pick a scope to load its units.</p>
+                </div>
+                {% if form.units.errors %}<p class="text-red-500 dark:text-red-400 text-xs mt-1">{{ form.units.errors.0 }}</p>{% endif %}
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Calibrated Range Min</label>
+                    {{ form.range_min }}
+                    {% if form.range_min.errors %}<p class="text-red-500 dark:text-red-400 text-xs mt-1">{{ form.range_min.errors.0 }}</p>{% endif %}
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Calibrated Range Max</label>
+                    {{ form.range_max }}
+                    {% if form.range_max.errors %}<p class="text-red-500 dark:text-red-400 text-xs mt-1">{{ form.range_max.errors.0 }}</p>{% endif %}
+                </div>
+                <div class="md:col-span-2">
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Certificate No. (own calibration certificate)</label>
+                    {{ form.certificate_no }}
+                    {% if form.certificate_no.errors %}<p class="text-red-500 dark:text-red-400 text-xs mt-1">{{ form.certificate_no.errors.0 }}</p>{% endif %}
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Purchase Date</label>
+                    {{ form.purchase_date }}
+                    {% if form.purchase_date.errors %}<p class="text-red-500 dark:text-red-400 text-xs mt-1">{{ form.purchase_date.errors.0 }}</p>{% endif %}
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Last Calibrated</label>
+                    {{ form.last_calibrated }}
+                    {% if form.last_calibrated.errors %}<p class="text-red-500 dark:text-red-400 text-xs mt-1">{{ form.last_calibrated.errors.0 }}</p>{% endif %}
+                </div>
+                <div class="md:col-span-2">
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Calibration Due Date</label>
+                    {{ form.calibration_due_date }}
+                    {% if form.calibration_due_date.errors %}<p class="text-red-500 dark:text-red-400 text-xs mt-1">{{ form.calibration_due_date.errors.0 }}</p>{% endif %}
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Status</label>
+                    {{ form.status }}
+                    {% if form.status.errors %}<p class="text-red-500 dark:text-red-400 text-xs mt-1">{{ form.status.errors.0 }}</p>{% endif %}
+                </div>
+            </div>
+
+            <div class="border-t dark:border-gray-700 pt-4">
+                <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-200 mb-3">Operating Conditions (used for environment conformity)</h3>
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Temp Min (&deg;C)</label>
+                        {{ form.operating_temp_min }}
+                        {% if form.operating_temp_min.errors %}<p class="text-red-500 dark:text-red-400 text-xs mt-1">{{ form.operating_temp_min.errors.0 }}</p>{% endif %}
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Temp Max (&deg;C)</label>
+                        {{ form.operating_temp_max }}
+                        {% if form.operating_temp_max.errors %}<p class="text-red-500 dark:text-red-400 text-xs mt-1">{{ form.operating_temp_max.errors.0 }}</p>{% endif %}
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Humidity Min (%)</label>
+                        {{ form.operating_humidity_min }}
+                        {% if form.operating_humidity_min.errors %}<p class="text-red-500 dark:text-red-400 text-xs mt-1">{{ form.operating_humidity_min.errors.0 }}</p>{% endif %}
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Humidity Max (%)</label>
+                        {{ form.operating_humidity_max }}
+                        {% if form.operating_humidity_max.errors %}<p class="text-red-500 dark:text-red-400 text-xs mt-1">{{ form.operating_humidity_max.errors.0 }}</p>{% endif %}
+                    </div>
+                </div>
+            </div>
+
+            <div class="border-t dark:border-gray-700 pt-4">
+                <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-200 mb-1">Uncertainty Budget</h3>
+                <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">Used by the calibration-log engine. u_std is the combined standard uncertainty in %.</p>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Standard Uncertainty u_std (%)</label>
+                        {{ form.standard_uncertainty }}
+                        {% if form.standard_uncertainty.errors %}<p class="text-red-500 dark:text-red-400 text-xs mt-1">{{ form.standard_uncertainty.errors.0 }}</p>{% endif %}
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Coverage Factor k</label>
+                        {{ form.coverage_factor }}
+                        {% if form.coverage_factor.errors %}<p class="text-red-500 dark:text-red-400 text-xs mt-1">{{ form.coverage_factor.errors.0 }}</p>{% endif %}
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Tolerance (%)</label>
+                        {{ form.tolerance }}
+                        {% if form.tolerance.errors %}<p class="text-red-500 dark:text-red-400 text-xs mt-1">{{ form.tolerance.errors.0 }}</p>{% endif %}
+                    </div>
+                    <div class="md:col-span-3">
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Uncertainty Equation</label>
+                        {{ form.uncertainty_equation }}
+                        {% if form.uncertainty_equation.errors %}<p class="text-red-500 dark:text-red-400 text-xs mt-1">{{ form.uncertainty_equation.errors.0 }}</p>{% endif %}
+                        <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">Variables: <code>k</code>, <code>u_std</code>, <code>error_pct_max</code>, <code>tolerance</code>. Supports + - * / ** % and sqrt().</p>
+                    </div>
+                </div>
+            </div>
+
+            <div>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Notes</label>
+                {{ form.notes }}
+                {% if form.notes.errors %}<p class="text-red-500 dark:text-red-400 text-xs mt-1">{{ form.notes.errors.0 }}</p>{% endif %}
+            </div>
+
+            <div class="flex items-center justify-end gap-3 border-t pt-4">
+                <a href="{% url 'primary_list' %}" class="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600">Cancel</a>
+                <button type="submit" class="px-6 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors">
+                    <i class="fas fa-save mr-1"></i>{% if object %}Update{% else %}Create{% endif %}
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+(function () {
+    const UNITS_URL = '{% url "units_by_scope" 0 %}';
+    const scopeSel = document.getElementById('{{ form.scope.auto_id }}');
+    const container = document.getElementById('units-container');
+    const loading = document.getElementById('units-loading');
+    const errorBox = document.getElementById('units-error');
+    const selected = new Set({{ selected_units_json|safe }});
+
+    function currentScopeId() {
+        const v = scopeSel ? scopeSel.value : '';
+        return v && v !== 'None' ? parseInt(v, 10) : 0;
+    }
+
+    function renderUnits(units) {
+        container.innerHTML = '';
+        if (!units.length) {
+            container.innerHTML = '<p class="text-xs text-gray-400 col-span-full">No units defined for this scope yet.</p>';
+            return;
+        }
+        units.forEach(function (u) {
+            const label = document.createElement('label');
+            label.className = 'flex items-start gap-2 p-2 rounded-lg border border-gray-200 dark:border-gray-700 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700';
+            const box = document.createElement('input');
+            box.type = 'checkbox';
+            box.name = 'units';
+            box.value = u.id;
+            box.className = 'mt-0.5 rounded accent-blue-600';
+            if (selected.has(u.id)) box.checked = true;
+            const span = document.createElement('span');
+            span.className = 'text-sm text-gray-700 dark:text-gray-200';
+            span.innerHTML = '<strong>' + (u.symbol || u.name) + '</strong>'
+                + (u.name && u.name !== u.symbol ? '<br><span class="text-xs text-gray-500 dark:text-gray-400">' + u.name + '</span>' : '');
+            if (!u.available) {
+                const badge = document.createElement('span');
+                badge.className = 'ml-1 inline-block text-[10px] px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300';
+                badge.textContent = 'no other active standard';
+                span.appendChild(badge);
+            }
+            label.appendChild(box);
+            label.appendChild(span);
+            container.appendChild(label);
+        });
+    }
+
+    function loadUnits(refresh) {
+        const sid = currentScopeId();
+        container.innerHTML = '<p class="text-xs text-gray-400 col-span-full">Loading units…</p>';
+        errorBox.classList.add('hidden');
+        let qs = '?scopes=' + (sid || 0);
+        if (refresh) qs += '&refresh=1';
+        fetch(UNITS_URL + qs)
+            .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+            .then(function (data) { renderUnits(data || []); })
+            .catch(function (err) {
+                container.innerHTML = '<p class="text-xs text-gray-400 col-span-full">Could not load units.</p>';
+                errorBox.textContent = 'Failed to load units: ' + err.message;
+                errorBox.classList.remove('hidden');
+            });
+    }
+
+    document.getElementById('units-refresh').addEventListener('click', function () { loadUnits(true); });
+    if (scopeSel) {
+        scopeSel.addEventListener('change', function () {
+            selected.clear();
+            loadUnits(false);
+        });
+    }
+    loadUnits(false);
+})();
+</script>
+{% endblock %}

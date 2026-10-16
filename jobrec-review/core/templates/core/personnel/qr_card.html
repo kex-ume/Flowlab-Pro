@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>{{ person.name }} - QR Card</title>
+    <style>
+        @page { size: 4in 6in; margin: 0.3in; }
+        body { font-family: Arial, sans-serif; text-align: center; margin: 0; padding: 0;
+               background: #f8fafc; display: flex; align-items: center; justify-content: center;
+               min-height: 100vh; }
+        .card { width: 3.2in; margin: 0 auto; background: white; border-radius: 16px;
+                padding: 20px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); }
+        .logo-text { font-size: 12px; font-weight: bold; color: #2563eb; margin: 4px auto 8px;
+                     letter-spacing: 2px; text-transform: uppercase; }
+        .logo-divider { width: 40px; height: 3px; background: linear-gradient(90deg, #2563eb, #60a5fa);
+                        border-radius: 2px; margin: 0 auto 12px; }
+        .avatar { width: 70px; height: 70px; background: linear-gradient(135deg, #2563eb, #1d4ed8);
+                  border-radius: 50%; display: flex; align-items: center; justify-content: center;
+                  color: white; font-size: 28px; font-weight: bold; margin: 0 auto 10px;
+                  box-shadow: 0 4px 12px rgba(37,99,235,0.25); }
+        h2 { font-size: 18px; margin: 2px 0 4px; color: #1f2937; font-weight: 700; }
+        .role { font-size: 13px; color: #6b7280; margin: 0 0 2px; font-weight: 500; }
+        .detail-row { font-size: 11px; color: #6b7280; margin: 2px 0; display: flex;
+                      align-items: center; justify-content: center; gap: 4px; }
+        .detail-row i { color: #9ca3af; width: 14px; }
+        .qr { margin: 12px 0; }
+        .qr img { width: 200px; height: 200px; margin: 0 auto; display: block;
+                  border: 2px solid #e5e7eb; border-radius: 12px; padding: 8px;
+                  background: white; }
+        .scopes { margin: 8px 0 0; }
+        .badge { display: inline-block; background: #eff6ff; color: #1d4ed8;
+                 font-size: 10px; padding: 3px 10px; border-radius: 12px; margin: 2px 3px;
+                 border: 1px solid #bfdbfe; font-weight: 500; }
+        .footer { font-size: 8px; color: #d1d5db; margin-top: 12px;
+                  border-top: 1px solid #f3f4f6; padding-top: 10px; }
+    </style>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+</head>
+<body>
+    <div class="card">
+        <div class="logo-text"><i class="fas fa-microchip mr-1"></i>E&amp;I LAB</div>
+        <div class="logo-divider"></div>
+
+        <div class="avatar">{{ person.name|first|upper }}</div>
+        <h2>{{ person.name }}</h2>
+        {% if person.role %}
+        <p class="role">{{ person.role.name }}</p>
+        {% endif %}
+
+        {% if person.location_text %}
+        <p class="detail-row"><i class="fas fa-map-marker-alt"></i> {{ person.location_text }}</p>
+        {% endif %}
+        {% if person.user.email %}
+        <p class="detail-row"><i class="fas fa-envelope"></i> {{ person.user.email }}</p>
+        {% endif %}
+        {% if person.qualifications %}
+        <p class="detail-row" style="font-style:italic;color:#9ca3af;font-size:10px;">{{ person.qualifications|truncatewords:12 }}</p>
+        {% endif %}
+
+        <div class="qr">
+            <img src="data:image/png;base64,{{ qr_data }}" alt="QR Code">
+        </div>
+
+        {% if person.scope_of_expertise.all %}
+        <div class="scopes">
+            {% for scope in person.scope_of_expertise.all %}
+            <span class="badge">{{ scope.name }}</span>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        <p class="footer">Scan QR to sign in &bull; Valid for 1 year</p>
+    </div>
+    <script>window.print();</script>
+</body>
+</html>

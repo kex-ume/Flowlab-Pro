@@ -1,0 +1,4 @@
+{% extends 'core/base.html' %}{% block title %}View · {{ name }}{% endblock %}{% block content %}
+<header class="ei-records-header"><h1>{{ name }}</h1><a class="ei-records-view" href="{{ download_url }}">Download Original</a></header>
+{% for sheet in sheets %}<section class="ei-records-panel ei-section-gap"><div class="ei-workspace-heading"><h2>{{ sheet.name }}</h2></div><div class="ei-records-table-wrap"><table class="ei-records-table"><tbody>{% for row in sheet.rows %}<tr>{% for cell in row %}<td>{{ cell }}</td>{% endfor %}</tr>{% endfor %}</tbody></table></div></section>{% endfor %}{% for text in paragraphs %}<p>{{ text }}</p>{% endfor %}
+{% if sheets %}<p class="ei-muted">Preview displays up to 500 rows and 30 columns per sheet. Download Original retains the complete workbook.</p>{% endif %}{% endblock %}

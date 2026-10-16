@@ -1,0 +1,39 @@
+{% extends 'core/base.html' %}
+{% block title %}Reject Calibration Log{% endblock %}
+
+{% block content %}
+<div class="max-w-lg mx-auto">
+
+{% url 'calibration_log_detail' log.pk as back_href %}
+{% include 'core/partials/back_link.html' with back_label='Back to Log' %}
+        <h1 class="text-xl font-bold text-gray-800 dark:text-gray-100 mb-4">
+            <i class="fas fa-times-circle text-red-600 dark:text-red-400 mr-2"></i>Reject Calibration Log
+        </h1>
+
+        <p class="text-sm text-gray-600 dark:text-gray-300 mb-4">
+            Equipment: <strong>{{ log.equipment_desc }}</strong> ({{ log.serial_no }})
+        </p>
+
+        <form method="post">
+            {% csrf_token %}
+            <div>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Reason for Rejection</label>
+                <textarea name="rejection_reason" rows="4" required
+                          class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg"
+                          placeholder="Explain why this calibration log is being rejected..."></textarea>
+            </div>
+
+            <div class="flex items-center justify-end space-x-3 mt-6">
+                <a href="{% url 'calibration_log_detail' log.pk %}"
+                   class="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors">
+                    Cancel
+                </a>
+                <button type="submit"
+                        class="px-6 py-2 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700 transition-colors">
+                    <i class="fas fa-times mr-1"></i>Reject
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

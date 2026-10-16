@@ -1,0 +1,142 @@
+{% extends 'core/base.html' %}
+{% load permission_tags %}
+{% block title %}Pre-Calibration Detail{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto">
+
+{% url 'pre_calibration_list' as back_href %}
+{% include 'core/partials/back_link.html' with back_label='Back to Pre-Calibration' %}    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-6">
+        <h1 class="text-xl font-bold text-gray-800 dark:text-gray-100 mb-6">
+            <i class="fas fa-search text-blue-600 dark:text-blue-400 mr-2"></i>Pre-Calibration Inspection
+        </h1>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+                <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Equipment</h3>
+                <p class="text-base font-semibold text-gray-800 dark:text-gray-100 mt-1">{{ pre_log.waybill_item.equipment_description }}</p>
+            </div>
+            <div>
+                <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Serial No</h3>
+                <p class="text-base text-gray-800 dark:text-gray-100 mt-1">{{ pre_log.waybill_item.serial_no }}</p>
+            </div>
+            <div>
+                <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Scope(s)</h3>
+                <div class="mt-1 space-y-1">
+                    {% for s in pre_log.scopes.all %}
+                    <span class="inline-flex items-center px-2 py-0.5 rounded bg-blue-50 dark:bg-blue-900/30 text-blue-800 dark:text-blue-300 text-xs">{{ s.name }}</span>
+                    {% empty %}
+                    <p class="text-base text-gray-800 dark:text-gray-100">{% firstof pre_log.scope.name "-" %}</p>
+                    {% endfor %}
+                </div>
+            </div>
+            <div>
+                <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Unit(s) of Measurement</h3>
+                <p class="text-base text-gray-800 dark:text-gray-100 mt-1">
+                    {% for u in pre_log.units.all %}{{ u.symbol }}{% if not forloop.last %}, {% endif %}{% empty %}{{ pre_log.unit.symbol|default:"-" }}{% endfor %}
+                    {% if pre_log.range_value %}<span class="text-sm text-gray-500 dark:text-gray-300"> · {{ pre_log.range_value }}</span>{% endif %}
+                </p>
+            </div>
+            <div>
+                <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Document No</h3>
+                <p class="text-base font-mono text-gray-800 dark:text-gray-100 mt-1">{% firstof pre_log.doc_no "-" %}</p>
+            </div>
+            <div>
+                <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Physical Condition</h3>
+                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium mt-1
+                    {% if pre_log.physical_condition == 'good' %}bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300
+                    {% elif pre_log.physical_condition == 'fair' %}bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-300
+                    {% elif pre_log.physical_condition == 'poor' %}bg-orange-100 dark:bg-orange-900/30 text-orange-800 dark:text-orange-300
+                    {% else %}bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300{% endif %}">
+                    {{ pre_log.get_physical_condition_display }}
+                </span>
+            </div>
+            <div>
+                <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Location</h3>
+                <p class="text-base text-gray-800 dark:text-gray-100 mt-1">{{ pre_log.location.name|default:"-" }}</p>
+            </div>
+            <div>
+                <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Ready for Calibration</h3>
+                <p class="text-base mt-1">
+                    {% if pre_log.ready_for_calibration %}
+                    <span class="text-green-600 dark:text-green-400"><i class="fas fa-check-circle"></i> Yes</span>
+                    {% else %}
+                    <span class="text-red-600 dark:text-red-400"><i class="fas fa-times-circle"></i> No</span>
+                    {% endif %}
+                </p>
+            </div>
+            <div>
+                <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Inspected By</h3>
+                <p class="text-base text-gray-800 dark:text-gray-100 mt-1">{% firstof pre_log.inspected_by.get_full_name pre_log.inspected_by.username "-" %}</p>
+            </div>
+        </div>
+
+        {% if pre_log.visual_inspection_notes %}
+        <div class="mt-6 pt-6 border-t dark:border-gray-700">
+            <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Visual Inspection Notes</h3>
+            <p class="text-base text-gray-800 dark:text-gray-100 mt-1">{{ pre_log.visual_inspection_notes|linebreaks }}</p>
+        </div>
+        {% endif %}
+
+        {% if pre_log.issues_found %}
+        <div class="mt-6 pt-6 border-t dark:border-gray-700">
+            <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Issues Found</h3>
+            <p class="text-base text-gray-800 dark:text-gray-100 mt-1">{{ pre_log.issues_found|linebreaks }}</p>
+        </div>
+        {% endif %}
+
+        {% if pre_log.remarks %}
+        <div class="mt-6 pt-6 border-t dark:border-gray-700">
+            <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Remarks</h3>
+            <p class="text-base text-gray-800 dark:text-gray-100 mt-1">{{ pre_log.remarks|linebreaks }}</p>
+        </div>
+        {% endif %}
+
+        {% if pre_log.review_decision %}
+        <div class="mt-6 pt-6 border-t dark:border-gray-700">
+            <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Review Decision</h3>
+            <p class="text-base mt-1">
+                {% if pre_log.review_decision == 'repair' %}
+                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-300">
+                    <i class="fas fa-wrench mr-1"></i> Approved for Repair
+                </span>
+                {% elif pre_log.review_decision == 'dispatch' %}
+                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200">
+                    <i class="fas fa-truck mr-1"></i> Approved for Dispatch
+                </span>
+                {% endif %}
+                {% if pre_log.reviewed_by %}
+                <span class="text-sm text-gray-500 dark:text-gray-400 ml-2">by {% firstof pre_log.reviewed_by.get_full_name pre_log.reviewed_by.username "-" %} on {{ pre_log.reviewed_at|date:"d M Y H:i" }}</span>
+                {% endif %}
+            </p>
+            {% if pre_log.repair_notes %}
+            <p class="text-sm text-gray-600 dark:text-gray-300 mt-2">{{ pre_log.repair_notes|linebreaks }}</p>
+            {% endif %}
+            {% if pre_log.outgoing_waybill %}
+            <p class="text-sm mt-2">
+                <a href="{% url 'outgoing_waybill_detail' pre_log.outgoing_waybill.pk %}" class="text-blue-600 dark:text-blue-400 hover:underline">
+                    <i class="fas fa-file"></i> View Outgoing Waybill: {{ pre_log.outgoing_waybill.waybill_no }}
+                </a>
+            </p>
+            {% endif %}
+        </div>
+        {% elif not pre_log.ready_for_calibration %}
+        <div class="mt-6 pt-6 border-t dark:border-gray-700">
+            {% if user|has_perm_tag:'review_pre_calibration' %}
+            <a href="{% url 'pre_cal_review' pre_log.pk %}"
+               class="inline-flex items-center px-4 py-2 bg-orange-600 text-white rounded-lg text-sm font-medium hover:bg-orange-700 transition-colors">
+                <i class="fas fa-clipboard-check mr-2"></i> Review & Decide
+            </a>
+            {% endif %}
+        </div>
+        {% elif pre_log.ready_for_calibration and not pre_log.review_decision %}
+        <div class="mt-6 pt-6 border-t dark:border-gray-700">
+            <a href="{% url 'calibration_log_create' pre_log.waybill_item.pk %}"
+               class="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors">
+                <i class="fas fa-clipboard-check mr-2"></i> Create Calibration Log
+            </a>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

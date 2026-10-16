@@ -1,0 +1,178 @@
+{% extends 'core/base.html' %}
+{% load permission_tags %}
+
+{% block title %}Uncertainty Budget — {{ scope.name }}{% endblock %}
+
+{% block content %}
+<div class="mb-3">
+    <a href="/settings/scopes/"
+       title="Back to Settings"
+       onclick="if (window.history.length > 1 && document.referrer && document.referrer.startsWith(window.location.origin)) { history.back(); return false; }"
+       class="inline-flex items-center text-sm font-medium text-gray-500 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded">
+        <i class="fas fa-arrow-left mr-1.5"></i>Back to Settings
+    </a>
+</div>
+
+<div class="max-w-5xl mx-auto">
+    <div class="flex items-center justify-between mb-4">
+        <div>
+            <h1 class="text-2xl font-bold text-gray-800 dark:text-gray-100">Uncertainty Budget — {{ scope.name }}</h1>
+            <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                Upload the EATL uncertainty-budget workbook (xlsx). Its Type-B component table is parsed and stored;
+                the active budget drives the expanded uncertainty on every calibration log and certificate in this scope.
+            </p>
+        </div>
+        <span class="px-3 py-1 rounded-full text-xs font-semibold {% if active_budget %}bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300{% else %}bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300{% endif %}">
+            {% if active_budget %}Active budget set{% else %}No active budget{% endif %}
+        </span>
+    </div>
+
+    {% if messages %}
+    <div class="mb-4 space-y-2">
+        {% for message in messages %}
+        <div class="p-3 rounded-lg text-sm bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">{{ message }}</div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <!-- Upload -->
+    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-6 mb-6">
+        <h2 class="text-lg font-semibold text-gray-800 dark:text-gray-100 mb-3"><i class="fas fa-upload text-indigo-500 mr-2"></i>Upload a budget workbook</h2>
+        <form method="post" enctype="multipart/form-data" class="flex flex-wrap items-end gap-4">
+            {% csrf_token %}
+            <div class="flex-1 min-w-[240px]">
+                <label for="id_title" class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Title (optional)</label>
+                <input type="text" name="title" id="id_title" class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-gray-100" placeholder="{{ scope.name }} uncertainty budget">
+            </div>
+            <div class="flex-1 min-w-[240px]">
+                <label for="id_budget_file" class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Workbook (.xlsx)</label>
+                <input type="file" name="budget_file" id="id_budget_file" accept=".xlsx" required
+                       class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-gray-100">
+            </div>
+            <button type="submit" class="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium">
+                <i class="fas fa-scale-balanced mr-1"></i>Upload &amp; Activate
+            </button>
+        </form>
+        <p class="text-xs text-gray-500 dark:text-gray-400 mt-3">
+            Format: the EATL <code>UNC</code> workbook (doc ref like <code>EATL/LAB/UNC/01</code>) with a
+            Type-B table headed <em>Symbol / Source / Value / Distribution / Divisor / Std Uncertainty / Method</em>.
+            Uploading a new workbook deactivates the previous revision automatically.
+        </p>
+    </div>
+
+    <!-- Active budget -->
+    {% if active_budget %}
+    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-6 mb-6">
+        <div class="flex items-center justify-between mb-3">
+            <h2 class="text-lg font-semibold text-gray-800 dark:text-gray-100"><i class="fas fa-scale-balanced text-indigo-500 mr-2"></i>Active budget</h2>
+            <span class="text-xs px-2 py-1 rounded bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 font-semibold"><i class="fas fa-check-circle mr-1"></i>ACTIVE</span>
+        </div>
+        <div class="grid grid-cols-2 md:grid-cols-5 gap-3 text-sm mb-4">
+            <div><span class="text-xs text-gray-500 dark:text-gray-400 block">Document</span><span class="font-medium text-gray-800 dark:text-gray-100 font-mono">{{ active_budget.doc_ref|default:"—" }}</span></div>
+            <div><span class="text-xs text-gray-500 dark:text-gray-400 block">Revision</span><span class="font-medium text-gray-800 dark:text-gray-100">{{ active_budget.revision|default:"—" }}</span></div>
+            <div><span class="text-xs text-gray-500 dark:text-gray-400 block">Rev. date</span><span class="font-medium text-gray-800 dark:text-gray-100">{{ active_budget.revised_on|date:"d M Y"|default:"—" }}</span></div>
+            <div><span class="text-xs text-gray-500 dark:text-gray-400 block">Components</span><span class="font-medium text-gray-800 dark:text-gray-100">{{ active_budget.component_count }}</span></div>
+            <div><span class="text-xs text-gray-500 dark:text-gray-400 block">k / u_comb</span><span class="font-medium text-gray-800 dark:text-gray-100">{{ active_budget.expanded_k }} / {{ active_budget.combined_std_uncertainty }}</span></div>
+        </div>
+        <div class="flex flex-wrap gap-2">
+            <a href="{{ active_budget.file.url }}" target="_blank"
+               class="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600">
+                <i class="fas fa-file-excel"></i>{{ active_budget.file.name|cut:"uncertainty_budgets/" }}
+            </a>
+        </div>
+
+        <div class="overflow-x-auto mt-5">
+            <table class="w-full text-xs">
+                <thead>
+                    <tr class="text-left text-gray-500 dark:text-gray-400 uppercase tracking-wider bg-gray-50 dark:bg-gray-700">
+                        <th class="px-2 py-1.5">Sym.</th>
+                        <th class="px-2 py-1.5">Source</th>
+                        <th class="px-2 py-1.5">Value</th>
+                        <th class="px-2 py-1.5">Distribution</th>
+                        <th class="px-2 py-1.5">Divisor</th>
+                        <th class="px-2 py-1.5">u&nbsp;(std)</th>
+                        <th class="px-2 py-1.5">Method</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100 dark:divide-gray-700">
+                    {% for c in active_budget.components_ordered.all %}
+                    <tr>
+                        <td class="px-2 py-1.5 font-mono font-medium text-indigo-600 dark:text-indigo-400">{{ c.symbol|default:"—" }}</td>
+                        <td class="px-2 py-1.5">{{ c.source|default:"—" }}</td>
+                        <td class="px-2 py-1.5">{{ c.value|default:"—" }}</td>
+                        <td class="px-2 py-1.5">{{ c.distribution|default:"—" }}</td>
+                        <td class="px-2 py-1.5 text-right">{{ c.divisor|default:"—" }}</td>
+                        <td class="px-2 py-1.5 text-right font-medium">{{ c.std_uncertainty|floatformat:6|default:"—" }}</td>
+                        <td class="px-2 py-1.5 text-gray-600 dark:text-gray-300">{{ c.method|default:"—" }}</td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="7" class="px-2 py-3 text-center text-gray-500 dark:text-gray-400">No components stored.</td></tr>
+                    {% endfor %}
+                </tbody>
+                <tfoot>
+                    <tr class="bg-gray-50 dark:bg-gray-700/50 font-semibold">
+                        <td class="px-2 py-1.5" colspan="5">Combined (static) u_comb = √Σ u²&nbsp;&nbsp;·&nbsp;&nbsp;Expanded U = k × √(u_comb² + error_max²)</td>
+                        <td class="px-2 py-1.5 text-right">{{ active_budget.combined_std_uncertainty }}</td>
+                        <td class="px-2 py-1.5">k = {{ active_budget.expanded_k }}</td>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+        {% if active_budget.parse_error %}
+        <p class="text-xs text-amber-600 dark:text-amber-400 mt-3"><i class="fas fa-triangle-exclamation mr-1"></i>{{ active_budget.parse_error }}</p>
+        {% endif %}
+        <p class="text-xs text-gray-500 dark:text-gray-400 mt-3">
+            The per-log expanded uncertainty adds this log's measured term (<code>error_max</code> = max |instrument − UUT| reading error)
+            to the static u_comb before multiplying by k.
+        </p>
+    </div>
+    {% endif %}
+
+    <!-- Revisions -->
+    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-6">
+        <h2 class="text-lg font-semibold text-gray-800 dark:text-gray-100 mb-3"><i class="fas fa-layer-group text-gray-400 mr-2"></i>All revisions</h2>
+        {% if budgets %}
+        <ul class="divide-y divide-gray-100 dark:divide-gray-700">
+            {% for b in budgets %}
+            <li class="py-3 flex items-center justify-between gap-4">
+                <div class="min-w-0">
+                    <div class="flex items-center gap-2 text-sm">
+                        <span class="font-medium text-gray-800 dark:text-gray-100 font-mono">{% firstof b.doc_ref b.title "Budget" %}</span>
+                        {% if b.revision %}<span class="text-xs px-1.5 py-0.5 rounded bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300">Rev {{ b.revision }}</span>{% endif %}
+                        {% if b.active %}<span class="text-xs px-1.5 py-0.5 rounded bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 font-semibold">ACTIVE</span>{% endif %}
+                        {% if b.parse_status == 'error' %}<span class="text-xs px-1.5 py-0.5 rounded bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400">parse error</span>{% endif %}
+                    </div>
+                    <div class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                        {{ b.created_at|date:"d M Y H:i" }} · {{ b.component_count }} components · {{ b.revised_on|date:"d M Y"|default:"no rev date" }}
+                    </div>
+                    {% if b.parse_error %}
+                    <div class="text-xs text-red-500 dark:text-red-400 mt-0.5">{{ b.parse_error|truncatechars:160 }}</div>
+                    {% endif %}
+                </div>
+                <div class="flex items-center gap-2 shrink-0">
+                    {% if not b.active %}
+                    <form method="post" class="inline">
+                        {% csrf_token %}
+                        <input type="hidden" name="action" value="activate">
+                        <input type="hidden" name="budget_id" value="{{ b.pk }}">
+                        <button type="submit" class="px-2.5 py-1 rounded-lg text-xs font-medium bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-900/50">Activate</button>
+                    </form>
+                    {% endif %}
+                    <a href="{{ b.file.url }}" target="_blank" title="Download workbook"
+                       class="px-2.5 py-1 rounded-lg text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600"><i class="fas fa-download"></i></a>
+                    <form method="post" class="inline" onsubmit="return confirm('Delete this budget revision?');">
+                        {% csrf_token %}
+                        <input type="hidden" name="action" value="delete">
+                        <input type="hidden" name="budget_id" value="{{ b.pk }}">
+                        <button type="submit" class="px-2.5 py-1 rounded-lg text-xs font-medium bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/50"><i class="fas fa-trash"></i></button>
+                    </form>
+                </div>
+            </li>
+            {% endfor %}
+        </ul>
+        {% else %}
+        <p class="text-sm text-gray-500 dark:text-gray-400">No budgets uploaded yet for this scope.</p>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

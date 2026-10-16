@@ -1,0 +1,122 @@
+{% extends 'core/base.html' %}
+{% load permission_tags %}
+{% block title %}Primary: {{ primary.name }}{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto space-y-4">
+
+{% url 'primary_list' as back_href %}
+{% include 'core/partials/back_link.html' with back_label='Back to Primaries' %}    <div class="flex items-center justify-between">
+        <div class="flex items-center gap-3">
+            <a href="{% url 'primary_list' %}" class="text-gray-400 dark:text-gray-500 hover:text-blue-600 dark:hover:text-blue-400"><i class="fas fa-arrow-left"></i></a>
+            <h1 class="text-2xl font-bold text-gray-800 dark:text-gray-100">
+                <i class="fas fa-flask text-blue-600 dark:text-blue-400 mr-2"></i>{{ primary.name }}
+            </h1>
+        </div>
+        <div class="flex gap-2">
+            {% if user|has_perm_tag:'approve_calibration' %}
+            <a href="{% url 'primary_update' primary.pk %}"
+               class="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors">
+                <i class="fas fa-edit mr-1"></i>Edit
+            </a>
+            <a href="{% url 'primary_delete' primary.pk %}"
+               class="bg-red-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-red-700 transition-colors">
+                <i class="fas fa-trash mr-1"></i>Delete
+            </a>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="bg-white rounded-xl shadow-sm dark:bg-gray-800 p-6">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+                <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Serial No</h3>
+                <p class="text-base font-semibold text-gray-800 dark:text-gray-100 mt-1">{{ primary.serial_no|default:"-" }}</p>
+            </div>
+            <div>
+                <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Manufacturer / Model</h3>
+                <p class="text-base font-semibold text-gray-800 dark:text-gray-100 mt-1">{{ primary.manufacturer|default:"-" }}{% if primary.model_no %} / {{ primary.model_no }}{% endif %}</p>
+            </div>
+            <div>
+                <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Scope</h3>
+                <p class="text-base font-semibold text-gray-800 dark:text-gray-100 mt-1">{{ primary.scope.name|default:"Not set" }}</p>
+            </div>
+            <div>
+                <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Unit(s) of Measurement</h3>
+                <p class="text-base font-semibold text-gray-800 dark:text-gray-100 mt-1">
+                    {% for u in primary.units.all %}
+                    <span class="inline-flex items-center px-2 py-0.5 rounded bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-200 text-xs mr-1">{{ u.symbol }}</span>
+                    {% empty %}{{ primary.unit.symbol|default:"-" }}{% endfor %}
+                </p>
+            </div>
+            <div>
+                <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Calibrated Range</h3>
+                <p class="text-base font-semibold text-gray-800 dark:text-gray-100 mt-1">
+                    {% if primary.range_min or primary.range_max %}
+                    {{ primary.range_min|default:"0" }} – {{ primary.range_max }}{% else %}-{% endif %}
+                </p>
+            </div>
+            <div>
+                <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Certificate No.</h3>
+                <p class="text-base font-semibold text-gray-800 dark:text-gray-100 mt-1">{{ primary.certificate_no|default:"-" }}</p>
+            </div>
+            <div>
+                <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Status</h3>
+                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
+                    {% if primary.status == 'active' %}bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300
+                    {% elif primary.status == 'pending_maintenance' %}bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300
+                    {% else %}bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-300{% endif %}">
+                    {{ primary.get_status_display }}
+                </span>
+            </div>
+            <div>
+                <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Last Calibrated</h3>
+                <p class="text-base font-semibold text-gray-800 dark:text-gray-100 mt-1">{{ primary.last_calibrated|date:"d M Y"|default:"-" }}</p>
+            </div>
+            <div>
+                <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Calibration Due Date</h3>
+                <p class="text-base font-semibold text-gray-800 dark:text-gray-100 mt-1">
+                    {{ primary.calibration_due_date|date:"d M Y"|default:"Not set" }}
+                    {% if primary.is_due %}<span class="text-red-600 dark:text-red-400">(Overdue)</span>{% endif %}
+                </p>
+            </div>
+            <div>
+                <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Calibration Frequency</h3>
+                <p class="text-base font-semibold text-gray-800 dark:text-gray-100 mt-1">{{ primary.calibration_frequency }} months</p>
+            </div>
+            <div>
+                <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Purchase Date</h3>
+                <p class="text-base font-semibold text-gray-800 dark:text-gray-100 mt-1">{{ primary.purchase_date|date:"d M Y"|default:"Not set" }}</p>
+            </div>
+            <div>
+                <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Operating Conditions</h3>
+                <p class="text-base font-semibold text-gray-800 dark:text-gray-100 mt-1">
+                    {% if primary.operating_temp_min is not None or primary.operating_temp_max is not None or primary.operating_humidity_min is not None or primary.operating_humidity_max is not None %}
+                    Temp: {{ primary.operating_temp_min|default:"-" }}&ndash;{{ primary.operating_temp_max|default:"-" }}&deg;C
+                    &nbsp;|&nbsp; RH: {{ primary.operating_humidity_min|default:"-" }}&ndash;{{ primary.operating_humidity_max|default:"-" }}%
+                    {% else %}-{% endif %}
+                </p>
+            </div>
+            <div>
+                <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Uncertainty Budget</h3>
+                <p class="text-base font-semibold text-gray-800 dark:text-gray-100 mt-1">
+                    {% if primary.standard_uncertainty is not None %}
+                    u_std: {{ primary.standard_uncertainty }}% &nbsp;|&nbsp; k: {{ primary.coverage_factor }}
+                    {% if primary.tolerance is not None %} &nbsp;|&nbsp; Tolerance: {{ primary.tolerance }}%{% endif %}
+                    {% else %}-{% endif %}
+                </p>
+                {% if primary.uncertainty_equation %}
+                <p class="text-sm text-gray-500 dark:text-gray-400 mt-1"><code>{{ primary.uncertainty_equation }}</code></p>
+                {% endif %}
+            </div>
+        </div>
+
+        {% if primary.notes %}
+        <div class="mt-6">
+            <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Notes</h3>
+            <p class="text-gray-700 dark:text-gray-300 mt-1">{{ primary.notes|linebreaks }}</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

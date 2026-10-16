@@ -53,6 +53,24 @@
   let equipmentSourceIndex = null;
   let masterEquipmentRunIndex = null;
   let draftDirty = false, draftTimer = null;
+  const draftOwner=$('#gumApp').dataset.currentActor||'anonymous';
+  const localDraftKey=`flowlab:uncertainty:draft:${draftOwner}`;
+
+  function clearLocalDraft(){
+    try{localStorage.removeItem(localDraftKey);}catch(_error){}
+  }
+  function storeLocalDraft(dirty=draftDirty){
+    if(state.standalone||!['Draft','Reverted'].includes(state.status))return;
+    try{localStorage.setItem(localDraftKey,JSON.stringify({version:1,savedAt:Date.now(),dirty,state:payload()}));}catch(_error){}
+  }
+  function readLocalDraft(){
+    if(state.standalone)return null;
+    try{
+      const draft=JSON.parse(localStorage.getItem(localDraftKey)||'null');
+      if(draft?.version!==1||!draft.state||!['Draft','Reverted'].includes(draft.state.status))return null;
+      return draft;
+    }catch(_error){clearLocalDraft();return null;}
+  }
 
   function currentPoint() { return state.points[state.activePoint]; }
   const volumeFlowUnits=new Set(['m³/s','m³/h','L/s','L/min','BPD']);
@@ -80,10 +98,11 @@
   function canAutoSave() { return $('#gumApp').dataset.canSave==='1'&&['Draft','Reverted'].includes(state.status)&&(state.isCmc||state.jobId); }
   function markDraftDirty(event) {
     if(event?.target?.closest('#reviewAssignmentModal'))return;
-    draftDirty=true;clearTimeout(draftTimer);if(canAutoSave())draftTimer=setTimeout(()=>autosaveDraft(true),400);
+    draftDirty=true;storeLocalDraft(true);clearTimeout(draftTimer);if(canAutoSave())draftTimer=setTimeout(()=>autosaveDraft(true),400);
   }
   function flushDraft() {
     if(!draftDirty||!canAutoSave())return;
+    storeLocalDraft(true);
     try{if(!navigator.sendBeacon('/uncertainty/api/autosave',new Blob([JSON.stringify(payload())],{type:'application/json'})))throw new Error('Beacon unavailable');}
     catch(error){fetch('/uncertainty/api/autosave',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload()),keepalive:true}).catch(()=>{});}
   }
@@ -94,18 +113,19 @@
       if(body.record.locked){state.status=body.record.status;draftDirty=false;clearTimeout(draftTimer);renderAll();return body.record;}
       if(body.record.existing&&!state.recordId){draftDirty=false;await loadRecord(body.record.isCmc?'cmc':'calculation',body.record.id);setMessage('The existing Draft for this Job and method was restored.');return body.record;}
       Object.assign(state,{recordId:body.record.id,calculationId:body.record.calculationId,revision:body.record.revision,status:body.record.status,createdBy:body.record.createdBy||state.createdBy,isCmc:body.record.isCmc||state.isCmc});
-      draftDirty=false;$('#recordIdPill').textContent=state.calculationId;$('#statusPill').textContent=state.status.toUpperCase();renderWorkflowActions();
+      draftDirty=false;storeLocalDraft(false);$('#recordIdPill').textContent=state.calculationId;$('#statusPill').textContent=state.status.toUpperCase();renderWorkflowActions();
       if(showMessage)setMessage('Draft saved automatically to FlowLab Pro.');
       return body.record;
     }catch(error){if(showMessage)setMessage(error.message,'validation-error');return null;}
   }
   async function discardDraft() {
     if(!state.recordId||!confirm('Discard this Draft and remove its in-progress data?'))return;
-    try{const type=state.isCmc?'cmc':'calculation';await requestJson(`/uncertainty/api/records/${type}/${state.recordId}/discard`,{method:'POST',body:'{}'});draftDirty=false;state=initialState();state.standalone=$('#gumApp').dataset.standalone==='1';renderAll();setMessage('Draft discarded.');}catch(error){setMessage(error.message,'validation-error');}
+    try{const type=state.isCmc?'cmc':'calculation';await requestJson(`/uncertainty/api/records/${type}/${state.recordId}/discard`,{method:'POST',body:'{}'});draftDirty=false;clearLocalDraft();state=initialState();state.standalone=$('#gumApp').dataset.standalone==='1';renderAll();setMessage('Draft discarded.');}catch(error){setMessage(error.message,'validation-error');}
   }
 
   function renderMeta() {
     $('#calcId').value=state.calculationId; $('#jobId').value=state.jobId; $('#analyst').value=state.analyst;
+    const selectedJob=$('#jobId').selectedOptions[0];if(selectedJob?.value)$('#jobPicker').value=selectedJob.dataset.display||selectedJob.textContent;
     $('#customer').value=state.customer; $('#calcDate').value=state.calcDate; $('#project').value=[state.projectNumber,state.projectName].filter(Boolean).join(' · '); $('#mut').value=state.mut;
     $('#mutAssetId').value=state.mutAssetId; $('#serialNumber').value=state.serialNumber; $('#manufacturer').value=state.manufacturer;
     $('#model').value=state.model; $('#meterType').value=state.meterType; $('#jobRange').value=(state.rangeMin!==''&&state.rangeMin!=null)?`${state.rangeMin}–${state.rangeMax} ${state.rangeUnit}`:'';
@@ -242,20 +262,31 @@
 
   async function requestJson(url,options={}) { const response=await fetch(url,{headers:{'Content-Type':'application/json'},...options});const text=await response.text();let body;try{body=JSON.parse(text);}catch(_error){if(response.redirected||response.url.includes('/login'))throw new Error('Your session has expired. Sign in again, then repeat the action.');throw new Error(`The server returned an HTML error (${response.status}). Refresh the page; if it continues, restart the application server.`);}if(!response.ok||!body.ok)throw new Error(body.error||'Request failed.');return body; }
   async function calculate(points=state.points,pointOnly=false){try{setMessage('Calculating and validating on the server…');const calculationPayload=payload(points);calculationPayload.pointOnly=pointOnly;const body=await requestJson('/uncertainty/api/calculate',{method:'POST',body:JSON.stringify(calculationPayload)});if(pointOnly){currentPoint().backendResult=body.result.points[0];}else{body.result.points.forEach((result,index)=>state.points[index].backendResult=result);state.cmcComparison=body.result.cmcComparison||[];}setMessage('Calculation complete.','');renderRuns();renderResult();renderComparison();if(!pointOnly&&$('#gumApp').dataset.standalone!=='1'&&$('#gumApp').dataset.canSave==='1')await save('Complete budget calculated and saved against the selected Job.');return body.result;}catch(error){setMessage(error.message,'validation-error');throw error;}}
-  async function save(successMessage='Draft saved to the FlowLab Pro database and linked to its Job.'){if($('#gumApp').dataset.canSave!=='1')return;try{setMessage('Validating and saving the controlled record…');const body=await requestJson('/uncertainty/api/save',{method:'POST',body:JSON.stringify(payload())});body.result.points.forEach((result,index)=>state.points[index].backendResult=result);Object.assign(state,{recordId:body.record.id,calculationId:body.record.calculationId,revision:body.record.revision,status:body.record.status,createdBy:state.createdBy||$('#gumApp').dataset.currentActor,isCmc:body.record.isCmc||false,cmcComparison:body.result.cmcComparison||[]});draftDirty=false;setMessage(successMessage,'');renderAll();}catch(error){setMessage(error.message,'validation-error');throw error;}}
-  async function loadRecord(type,id){try{const body=await requestJson(`/uncertainty/api/records/${type}/${id}`);const saved=body.record,backend=saved.backendResult;delete saved.backendResult;state={...initialState(),...saved,recordId:saved.recordId,calculationId:saved.calculationId||(type==='cmc'?`CMC revision ${saved.revision}`:''),isCmc:type==='cmc'};state.points=state.points?.length?state.points:[blankPoint()];state.activePoint=0;(backend?.points||[]).forEach((result,index)=>{if(state.points[index])state.points[index].backendResult=result;});state.cmcComparison=backend?.cmcComparison||[];draftDirty=false;navigate('calculator');renderAll();}catch(error){setMessage(error.message,'validation-error');}}
+  async function save(successMessage='Draft saved to the FlowLab Pro database and linked to its Job.'){if($('#gumApp').dataset.canSave!=='1')return;try{setMessage('Validating and saving the controlled record…');const body=await requestJson('/uncertainty/api/save',{method:'POST',body:JSON.stringify(payload())});body.result.points.forEach((result,index)=>state.points[index].backendResult=result);Object.assign(state,{recordId:body.record.id,calculationId:body.record.calculationId,revision:body.record.revision,status:body.record.status,createdBy:state.createdBy||$('#gumApp').dataset.currentActor,isCmc:body.record.isCmc||false,cmcComparison:body.result.cmcComparison||[]});draftDirty=false;storeLocalDraft(false);setMessage(successMessage,'');renderAll();}catch(error){setMessage(error.message,'validation-error');throw error;}}
+  async function loadRecord(type,id){try{const body=await requestJson(`/uncertainty/api/records/${type}/${id}`);const saved=body.record,backend=saved.backendResult;delete saved.backendResult;state={...initialState(),...saved,recordId:saved.recordId,calculationId:saved.calculationId||(type==='cmc'?`CMC revision ${saved.revision}`:''),isCmc:type==='cmc'};state.points=state.points?.length?state.points:[blankPoint()];state.activePoint=0;(backend?.points||[]).forEach((result,index)=>{if(state.points[index])state.points[index].backendResult=result;});state.cmcComparison=backend?.cmcComparison||[];draftDirty=false;if(['Draft','Reverted'].includes(state.status))storeLocalDraft(false);else clearLocalDraft();navigate('calculator');renderAll();}catch(error){setMessage(error.message,'validation-error');}}
   async function workflowAction(action,assignment=null){
     const chief=$('#gumApp').dataset.currentRole==='Chief Meteorologist';
     if(action==='submit'&&!assignment){await autosaveDraft();if(!chief){const actor=$('#gumApp').dataset.currentActor;$$('#technicalReviewer option,#finalApprover option').forEach(option=>{if(option.value)option.disabled=option.dataset.name===actor;});$('#reviewAssignmentModal').hidden=false;return;}}
     let comment='';if(action==='revert'){comment=window.prompt('Enter the technical reason for reverting this calculation:')||'';if(!comment)return;}
-    try{clearTimeout(draftTimer);const type=state.isCmc?'cmc':'calculation';const body=await requestJson(`/uncertainty/api/records/${type}/${state.recordId}/workflow`,{method:'POST',body:JSON.stringify({action,comment,...(assignment||{})})});state.status=body.status;draftDirty=false;if(assignment){state.assignedReviewer=$('#technicalReviewer').selectedOptions[0]?.dataset.name;state.assignedApprover=$('#finalApprover').selectedOptions[0]?.dataset.name;$('#reviewAssignmentModal').hidden=true;}const row=document.querySelector(`[data-load-record="${state.recordId}"]`)?.closest('[data-record-row]');if(row){row.dataset.status=body.status;const status=row.querySelector('.status');if(status){status.textContent=body.status;status.className=`status ${body.status.toLowerCase().replaceAll(' ','-')}`;}}renderAll();setMessage(`Calculation status changed to ${body.status}.`);}catch(error){setMessage(error.message,'validation-error');}
+    try{clearTimeout(draftTimer);const type=state.isCmc?'cmc':'calculation';const body=await requestJson(`/uncertainty/api/records/${type}/${state.recordId}/workflow`,{method:'POST',body:JSON.stringify({action,comment,...(assignment||{})})});state.status=body.status;draftDirty=false;if(['Draft','Reverted'].includes(state.status))storeLocalDraft(false);else clearLocalDraft();if(assignment){state.assignedReviewer=$('#technicalReviewer').selectedOptions[0]?.dataset.name;state.assignedApprover=$('#finalApprover').selectedOptions[0]?.dataset.name;$('#reviewAssignmentModal').hidden=true;}const row=document.querySelector(`[data-load-record="${state.recordId}"]`)?.closest('[data-record-row]');if(row){row.dataset.status=body.status;const status=row.querySelector('.status');if(status){status.textContent=body.status;status.className=`status ${body.status.toLowerCase().replaceAll(' ','-')}`;}}renderAll();setMessage(`Calculation status changed to ${body.status}.`);}catch(error){setMessage(error.message,'validation-error');}
   }
   function navigate(view){$$('[data-view]').forEach(button=>button.classList.toggle('active',button.dataset.view===view));$$('[data-view-panel]').forEach(panel=>panel.hidden=panel.dataset.viewPanel!==view);if(view==='comparison')renderComparison();}
 
   $$('.gum-nav [data-view]').forEach(button=>button.addEventListener('click',()=>navigate(button.dataset.view)));
   $('#contextbar').addEventListener('click',event=>{const button=event.target.closest('[data-context]');if(!button||state.status==='Approved')return;syncPoint();state.calculationType=button.dataset.context;state.points.forEach(point=>{point.backendResult=null;});renderContext();});
-  $('#jobId').addEventListener('change',()=>{const option=$('#jobId').selectedOptions[0];if(!option.value){state.jobId='';renderMeta();return;}if(option.dataset.status==='Completed'){state.jobId='';$('#jobId').value='';setMessage('Job Completed: this Job has already been completed and is locked. Request HOD authorization from the Job record.','validation-error');renderMeta();return;}state.jobId=option.value;state.jobNumber=option.dataset.number||'';state.jobStatus=option.dataset.status||'';state.customer=option.dataset.customer||'';state.projectNumber=option.dataset.projectNumber||'';state.projectName=option.dataset.projectName||'';state.mut=option.dataset.mut||'';state.mutAssetId=option.dataset.asset||'';state.serialNumber=option.dataset.serial||'';state.manufacturer=option.dataset.manufacturer||'';state.model=option.dataset.model||'';state.meterType=option.dataset.meter||'';state.rangeMin=option.dataset.rangeMin||'';state.rangeMax=option.dataset.rangeMax||'';state.rangeUnit=option.dataset.rangeUnit||'';state.flowPointCount=Math.max(1,Number(option.dataset.flowPointCount)||1);state.jobMethod=option.dataset.method||'';state.fluid=option.dataset.fluid||'';const configuredQuantity=String(option.dataset.quantity||'').toLowerCase();state.quantity=configuredQuantity.includes('volume')||volumeFlowUnits.has(state.rangeUnit)?'volume':'mass';state.analyst=option.dataset.analyst||state.analyst;state.calculationType=(state.jobMethod.toLowerCase().includes('coriolis')?'mutCor':'mutGrav');state.points=Array.from({length:state.flowPointCount},(_,index)=>({...blankPoint(),label:`Point ${index+1}`,flowUnit:state.rangeUnit}));state.activePoint=0;setMessage(`${state.flowPointCount} flow point${state.flowPointCount===1?'':'s'} loaded from the controlled Job record.`);renderAll();});
-  $('#jobSearch').addEventListener('input',event=>{const term=event.target.value.toLowerCase();[...$('#jobId').options].forEach((option,index)=>{if(index)option.hidden=!option.textContent.toLowerCase().includes(term);});});
+  $('#jobId').addEventListener('change',()=>{const option=$('#jobId').selectedOptions[0];if(!option.value){state.jobId='';$('#jobPicker').value='';renderMeta();return;}if(option.dataset.status==='Completed'){state.jobId='';$('#jobId').value='';$('#jobPicker').value='';setMessage('Job Completed: this Job has already been completed and is locked. Request HOD authorization from the Job record.','validation-error');renderMeta();return;}$('#jobPicker').value=option.dataset.display||option.textContent;state.jobId=option.value;state.jobNumber=option.dataset.number||'';state.jobStatus=option.dataset.status||'';state.customer=option.dataset.customer||'';state.projectNumber=option.dataset.projectNumber||'';state.projectName=option.dataset.projectName||'';state.mut=option.dataset.mut||'';state.mutAssetId=option.dataset.asset||'';state.serialNumber=option.dataset.serial||'';state.manufacturer=option.dataset.manufacturer||'';state.model=option.dataset.model||'';state.meterType=option.dataset.meter||'';state.rangeMin=option.dataset.rangeMin||'';state.rangeMax=option.dataset.rangeMax||'';state.rangeUnit=option.dataset.rangeUnit||'';state.flowPointCount=Math.max(1,Number(option.dataset.flowPointCount)||1);state.jobMethod=option.dataset.method||'';state.fluid=option.dataset.fluid||'';const configuredQuantity=String(option.dataset.quantity||'').toLowerCase();state.quantity=configuredQuantity.includes('volume')||volumeFlowUnits.has(state.rangeUnit)?'volume':'mass';state.analyst=option.dataset.analyst||state.analyst;state.calculationType=(state.jobMethod.toLowerCase().includes('coriolis')?'mutCor':'mutGrav');state.points=Array.from({length:state.flowPointCount},(_,index)=>({...blankPoint(),label:`Point ${index+1}`,flowUnit:state.rangeUnit}));state.activePoint=0;$('#jobSuggestions').hidden=true;$('#jobPicker').setAttribute('aria-expanded','false');setMessage(`${state.flowPointCount} flow point${state.flowPointCount===1?'':'s'} loaded from the controlled Job record.`);renderAll();});
+  function jobMatches(term){return [...$('#jobId').options].slice(1).filter(option=>(option.dataset.search||option.textContent).toLowerCase().includes(term.toLowerCase()));}
+  function showJobSuggestions(term=''){
+    const matches=jobMatches(term.trim()).slice(0,12),host=$('#jobSuggestions');
+    host.innerHTML=matches.map(option=>`<button type="button" role="option" data-job-option="${option.value}"><strong>${esc(option.dataset.display||option.textContent)}</strong><small>${esc([option.dataset.projectNumber,option.dataset.mut,option.dataset.calculationIds].filter(Boolean).join(' · '))}</small></button>`).join('')||'<div class="job-suggestion-empty">No matching active Project Job</div>';
+    host.hidden=false;$('#jobPicker').setAttribute('aria-expanded','true');return matches;
+  }
+  function chooseJob(jobId){$('#jobId').value=String(jobId);$('#jobId').dispatchEvent(new Event('change',{bubbles:true}));}
+  $('#jobPicker').addEventListener('focus',event=>showJobSuggestions(event.target.value));
+  $('#jobPicker').addEventListener('input',event=>showJobSuggestions(event.target.value));
+  $('#jobPicker').addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();const matches=jobMatches(event.target.value.trim());if(matches.length)chooseJob(matches[0].value);}else if(event.key==='Escape'){$('#jobSuggestions').hidden=true;event.target.setAttribute('aria-expanded','false');}});
+  $('#jobSuggestions').addEventListener('click',event=>{const choice=event.target.closest('[data-job-option]');if(choice)chooseJob(choice.dataset.jobOption);});
+  document.addEventListener('click',event=>{if(!event.target.closest('.job-combobox')){$('#jobSuggestions').hidden=true;$('#jobPicker').setAttribute('aria-expanded','false');}});
   ['#analyst','#calcDate','#fluid','#quantity'].forEach(id=>$(id).addEventListener('change',()=>{syncMeta();if(id==='#quantity')renderContext();}));
   ['#pointLabel','#nominalFlow','#flowUnit','#densityUnit','#refTemp','#refPressure','#coverageMode','#manualK','#coverageProb','#cmcExpression','#cmcA','#cmcB'].forEach(id=>$(id).addEventListener('change',()=>{syncPoint();currentPoint().backendResult=null;renderPoints();renderRuns();renderResult();}));
   $('#pointbar').addEventListener('click',event=>{const remove=event.target.closest('[data-delete-point]');if(remove){event.stopPropagation();state.points.splice(Number(remove.dataset.deletePoint),1);state.activePoint=Math.max(0,state.activePoint-1);renderContext();markDraftDirty();return;}const button=event.target.closest('[data-point]');if(button){syncPoint();state.activePoint=Number(button.dataset.point);renderContext();}});
@@ -283,7 +314,7 @@
   $('#calculatePointBtn').addEventListener('click',()=>calculate([currentPoint()],true).catch(()=>{})); $('#calculateBtn').addEventListener('click',()=>calculate().catch(()=>{})); $('#saveBtn').addEventListener('click',()=>save().catch(()=>{}));
   $('#newBtn').addEventListener('click',()=>{$('#newCalculationModal').hidden=false;});
   $('#cancelNewCalculation').addEventListener('click',()=>{$('#newCalculationModal').hidden=true;});
-  $('#confirmNewCalculation').addEventListener('click',async()=>{await autosaveDraft();$('#newCalculationModal').hidden=true;state=initialState();state.standalone=$('#gumApp').dataset.standalone==='1';draftDirty=false;$('#jobSearch').value='';renderAll();setMessage(state.standalone?'New standalone calculation ready. Results will not be retained.':'New calculation ready. Select a Job.');});
+  $('#confirmNewCalculation').addEventListener('click',async()=>{await autosaveDraft();clearLocalDraft();$('#newCalculationModal').hidden=true;state=initialState();state.standalone=$('#gumApp').dataset.standalone==='1';draftDirty=false;$('#jobPicker').value='';renderAll();setMessage(state.standalone?'New standalone calculation ready. Results will not be retained.':'New calculation ready. Select a Job.');});
   $('#workflowActions').addEventListener('click',event=>{const discard=event.target.closest('[data-discard-draft]');if(discard){discardDraft();return;}const button=event.target.closest('[data-workflow]');if(button)workflowAction(button.dataset.workflow);});
   $('#closeReviewAssignment').addEventListener('click',()=>{$('#reviewAssignmentModal').hidden=true;});
   $('#cancelReviewAssignment').addEventListener('click',()=>{$('#reviewAssignmentModal').hidden=true;});
@@ -309,6 +340,10 @@
     $('#workflowActions').hidden=true;
   }
   renderAll();
-  if(config.preselectedRecordId)loadRecord('calculation',config.preselectedRecordId);
+  const localDraft=readLocalDraft();
+  if(localDraft?.dirty){
+    state={...initialState(),...localDraft.state};state.points=state.points?.length?state.points:[blankPoint()];state.activePoint=Math.min(Number(state.activePoint)||0,state.points.length-1);draftDirty=true;navigate('calculator');renderAll();setMessage('Your unfinished uncertainty draft was restored.');if(canAutoSave())draftTimer=setTimeout(()=>autosaveDraft(false),250);
+  }
+  else if(config.preselectedRecordId)loadRecord('calculation',config.preselectedRecordId);
   else if(config.preselectedJobId){$('#jobId').value=String(config.preselectedJobId);$('#jobId').dispatchEvent(new Event('change'));}
 })();

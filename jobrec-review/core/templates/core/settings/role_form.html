@@ -1,0 +1,59 @@
+{% extends 'core/base.html' %}
+{% block title %}{{ title }}{% endblock %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto">
+
+{% url 'settings' as back_href %}
+{% include 'core/partials/back_link.html' with back_label='Back to Settings' %}    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-6">
+        <h1 class="text-xl font-bold text-gray-800 dark:text-gray-100 mb-6">
+            <i class="fas fa-user-tag text-blue-600 dark:text-blue-400 mr-2"></i>{{ title }}
+        </h1>
+        <form method="post" class="space-y-4">
+            {% csrf_token %}
+            <div>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Name</label>
+                {{ form.name }}
+                {% if form.name.errors %}<p class="text-red-500 text-xs mt-1">{{ form.name.errors.0 }}</p>{% endif %}
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Description</label>
+                {{ form.description }}
+                {% if form.description.errors %}<p class="text-red-500 text-xs mt-1">{{ form.description.errors.0 }}</p>{% endif %}
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Permissions</label>
+                <div x-data="{
+                    selected: [{% if form.instance.pk %}{% for p in form.instance.permissions.all %}'{{ p.pk }}'{% if not forloop.last %},{% endif %}{% endfor %}{% endif %}],
+                    search: ''
+                }">
+                    <input type="text" x-model="search" placeholder="Search permissions..."
+                           class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm mb-2">
+                    <div class="border border-gray-300 dark:border-gray-600 rounded-lg max-h-56 overflow-y-auto">
+                        {% for p in form.permissions.field.queryset %}
+                        <label class="flex items-center px-3 py-2 hover:bg-blue-50 dark:hover:bg-blue-900/20 cursor-pointer border-b border-gray-100 dark:border-gray-700 last:border-0"
+                               x-show="search === '' || '{{ p.name }}'.toLowerCase().includes(search.toLowerCase()) || '{{ p.codename }}'.toLowerCase().includes(search.toLowerCase())">
+                            <input type="checkbox" value="{{ p.pk }}" x-model="selected"
+                                    class="h-4 w-4 text-blue-600 dark:text-blue-400 border-gray-300 dark:border-gray-600 rounded mr-3 focus:ring-blue-500">
+                            <span class="text-sm text-gray-700 dark:text-gray-200">{{ p.name }}</span>
+                            <span class="text-xs text-gray-400 dark:text-gray-500 ml-1">({{ p.codename }})</span>
+                        </label>
+                        {% endfor %}
+                    </div>
+                    <p class="text-xs text-gray-500 dark:text-gray-400 mt-1"><span x-text="selected.length"></span> selected</p>
+                    <template x-for="val in selected" :key="val">
+                        <input type="hidden" name="permissions" :value="val">
+                    </template>
+                </div>
+                {% if form.permissions.errors %}<p class="text-red-500 text-xs mt-1">{{ form.permissions.errors.0 }}</p>{% endif %}
+            </div>
+            <div class="flex justify-end space-x-3 pt-4">
+                <a href="{% url 'settings_tab' 'roles' %}" class="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600">Cancel</a>
+                <button type="submit" class="px-6 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700">
+                    <i class="fas fa-save mr-1"></i>Save
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

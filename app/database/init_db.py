@@ -217,7 +217,7 @@ def _create_personnel_clause_schema(conn, postgres=False):
 _postgres_schema_verified = False
 
 
-def initialize_database():
+def _initialize_database():
     global _postgres_schema_verified
     if database_backend() == "postgresql":
         if _postgres_schema_verified:
@@ -245,6 +245,31 @@ def initialize_database():
                 VALUES ('admin_recovery_email','ikechukwuumezulike@gmail.com','email',
                     'System configuration',CURRENT_TIMESTAMP)
                 ON CONFLICT(setting_key) DO NOTHING""")
+            conn.execute("""CREATE TABLE IF NOT EXISTS recycle_bin (
+                id BIGSERIAL PRIMARY KEY,
+                entity_type TEXT NOT NULL,
+                entity_id BIGINT NOT NULL,
+                display_name TEXT NOT NULL,
+                original_location TEXT,
+                deleted_by TEXT NOT NULL,
+                deleted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(entity_type,entity_id)
+            )""")
+            conn.execute("""CREATE TABLE IF NOT EXISTS deletion_archive (
+                id BIGSERIAL PRIMARY KEY,
+                entity_type TEXT NOT NULL,
+                entity_id BIGINT NOT NULL,
+                display_name TEXT NOT NULL,
+                original_location TEXT,
+                originally_deleted_by TEXT NOT NULL,
+                originally_deleted_at TIMESTAMP NOT NULL,
+                archived_by TEXT NOT NULL,
+                archived_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                archive_month TEXT NOT NULL,
+                UNIQUE(entity_type,entity_id)
+            )""")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_recycle_bin_deleted_at ON recycle_bin(deleted_at)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_deletion_archive_month ON deletion_archive(archive_month,archived_at)")
             conn.execute("""CREATE TABLE IF NOT EXISTS capa_records (
                 id BIGSERIAL PRIMARY KEY,ncr_number TEXT NOT NULL UNIQUE,title TEXT NOT NULL,
                 source TEXT NOT NULL,clause_reference TEXT,description TEXT NOT NULL,
@@ -333,6 +358,9 @@ def initialize_database():
                 uploaded_by TEXT,created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE(calibration_record_id,point_order))""")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_master_curve_equipment ON master_meter_curve_points(equipment_id,calibration_record_id,flow_value)")
+            from app.modules.flow_environment import ensure_schema
+            ensure_schema(conn, postgres=True)
+            conn.execute("INSERT INTO roles(name,description) VALUES ('Chief Metrologist','Chief laboratory authority') ON CONFLICT(name) DO NOTHING")
             conn.commit()
             _postgres_schema_verified = True
         finally:
@@ -1797,6 +1825,7 @@ def initialize_database():
         VALUES (?, ?)
     """, [
         ("Chief Meteorologist", "Chief laboratory authority"),
+        ("Chief Metrologist", "Chief laboratory authority"),
         ("Supervisor", "Laboratory supervisor and approval authority"),
         ("Engineer", "Laboratory engineer"),
         ("Technician", "Laboratory Technician"),
@@ -1808,8 +1837,29 @@ def initialize_database():
         ("HOD", "Legacy role mapped to Chief Meteorologist"),
     ])
 
+    from app.modules.flow_environment import ensure_schema
+    ensure_schema(conn)
     conn.commit()
     conn.close()
+
+
+_schema_cache = set()
+from threading import RLock
+_schema_lock = RLock()
+
+
+def initialize_database():
+    """Initialize once per database file, not on every page/static request."""
+    from app.database import database
+    if database_backend() == 'postgresql':
+        return _initialize_database()
+    path = database.DATABASE_PATH.resolve()
+    with _schema_lock:
+        key = (str(path), path.stat().st_ino) if path.exists() else None
+        if key in _schema_cache:
+            return
+        _initialize_database()
+        _schema_cache.add((str(path), path.stat().st_ino))
 
 
 if __name__ == "__main__":

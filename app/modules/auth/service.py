@@ -1,4 +1,5 @@
 import hashlib
+import hmac
 
 from app.database.database import get_connection
 from app.modules.auth.models import User
@@ -20,6 +21,13 @@ class AuthService:
             password.encode("utf-8")
         ).hexdigest()
 
+    @staticmethod
+    def verify_password(password, encoded):
+        if '$' in encoded:
+            from django.contrib.auth.hashers import check_password
+            return check_password(password, encoded)
+        return hmac.compare_digest(encoded, AuthService.hash_password(password))
+
     # ------------------------------------------------------------------
     # Login
     # ------------------------------------------------------------------
@@ -29,12 +37,16 @@ class AuthService:
         user = self.repository.get_user(username)
 
         if user is None:
-            return None
+            from app.modules.integrated_accounts import authenticate_ei_administrator
+            if authenticate_ei_administrator(username,password):
+                user = self.repository.get_user(username)
+            if user is None:
+                return None
 
         if not user.is_active:
             return None
 
-        if user.password_hash != self.hash_password(password):
+        if not self.verify_password(password, user.password_hash):
             return None
 
         self.repository.update_last_login(user.id)

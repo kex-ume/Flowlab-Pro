@@ -1,0 +1,7 @@
+{% if is_admin %}
+<section class="panel"><div class="panel-head"><div><h3>Master Recycle Bin — All Laboratory Records</h3><small>Chief and administrator removals are retained by month. Only an administrator can restore these records.</small></div></div>
+{% for month,items in retained_batches.items() %}
+<details class="archive-batch" {% if loop.first %}open{% endif %}><summary>{{month}} · {{items|length}} records</summary><div class="table-scroll"><table><thead><tr><th>Record</th><th>Module / Type</th><th>Removed By</th><th>Date</th><th>Reason</th><th>Restore</th></tr></thead><tbody>
+{% for item in items %}<tr><td>{{item.previous_state.get('display') or ('ID ' ~ item.object_id)}}</td><td>{{item.target_type|replace('_',' ')|title}}</td><td>{{item.actor_name}}</td><td>{{item.archived_at.strftime('%d %b %Y %H:%M')}}</td><td>{{item.reason}}</td><td><details><summary class="button secondary">Restore</summary><form method="post" action="{{url_for('retained_record_restore',item_id=item.pk)}}"><input type="hidden" name="_admin_csrf" value="{{admin_csrf_token()}}"><label>Restoration reason<input name="reason" minlength="5" required></label><button>Confirm Restore</button></form></details></td></tr>{% endfor %}
+</tbody></table></div></details>{% else %}<p>No retained record removals.</p>{% endfor %}</section>
+{% endif %}

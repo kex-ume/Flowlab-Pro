@@ -1,0 +1,421 @@
+{% extends 'core/base.html' %}
+{% block title %}New Incoming Waybill{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto">
+
+{% url 'waybill_list' as back_href %}
+{% include 'core/partials/back_link.html' with back_label='Back to Waybills' %}    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-6">
+        <h1 class="text-xl font-bold text-gray-800 dark:text-gray-100 mb-6">
+            <i class="fas fa-truck-loading text-blue-600 dark:text-blue-400 mr-2"></i>New Incoming Waybill
+        </h1>
+
+        <form method="post" enctype="multipart/form-data" class="space-y-4">
+            {% csrf_token %}
+
+            <div>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Waybill No</label>
+                {{ form.waybill_no }}
+                <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">Leave blank to auto-generate</p>
+                {% if form.waybill_no.errors %}
+                <p class="text-red-500 dark:text-red-400 text-xs mt-1">{{ form.waybill_no.errors.0 }}</p>
+                {% endif %}
+            </div>
+
+             <div>
+                 <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">File Upload</label>
+                 {{ form.file_upload }}
+                 {% if form.file_upload.errors %}
+                 <p class="text-red-500 dark:text-red-400 text-xs mt-1">{{ form.file_upload.errors.0 }}</p>
+                 {% endif %}
+                 <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">Upload the waybill document or image</p>
+             {% if can_scan %}
+                  <button type="button" id="scan-doc-btn"
+                          class="mt-2 px-3 py-1.5 bg-purple-600 text-white text-xs font-medium rounded-lg hover:bg-purple-700 transition-colors">
+                      <i class="fas fa-brain mr-1"></i>Scan &amp; Auto-fill Equipment
+                  </button>
+                  <p id="scan-hint" class="text-xs text-gray-400 dark:text-gray-500 mt-1">
+                      Scans the uploaded document and adds one item per detected serial number.
+                  </p>
+             {% endif %}
+             </div>
+
+            <div class="border-t dark:border-gray-700 pt-4">
+                <h3 class="text-lg font-semibold text-gray-800 dark:text-gray-100 mb-3">Equipment Items</h3>
+                <div id="items-container" class="space-y-4">
+                </div>
+                <button type="button" onclick="addItemBlock()"
+                        class="mt-2 px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors">
+                    <i class="fas fa-plus mr-1"></i>Add Item
+                </button>
+            </div>
+
+            <div class="flex items-center justify-end space-x-3 pt-4">
+                <a href="{% url 'waybill_list' %}"
+                   class="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors">
+                    Cancel
+                </a>
+                <button type="submit"
+                        class="px-6 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors">
+                    <i class="fas fa-save mr-1"></i>Create Waybill
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+let blockCounter = 0;
+
+function fillBlanksFromFirst() {
+    document.querySelectorAll('.item-block').forEach(block => {
+        const rows = block.querySelectorAll('.detail-row');
+        if (rows.length < 2) return;
+        const first = rows[0];
+        const getVal = (row, name) => row.querySelector(`input[name="${name}"]`).value;
+        const modelVal = getVal(first, 'sub_model_no[]');
+        const mfrVal = getVal(first, 'sub_manufacturer[]');
+        const rangeVal = getVal(first, 'sub_range[]');
+        for (let i = 1; i < rows.length; i++) {
+            const r = rows[i];
+            if (!r.querySelector('input[name="sub_model_no[]"]').value && modelVal)
+                r.querySelector('input[name="sub_model_no[]"]').value = modelVal;
+            if (!r.querySelector('input[name="sub_manufacturer[]"]').value && mfrVal)
+                r.querySelector('input[name="sub_manufacturer[]"]').value = mfrVal;
+            if (!r.querySelector('input[name="sub_range[]"]').value && rangeVal)
+                r.querySelector('input[name="sub_range[]"]').value = rangeVal;
+        }
+    });
+}
+
+document.querySelector('form').addEventListener('submit', fillBlanksFromFirst);
+
+function addItemBlock(description, quantity) {
+    const container = document.getElementById('items-container');
+    const blockId = `block_${blockCounter++}`;
+    const block = document.createElement('div');
+    block.className = 'item-block border border-gray-200 dark:border-gray-700 rounded-lg p-4 bg-gray-50 dark:bg-gray-700';
+    block.id = blockId;
+    block.innerHTML = `
+        <div class="flex items-start justify-between mb-3">
+            <h4 class="text-sm font-semibold text-gray-700 dark:text-gray-200">Item #<span class="item-number">${container.children.length + 1}</span></h4>
+            <button type="button" onclick="if (confirm('Remove this item?')) removeItemBlock('${blockId}')"
+                    class="text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-400 text-sm">
+                <i class="fas fa-trash"></i> Remove
+            </button>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
+            <div class="md:col-span-2">
+                <label class="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">Equipment Description</label>
+                <input type="text" name="equipment_description[]"
+                       class="w-full px-2 py-1.5 border border-gray-300 dark:border-gray-600 rounded text-sm"
+                       placeholder="Description" value="${description || ''}" required>
+            </div>
+            <div>
+                <label class="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">Quantity</label>
+                <input type="number" name="quantity[]" min="1" value="${quantity || 1}"
+                       class="w-full px-2 py-1.5 border border-gray-300 dark:border-gray-600 rounded text-sm quantity-input"
+                       placeholder="Qty" required
+                       oninput="generateDetailRows('${blockId}')">
+            </div>
+        </div>
+        <div class="detail-rows space-y-2"></div>
+    `;
+    container.appendChild(block);
+    generateDetailRows(blockId);
+    updateItemNumbers();
+    return blockId;
+}
+
+function removeItemBlock(blockId) {
+    const block = document.getElementById(blockId);
+    block.remove();
+    updateItemNumbers();
+}
+
+function updateItemNumbers() {
+    document.querySelectorAll('.item-number').forEach((el, i) => {
+        el.textContent = i + 1;
+    });
+}
+
+function generateDetailRows(blockId) {
+    const block = document.getElementById(blockId);
+    if (!block) return;
+    const qtyInput = block.querySelector('.quantity-input');
+    const detailContainer = block.querySelector('.detail-rows');
+    const qty = parseInt(qtyInput.value) || 1;
+    const currentRows = detailContainer.children.length;
+
+    if (qty > currentRows) {
+        for (let i = currentRows; i < qty; i++) {
+            const row = document.createElement('div');
+            row.className = 'detail-row grid grid-cols-1 md:grid-cols-4 gap-2 p-2 bg-white dark:bg-gray-800 rounded border border-gray-100 dark:border-gray-700';
+            row.innerHTML = `
+                <input type="hidden" name="sub_equipment_description[]" value="${block.querySelector('input[name="equipment_description[]"]').value}">
+                <div>
+                    <label class="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">Serial No</label>
+                    <input type="text" name="sub_serial_no[]"
+                           class="w-full px-2 py-1.5 border border-gray-300 dark:border-gray-600 rounded text-sm"
+                           placeholder="S/N" required>
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">Model No</label>
+                    <input type="text" name="sub_model_no[]"
+                           class="w-full px-2 py-1.5 border border-gray-300 dark:border-gray-600 rounded text-sm"
+                           placeholder="Model">
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">Manufacturer</label>
+                    <input type="text" name="sub_manufacturer[]"
+                           class="w-full px-2 py-1.5 border border-gray-300 dark:border-gray-600 rounded text-sm"
+                           placeholder="Manufacturer">
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">Range</label>
+                    <input type="text" name="sub_range[]"
+                           class="w-full px-2 py-1.5 border border-gray-300 dark:border-gray-600 rounded text-sm"
+                           placeholder="Range">
+                </div>
+            `;
+            detailContainer.appendChild(row);
+        }
+    } else if (qty < currentRows) {
+        for (let i = currentRows - 1; i >= qty; i--) {
+            detailContainer.children[i].remove();
+        }
+    }
+
+    updateSyncEquipmentDesc(blockId);
+}
+
+function updateSyncEquipmentDesc(blockId) {
+    const block = document.getElementById(blockId);
+    if (!block) return;
+    const desc = block.querySelector('input[name="equipment_description[]"]').value;
+    block.querySelectorAll('input[name="sub_equipment_description[]"]').forEach(inp => {
+        inp.value = desc;
+    });
+}
+
+document.addEventListener('input', function(e) {
+    if (e.target.matches('input[name="equipment_description[]"]')) {
+        const block = e.target.closest('.item-block');
+        if (block) updateSyncEquipmentDesc(block.id);
+    }
+});
+
+function getCookie(name) {
+    const m = document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'));
+    return m ? decodeURIComponent(m[2]) : null;
+}
+
+const TESSERACT_CDN = 'https://cdn.jsdelivr.net/npm/tesseract.js@5.0.0/dist/tesseract.min.js';
+const TESSERACT_DIST = 'https://cdn.jsdelivr.net/npm/tesseract.js@5.0.0/dist/';
+
+function loadTesseract() {
+    return new Promise((resolve, reject) => {
+        if (window.Tesseract) return resolve(window.Tesseract);
+        const s = document.createElement('script');
+        s.src = TESSERACT_CDN;
+        s.onload = () => resolve(window.Tesseract);
+        s.onerror = reject;
+        document.head.appendChild(s);
+    });
+}
+
+async function serverOcr(file) {
+    const fd = new FormData();
+    fd.append('file', file);
+    const resp = await fetch("{% url 'ocr_scan_upload' %}", {
+        method: 'POST', headers: {'X-CSRFToken': getCookie('csrftoken')}, body: fd,
+    });
+    const data = await resp.json();
+    return {items: data.items || [], mock: data.mock, error: data.error};
+}
+
+async function fileToCanvas(file) {
+    // Draw an image file onto an <canvas> so tesseract.js can read it.
+    return new Promise((resolve, reject) => {
+        const url = URL.createObjectURL(file);
+        const img = new Image();
+        img.onload = () => {
+            const c = document.createElement('canvas');
+            c.width = img.width;
+            c.height = img.height;
+            c.getContext('2d').drawImage(img, 0, 0);
+            URL.revokeObjectURL(url);
+            resolve(c);
+        };
+        img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Could not load image')); };
+        img.crossOrigin = 'Anonymous';
+        img.src = url;
+    });
+}
+
+async function pdfToCanvas(file, logger) {
+    // Render every page of a PDF onto one tall canvas (stacked with gaps between
+    // pages so rows from different pages don't merge in the column parser).
+    const pdfjs = await import('https://cdn.jsdelivr.net/npm/pdfjs-dist@4.4.168/+esm');
+    const data = await file.arrayBuffer();
+    const pdf = await pdfjs.getDocument({data}).promise;
+    const pages = [];
+    for (let i = 1; i <= pdf.numPages; i++) {
+        const page = await pdf.getPage(i);
+        const viewport = page.getViewport({scale: 1.5});
+        const c = document.createElement('canvas');
+        c.width = Math.ceil(viewport.width);
+        c.height = Math.ceil(viewport.height);
+        await page.render({canvasContext: c.getContext('2d'), viewport}).promise;
+        pages.push({canvas: c, height: viewport.height});
+    }
+    const width = Math.max(...pages.map(p => p.canvas.width));
+    const height = pages.reduce((s, p) => s + Math.ceil(p.height) + 50, 0) - 50;
+    const combined = document.createElement('canvas');
+    combined.width = width;
+    combined.height = height;
+    const ctx = combined.getContext('2d');
+    let y = 0;
+    for (const p of pages) {
+        ctx.drawImage(p.canvas, 0, y);
+        y += Math.ceil(p.height) + 50;
+    }
+    return combined;
+}
+
+async function browserOcr(file) {
+    const T = await loadTesseract();
+    const worker = T.createWorker({
+        workerPath: TESSERACT_DIST,
+        logger: m => console.log('[tesseract]', m.status || ''),
+    });
+    await worker.load();
+    await worker.loadLanguage('eng');
+    await worker.initialize('eng');
+
+    let canvas;
+    try {
+        if (file.type === 'application/pdf') {
+            canvas = await pdfToCanvas(file);
+        } else {
+            canvas = await fileToCanvas(file);
+        }
+    } catch (e) {
+        canvas = null;
+        console.error('[scan]', e);
+    }
+
+    let data = null;
+    if (canvas) {
+        try {
+            // getBoundingBox returns per-word boxes used for accurate column parsing
+            ({data} = await worker.recognize(canvas, 'eng', {gatherBoxes: 1}));
+        } catch (e) {
+            console.error('[scan] tesseract on canvas failed', e);
+        }
+    }
+    await worker.terminate();
+
+    // send word-level boxes to the server parser (falls back to raw text if empty)
+    const lines = [];
+    (data && (data.lines || [])).forEach(line => {
+        (line.words || []).forEach(w => {
+            const b = w.bbox || {};
+            let bbox = null;
+            if (b.x0 != null && b.x1 != null) {
+                bbox = [[b.x0, b.y0], [b.x1, b.y0], [b.x1, b.y1], [b.x0, b.y1]];
+            }
+            lines.push({
+                text: w.text || '',
+                confidence: (w.accuracy != null ? w.accuracy / 100 : 1),
+                bbox,
+            });
+        });
+    });
+
+    const resp = await fetch("{% url 'ocr_parse_text' %}", {
+        method: 'POST',
+        headers: {'X-CSRFToken': getCookie('csrftoken'), 'Content-Type': 'application/json'},
+        body: JSON.stringify({lines: lines, text: (data && data.text) || ''}),
+    });
+    const out = await resp.json();
+    return {items: out.items || [], mock: false, error: out.error, raw_text: out.raw_text};
+}
+
+async function ocrServiceAvailable() {
+    try {
+        const r = await fetch("{% url 'ocr_health' %}", {headers: {'X-CSRFToken': getCookie('csrftoken')}});
+        const h = await r.json();
+        return !!h.ocr_available;
+    } catch (e) { return false; }
+}
+
+function fillItemBlock(blockId, item) {
+    const block = document.getElementById(blockId);
+    if (!block) return;
+    const desc = block.querySelector('input[name="equipment_description[]"]');
+    if (desc) desc.value = item.equipment_description || '';
+    const firstRow = block.querySelector('.detail-row');
+    if (firstRow) {
+        const set = (name, val) => {
+            const inp = firstRow.querySelector(`input[name="${name}"]`);
+            if (inp) inp.value = val || '';
+        };
+        set('sub_serial_no[]', item.serial_no);
+        set('sub_model_no[]', item.model_no);
+        set('sub_manufacturer[]', item.manufacturer);
+        set('sub_range[]', item.range_field);
+    }
+}
+
+function applyItems(items) {
+    document.getElementById('items-container').innerHTML = '';
+    blockCounter = 0;
+    items.forEach(it => {
+        const bid = addItemBlock(it.equipment_description, 1);
+        fillItemBlock(bid, it);
+    });
+    updateItemNumbers();
+}
+
+async function scanDocument() {
+    const fileInput = document.getElementById('id_file_upload');
+    const btn = document.getElementById('scan-doc-btn');
+    const hint = document.getElementById('scan-hint');
+    if (!fileInput || !fileInput.files || !fileInput.files[0]) {
+        alert('Please choose a waybill document first.');
+        return;
+    }
+    if (document.querySelectorAll('.item-block').length > 0
+        && !confirm('This will replace the currently listed equipment items. Continue?')) return;
+
+    btn.disabled = true; btn.style.opacity = '0.6';
+    const file = fileInput.files[0];
+    const haveServerOcr = await ocrServiceAvailable();
+    hint.textContent = haveServerOcr ? 'Scanning document… (server)' : 'Loading OCR engine… (browser)';
+
+    try {
+        const res = haveServerOcr ? await serverOcr(file) : await browserOcr(file);
+        if (res.error && !res.items.length) {
+            hint.textContent = 'OCR unavailable — enter items manually.';
+            return;
+        }
+        if (!res.items.length) {
+            hint.textContent = 'No equipment items were detected in the document.';
+            return;
+        }
+        applyItems(res.items);
+        hint.textContent = res.items.length + ' item(s) auto-filled from the document.';
+    } catch (err) {
+        hint.textContent = 'Scan failed — enter items manually.';
+        console.error(err);
+    } finally {
+        btn.disabled = false; btn.style.opacity = '';
+    }
+}
+
+document.getElementById('scan-doc-btn')?.addEventListener('click', scanDocument);
+
+addItemBlock();
+</script>
+{% endblock %}

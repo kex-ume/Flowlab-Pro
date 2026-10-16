@@ -1,0 +1,33 @@
+{% extends 'core/base.html' %}
+{% block title %}Deactivate Equipment{% endblock %}
+
+{% block content %}
+<div class="max-w-lg mx-auto">
+
+{% url 'primary_list' as back_href %}
+{% include 'core/partials/back_link.html' with back_label='Back to Primaries' %}    <div class="bg-white rounded-xl shadow-sm dark:bg-gray-800 p-6">
+        <div class="text-center mb-6">
+            <div class="w-16 h-16 bg-red-100 dark:bg-red-900/30 rounded-full flex items-center justify-center mx-auto mb-4">
+                <i class="fas fa-exclamation-triangle text-red-600 dark:text-red-400 text-2xl"></i>
+            </div>
+            <h1 class="text-xl font-bold text-gray-800 dark:text-gray-100 mb-2">Deactivate Equipment</h1>
+            <p class="text-gray-500 dark:text-gray-400">
+                Deactivate this equipment while retaining its calibration records and audit history:
+                <strong>{{ primary.name }}</strong>
+                <span class="text-gray-500 dark:text-gray-400">({{ primary.serial_no|default:"No serial" }})</span>?
+            </p>
+        </div>
+        <form method="post" class="flex items-center justify-center space-x-3">
+            {% csrf_token %}
+            <a href="{% url 'primary_detail' primary.pk %}"
+               class="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors">
+                Cancel
+            </a>
+            <button type="submit"
+                    class="px-6 py-2 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700 transition-colors">
+                Deactivate
+            </button>
+        </form>
+    </div>
+</div>
+{% endblock %}

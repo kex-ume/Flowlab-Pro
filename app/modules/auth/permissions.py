@@ -5,7 +5,7 @@ class Permissions:
         "equipment_add": True, "equipment_edit": True, "equipment_delete": True,
         "edit_approved": True, "record_approve": True, "record_review": True, "calibration": True,
         "maintenance": True, "reports": True, "dashboard": True,
-        "user_management": True, "settings": True, "uncertainty_calculate": True,
+        "user_management": False, "settings": True, "uncertainty_calculate": True,
         "uncertainty_save": True, "uncertainty_approve": True,
         "project_create": True, "client_create": True, "job_reopen": True,
         "job_assign": True,
@@ -30,12 +30,13 @@ class Permissions:
 
     PERMISSIONS = {
         "Chief Meteorologist": _CHIEF,
+        "Chief Metrologist": _CHIEF,
         "Supervisor": _SUPERVISOR,
         "Engineer": _ENGINEER,
         "Technician": _TECHNICIAN,
         "Operator": _OPERATOR,
         "Guest": _GUEST,
-        "Administrator": _CHIEF,
+        "Administrator": {**_CHIEF, "user_management": True},
         "Manager": _ENGINEER,
         "HOD": _CHIEF,
         "Viewer": _GUEST,

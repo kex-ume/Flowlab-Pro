@@ -1,0 +1,169 @@
+{% extends 'core/base.html' %}
+{% block title %}New Outgoing Waybill{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto">
+
+{% url 'waybill_list' as back_href %}
+{% include 'core/partials/back_link.html' with back_label='Back to Waybills' %}    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-6">
+        <h1 class="text-xl font-bold text-gray-800 dark:text-gray-100 mb-6">
+            <i class="fas fa-truck text-green-600 dark:text-green-400 mr-2"></i>New Outgoing Waybill
+        </h1>
+
+        <form method="post" enctype="multipart/form-data" class="space-y-4">
+            {% csrf_token %}
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Incoming Waybill No</label>
+                    <input type="text" name="incoming_waybill_no" id="incoming_waybill_no"
+                           class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg"
+                           placeholder="Auto-filled from the selected job"
+                           value="{{ request.GET.incoming|default:initial_incoming_no }}"
+                           onblur="fetchIncomingWaybill()">
+                    <p id="incoming_status" class="text-xs mt-1"></p>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Outgoing Waybill No</label>
+                    <input type="text" name="waybill_no"
+                           class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg"
+                           placeholder="New Outgoing Waybill Number" required>
+                </div>
+            </div>
+
+            <div>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Job <span class="text-red-500">*</span></label>
+                {{ form.job }}
+                {% if form.job.errors %}
+                <p class="text-red-500 dark:text-red-400 text-xs mt-1">{{ form.job.errors.0 }}</p>
+                {% endif %}
+                <p id="po_warning" class="hidden text-xs mt-1 text-red-600 dark:text-red-400 font-medium"></p>
+                <p id="job_hint" class="hidden text-xs mt-1 text-gray-500 dark:text-gray-400"></p>
+            </div>
+
+            <div>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">File Upload</label>
+                <input type="file" name="file_upload"
+                       class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg">
+            </div>
+
+            <div id="incoming_items_section" class="border-t dark:border-gray-700 pt-4" style="display:none;">
+                <h3 class="text-lg font-semibold text-gray-800 dark:text-gray-100 mb-3">
+                    <i class="fas fa-clipboard-list text-blue-600 dark:text-blue-400 mr-2"></i>Items from Incoming Waybill
+                </h3>
+                <p class="text-sm text-gray-500 dark:text-gray-400 mb-3">Select items to transfer to the outgoing waybill:</p>
+                <div id="items_list" class="space-y-2">
+                </div>
+            </div>
+
+            <div class="flex items-center justify-end space-x-3 pt-4">
+                <a href="{% url 'waybill_list' %}"
+                   class="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors">
+                    Cancel
+                </a>
+                <button type="submit" id="submitBtn"
+                        class="px-6 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition-colors">
+                    <i class="fas fa-save mr-1"></i>Create Outgoing Waybill
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+const JOBS_DATA = {{ jobs_data|safe }};
+const jobSelect = document.getElementById('id_job');
+const poWarn = document.getElementById('po_warning');
+const jobHint = document.getElementById('job_hint');
+const submitBtn = document.getElementById('submitBtn');
+
+function applyJobSelection(overwriteIncoming) {
+    const info = JOBS_DATA[jobSelect ? jobSelect.value : ''];
+    if (!info) {
+        poWarn.classList.add('hidden');
+        jobHint.classList.add('hidden');
+        if (submitBtn) submitBtn.disabled = false;
+        return;
+    }
+    const inInput = document.getElementById('incoming_waybill_no');
+    // Auto-pick the incoming waybill no from the selected job
+    if (info.incoming_no && (overwriteIncoming || !inInput.value)) {
+        inInput.value = info.incoming_no;
+        fetchIncomingWaybill();
+    }
+    // PO guard: no outgoing waybill without an established purchase order
+    if (!info.po) {
+        poWarn.textContent = 'This job has no Purchase Order number. Establish a PO on the job before creating an outgoing waybill.';
+        poWarn.classList.remove('hidden');
+        if (submitBtn) submitBtn.disabled = true;
+    } else {
+        poWarn.classList.add('hidden');
+        if (submitBtn) submitBtn.disabled = false;
+    }
+    if (info.client) {
+        jobHint.textContent = 'Client: ' + info.client + (info.po ? ' · PO: ' + info.po : '');
+        jobHint.classList.remove('hidden');
+    } else {
+        jobHint.classList.add('hidden');
+    }
+}
+
+if (jobSelect) {
+    jobSelect.addEventListener('change', () => applyJobSelection(true));
+    applyJobSelection(false);
+}
+// If an incoming waybill no is pre-filled (?incoming=), load its items right away
+if (document.getElementById('incoming_waybill_no').value) {
+    fetchIncomingWaybill();
+}
+
+function fetchIncomingWaybill() {
+    const waybillNo = document.getElementById('incoming_waybill_no').value;
+    const statusEl = document.getElementById('incoming_status');
+    const itemsSection = document.getElementById('incoming_items_section');
+    const itemsList = document.getElementById('items_list');
+
+    if (!waybillNo) {
+        statusEl.textContent = '';
+        statusEl.className = 'text-xs mt-1';
+        itemsSection.style.display = 'none';
+        return;
+    }
+
+    statusEl.textContent = 'Searching...';
+    statusEl.className = 'text-xs mt-1 text-gray-500';
+
+    fetch(`/waybills/fetch-incoming/?waybill_no=${encodeURIComponent(waybillNo)}`)
+        .then(r => r.json())
+        .then(data => {
+            if (data.found) {
+                statusEl.textContent = `Found ${data.items.length} item(s)`;
+                statusEl.className = 'text-xs mt-1 text-green-600 font-medium';
+                itemsSection.style.display = 'block';
+                itemsList.innerHTML = '';
+                data.items.forEach(item => {
+                    const div = document.createElement('div');
+                    div.className = 'flex items-center p-3 bg-gray-50 dark:bg-gray-700 rounded-lg';
+                    div.innerHTML = `
+                        <input type="checkbox" name="selected_items" value="${item.id}"
+                               class="h-4 w-4 text-blue-600 dark:text-blue-400 border-gray-300 dark:border-gray-600 rounded mr-3">
+                        <div class="flex-1">
+                            <p class="text-sm font-medium text-gray-800 dark:text-gray-100">${item.equipment_description}</p>
+                            <p class="text-xs text-gray-500 dark:text-gray-400">S/N: ${item.serial_no} | Qty: ${item.quantity} | Model: ${item.model_no || '-'} | Mfr: ${item.manufacturer || '-'} | Range: ${item.range_field || '-'}</p>
+                        </div>
+                    `;
+                    itemsList.appendChild(div);
+                });
+            } else {
+                statusEl.textContent = 'Incoming waybill not found';
+                statusEl.className = 'text-xs mt-1 text-red-600 font-medium';
+                itemsSection.style.display = 'none';
+            }
+        })
+        .catch(err => {
+            statusEl.textContent = 'Error searching waybill';
+            statusEl.className = 'text-xs mt-1 text-red-600 font-medium';
+        });
+}
+</script>
+{% endblock %}

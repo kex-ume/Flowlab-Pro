@@ -1,5 +1,6 @@
 {% extends 'base.html' %}
 {% block content %}
+{% include '_master_record_bin.html' %}
 <link rel="stylesheet" href="{{ url_for('static', filename='jobs.css') }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='recycle.css') }}">
 <section class="module-intro"><div><span class="eyebrow">Recoverable deletion</span><h1>Recycle Bin</h1><p>Deleted records remain recoverable. Removing an item from this bin transfers it to the retained Administrator archive.</p></div><span class="module-count">{{ rows|length }} items</span></section>

@@ -1,0 +1,851 @@
+{% extends 'core/base.html' %}
+{% block title %}{% if object %}Edit Calibration Log{% else %}New Calibration Log{% endif %}{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto">
+
+{% url 'calibration_log_list' as back_href %}
+{% include 'core/partials/back_link.html' with back_label='Back to Calibration Logs' %}    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-6">
+        <h1 class="text-xl font-bold text-gray-800 dark:text-gray-100 mb-6">
+            <i class="fas fa-clipboard-check text-blue-600 dark:text-blue-400 mr-2"></i>
+            {% if object %}Edit Calibration Log{% else %}New Calibration Log{% endif %}
+        </h1>
+
+        <form method="post" class="space-y-4" id="calibrationForm" enctype="multipart/form-data">
+            {% csrf_token %}
+            {{ form.readings_found_json }}
+            {{ form.readings_left_json }}
+            {{ form.specs_json }}
+
+            {% if form.non_field_errors %}
+            <div class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 px-4 py-3 rounded-lg text-sm">
+                {{ form.non_field_errors }}
+            </div>
+            {% endif %}
+
+            <div class="border-b dark:border-gray-700 pb-4 mb-4">
+                <h2 class="text-lg font-semibold text-gray-800 dark:text-gray-100 mb-3">Equipment Information</h2>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Equipment</label>
+                        {{ form.equipment_desc }}
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Serial No</label>
+                        {{ form.serial_no }}
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Manufacturer</label>
+                        {{ form.manufacturer }}
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Model No</label>
+                        {{ form.model_no }}
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Range</label>
+                        {{ form.range_value }}
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Scope(s) of Calibration</label>
+                        <div class="space-y-1 max-h-48 overflow-y-auto border border-gray-200 dark:border-gray-600 rounded-lg p-3 bg-gray-50 dark:bg-gray-700">
+                            {% for scope in form.fields.scopes.queryset %}
+                            <label class="flex items-center space-x-2 text-sm text-gray-700 dark:text-gray-200">
+                                <input type="checkbox" name="scopes" value="{{ scope.pk }}"
+                                       class="scope-chk h-4 w-4 text-blue-600 rounded dark:bg-gray-600"
+                                       {% if scope.pk|stringformat:'s' in selected_scopes %}checked{% endif %}>
+                                <span>{{ scope.name }}</span>
+                            </label>
+                            {% endfor %}
+                        </div>
+                        <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">A single log may span several scopes (e.g. a multi-range instrument). The unit selector below covers all selected scopes.</p>
+                        {% if form.scopes.errors %}
+                        <p class="text-red-500 dark:text-red-400 text-xs mt-1">{{ form.scopes.errors.0 }}</p>
+                        {% endif %}
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Asset / Equipment ID</label>
+                        {{ form.asset_id }}
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Reference Standards (Primaries)</label>
+                        {{ form.standards }}
+                        {% if form.standards.errors %}
+                        <p class="text-red-500 dark:text-red-400 text-xs mt-1">{{ form.standards.errors.0 }}</p>
+                        {% endif %}
+                        <div id="refChips" class="flex flex-wrap gap-2 mt-2"></div>
+                        <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                            Standards matching the pre-cal scope(s) / unit(s) / range are pre-selected.
+                            Hold Ctrl/Cmd to adjust. Ref ID = standard serial no., Cert = its calibration certificate.
+                        </p>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Equipment Owner</label>
+                        {{ form.equipment_owner }}
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Physical Condition</label>
+                        {{ form.physical_condition }}
+                    </div>
+                </div>
+                <!-- Active procedure panel -->
+                <div id="procedurePanel" class="hidden mt-4 border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20 rounded-lg p-3">
+                    <div class="flex items-start justify-between">
+                        <h3 class="text-sm font-semibold text-blue-800 dark:text-blue-300 mb-1">
+                            <i class="fas fa-book-open mr-1"></i>Calibration Procedure: <span id="procedureTitle"></span>
+                        </h3>
+                        <button type="button" id="applyTestPoints"
+                                class="px-2 py-1 text-xs font-medium rounded border border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/40">
+                            <i class="fas fa-magic mr-1"></i>Apply Test Points
+                        </button>
+                    </div>
+                    <p id="procedureManualRef" class="text-xs text-blue-700 dark:text-blue-400 mb-2"></p>
+                    <ol id="procedureSteps" class="list-decimal list-inside text-xs text-gray-700 dark:text-gray-300 space-y-0.5"></ol>
+                </div>
+            </div>
+
+            <div class="border-b dark:border-gray-700 pb-4 mb-4">
+                <h2 class="text-lg font-semibold text-gray-800 dark:text-gray-100 mb-3">Environmental Condition</h2>
+                <div class="space-y-3">
+                    <div class="flex items-center">
+                        {{ form.use_manual_env }}
+                        <label for="{{ form.use_manual_env.id_for_label }}" class="ml-2 text-sm text-gray-600 dark:text-gray-300">
+                            Enter environmental data manually
+                        </label>
+                    </div>
+                    <div id="env-select" class="grid grid-cols-1 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Select from Recorded Data</label>
+                            {{ form.environmental_condition }}
+                        </div>
+                    </div>
+                    <div id="env-manual" class="grid grid-cols-1 md:grid-cols-2 gap-4" style="display:none;">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Temperature (&deg;C)</label>
+                            {{ form.manual_temperature }}
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Humidity (%)</label>
+                            {{ form.manual_humidity }}
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Temperature Tolerance</label>
+                            {{ form.temp_tolerance }}
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Humidity Tolerance</label>
+                            {{ form.rh_tolerance }}
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Supply Voltage (V)</label>
+                            {{ form.supply_voltage }}
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Supply Voltage Tolerance</label>
+                            {{ form.supply_voltage_tolerance }}
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Supply Frequency (Hz)</label>
+                            {{ form.supply_frequency }}
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Supply Frequency Tolerance</label>
+                            {{ form.supply_frequency_tolerance }}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="border-b dark:border-gray-700 pb-4 mb-4">
+                <h2 class="text-lg font-semibold text-gray-800 dark:text-gray-100 mb-3">Calibration Details</h2>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Calibrated At (Location)</label>
+                        {{ form.calibrated_at_location }}
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Calibration Date</label>
+                        {{ form.calibrated_at_date }}
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Date of Issue</label>
+                        {{ form.date_of_issue }}
+                        <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">Defaults to the approval date when left blank.</p>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Calibrated By</label>
+                        {{ form.calibrated_by }}
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Reviewer</label>
+                        {{ form.reviewer }}
+                        <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">Reviews this data; their profile signature is stamped on review and printed on the certificate.</p>
+                        {% if form.reviewer.errors %}
+                        <p class="text-red-500 dark:text-red-400 text-xs mt-1">{{ form.reviewer.errors.0 }}</p>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+
+            <!-- Instrument Specs Table -->
+            <div class="border-b dark:border-gray-700 pb-4 mb-4">
+                <div class="flex items-center justify-between mb-3">
+                    <h2 class="text-lg font-semibold text-gray-800 dark:text-gray-100">
+                        <i class="fas fa-list-ul text-blue-600 dark:text-blue-400 mr-2"></i>Instrument Specs
+                    </h2>
+                    <button type="button" id="addSpecRow"
+                            class="px-3 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 transition-colors">
+                        <i class="fas fa-plus mr-1"></i>Add Spec
+                    </button>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-sm">
+                        <thead>
+                            <tr class="text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider bg-gray-50 dark:bg-gray-700">
+                                <th class="px-3 py-2">Spec Name</th>
+                                <th class="px-3 py-2">Spec Value</th>
+                                <th class="px-3 py-2 w-10"></th>
+                            </tr>
+                        </thead>
+                        <tbody id="specsBody">
+                        </tbody>
+                    </table>
+                </div>
+                <p class="text-xs text-gray-500 dark:text-gray-400 mt-2">Instrument-type-specific specifications printed on the certificate (e.g. Resolution, Full Scale).</p>
+            </div>
+
+            <!-- Readings: As Found / As Left -->
+            <div class="border-b dark:border-gray-700 pb-4 mb-4">
+                <div class="flex items-center justify-between mb-3">
+                    <h2 class="text-lg font-semibold text-gray-800 dark:text-gray-100">
+                        <i class="fas fa-table text-blue-600 dark:text-blue-400 mr-2"></i>Readings
+                    </h2>
+                </div>
+                <div class="flex items-center space-x-3 mb-3">
+                    <label class="text-sm font-medium text-gray-700 dark:text-gray-200">Unit:</label>
+                    <select id="unitSelector" class="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm">
+                        <option value="" id="unitLoadingOption">-- No Unit --</option>
+                    </select>
+                    <span id="unitLoadingSpinner" class="hidden text-gray-400 dark:text-gray-500"><i class="fas fa-spinner fa-spin mr-1"></i>Loading...</span>
+                    <button type="button" id="refreshUnitsBtn" title="Fetch units for this scope from the online catalog"
+                            class="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700">
+                        <i class="fas fa-sync-alt mr-1"></i>Refresh
+                    </button>
+                    <span class="text-xs text-gray-500 dark:text-gray-400">Selected unit applies to all rows in both tables</span>
+                </div>
+
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <!-- As Found -->
+                    <div>
+                        <div class="flex items-center justify-between mb-2">
+                            <h3 class="text-sm font-semibold text-gray-800 dark:text-gray-100">As Found</h3>
+                            <div class="flex items-center space-x-2">
+                                <button type="button" id="copyLeftToFound"
+                                        class="px-2 py-1 text-xs font-medium rounded border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700">
+                                    <i class="fas fa-arrow-left mr-1"></i>Copy refs from As Left
+                                </button>
+                                <button type="button" id="addFoundRow"
+                                        class="px-2 py-1 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 transition-colors">
+                                    <i class="fas fa-plus mr-1"></i>Add Row
+                                </button>
+                            </div>
+                        </div>
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-sm">
+                                <thead>
+                                    <tr class="text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider bg-gray-50 dark:bg-gray-700">
+                                        <th class="px-3 py-2 w-8">#</th>
+                                        <th class="px-3 py-2" id="instHeader">Instrument Reading</th>
+                                        <th class="px-3 py-2" id="uutHeader">UUT Reading</th>
+                                        <th class="px-3 py-2 w-28" id="errorHeader">Error</th>
+                                        <th class="px-3 py-2 w-10"></th>
+                                    </tr>
+                                </thead>
+                                <tbody id="readingsFoundBody"></tbody>
+                            </table>
+                        </div>
+                        <p class="text-xs text-gray-500 dark:text-gray-400 mt-2">Error = Instrument Reading &minus; UUT Reading</p>
+                    </div>
+
+                    <!-- As Left -->
+                    <div>
+                        <div class="flex items-center justify-between mb-2">
+                            <h3 class="text-sm font-semibold text-gray-800 dark:text-gray-100">As Left</h3>
+                            <div class="flex items-center space-x-2">
+                                <button type="button" id="copyFoundToLeft"
+                                        class="px-2 py-1 text-xs font-medium rounded border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700">
+                                    <i class="fas fa-arrow-right mr-1"></i>Copy refs from As Found
+                                </button>
+                                <button type="button" id="addLeftRow"
+                                        class="px-2 py-1 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 transition-colors">
+                                    <i class="fas fa-plus mr-1"></i>Add Row
+                                </button>
+                            </div>
+                        </div>
+                        <div class="overflow-x-auto mt-2">
+                            <table class="w-full text-sm">
+                                <thead>
+                                    <tr class="text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider bg-gray-50 dark:bg-gray-700">
+                                        <th class="px-3 py-2 w-8">#</th>
+                                        <th class="px-3 py-2" id="instHeaderLeft">Instrument Reading</th>
+                                        <th class="px-3 py-2" id="uutHeaderLeft">UUT Reading</th>
+                                        <th class="px-3 py-2 w-28" id="errorHeaderLeft">Error</th>
+                                        <th class="px-3 py-2 w-28">MPE (&plusmn;)</th>
+                                        <th class="px-3 py-2 w-24">Remark</th>
+                                        <th class="px-3 py-2 w-10"></th>
+                                    </tr>
+                                </thead>
+                                <tbody id="readingsLeftBody"></tbody>
+                            </table>
+                        </div>
+                        <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">Remark: Accepted when |Error| &le; MPE, else Rejected. Leave MPE blank to skip judging that row.</p>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Result</label>
+                        {{ form.pass_fail }}
+                        <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                            Auto-derived from the As-Left remarks (majority Accepted &rarr; Pass). Pick Conditional / N/A to override.
+                        </p>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Comments</label>
+                        {{ form.notes }}
+                    </div>
+                </div>
+                <p id="remarkSummary" class="text-xs text-gray-600 dark:text-gray-300 mt-2"></p>
+            </div>
+
+            <div class="flex items-center justify-end space-x-3 pt-4">
+                <a href="{% url 'calibration_log_list' %}"
+                   class="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors">
+                    Cancel
+                </a>
+                <button type="submit"
+                        class="px-6 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors">
+                    {% if object %}<i class="fas fa-save mr-1"></i>Update{% else %}<i class="fas fa-save mr-1"></i>Create Log{% endif %}
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+const UNITS_BY_SCOPE_URL = '{% url "units_by_scope" 0 %}';
+const INITIAL_UNIT_ID = {{ initial_unit_id|default:"''" }};
+const STANDARDS = {{ standards_json|safe }};
+const SUGGESTED_STANDARDS = {{ suggested_standard_ids_json|safe }};
+const existingFound = {{ readings_found_json|safe }};
+const existingLeft = {{ readings_left_json|safe }};
+{% url 'procedure_for_scope' 0 as proc_url %}
+const PROCEDURE_URL = '{{ proc_url|default:"" }}';
+let currentProcedure = null;
+let specsTouched = false;
+
+function selectedScopeIds() {
+    return Array.from(document.querySelectorAll('.scope-chk:checked')).map(c => c.value);
+}
+
+function firstScopeId() {
+    const ids = selectedScopeIds();
+    return ids.length ? ids[0] : '';
+}
+
+function parseRangeClient(str) {
+    const nums = (str || '').match(/-?\d+(?:\.\d+)?/g);
+    if (!nums || !nums.length) return null;
+    const a = parseFloat(nums[0]);
+    const b = nums.length > 1 ? parseFloat(nums[1]) : 0;
+    return { min: Math.min(a, b), max: Math.max(a, b) };
+}
+
+function clearReadingRows() {
+    document.querySelectorAll('.reading-row').forEach(tr => tr.remove());
+}
+
+function applyTestPoints(points) {
+    const rangeStr = (document.getElementById('id_range_value') || {}).value || '';
+    const rng = parseRangeClient(rangeStr);
+    if (!rng || points === undefined || points === null || !points.length) return false;
+    clearReadingRows();
+    points.forEach(pct => {
+        const val = rng.min + (rng.max - rng.min) * (parseFloat(pct) / 100);
+        addFoundRow({ instrument_reading: Math.round(val * 1e6) / 1e6 });
+        calcError(document.querySelector('.found-row:last-child'));
+    });
+    return true;
+}
+
+const SCOPE_LABELS = {};
+{% for ct in calibration_types %}
+SCOPE_LABELS['{{ ct.pk }}'] = {
+    inst: '{{ ct.instrument_column_label|default:"Instrument Reading" }}',
+    uut: '{{ ct.uut_column_label|default:"UUT Reading" }}',
+    err: '{{ ct.error_column_label|default:"Error" }}'
+};
+{% endfor %}
+
+function applyScopeLabels() {
+    const labels = scopeLabels();
+    document.getElementById('instHeader').dataset.base = labels.inst;
+    document.getElementById('uutHeader').dataset.base = labels.uut;
+    document.getElementById('instHeaderLeft').dataset.base = labels.inst;
+    document.getElementById('uutHeaderLeft').dataset.base = labels.uut;
+    document.getElementById('errorHeader').textContent = labels.err;
+    document.getElementById('errorHeaderLeft').textContent = labels.err;
+    updateUnitHeaders();
+}
+
+function unitListUrl(scopeIds, refresh) {
+    let url = UNITS_BY_SCOPE_URL.replace(/\/0\/$/, '/0/');
+    const qs = [];
+    if (scopeIds && scopeIds.length) qs.push('scopes=' + encodeURIComponent(scopeIds.join(',')));
+    if (refresh) qs.push('refresh=1');
+    if (qs.length) url += '?' + qs.join('&');
+    return url;
+}
+
+function loadUnitSelector(scopeIds, selectedUnitId) {
+    const unitSel = document.getElementById('unitSelector');
+    const spinner = document.getElementById('unitLoadingSpinner');
+    if (!unitSel || !spinner) return;
+    unitSel.classList.add('hidden');
+    spinner.classList.remove('hidden');
+    if (scopeIds && scopeIds.length) {
+        fetch(unitListUrl(scopeIds, false))
+            .then(r => {
+                if (!r.ok) throw new Error('bad status');
+                return r.json();
+            })
+            .then(units => {
+                spinner.classList.add('hidden');
+                unitSel.classList.remove('hidden');
+                unitSel.innerHTML = '<option value="">-- No Unit --</option>';
+                units.forEach(u => {
+                    unitSel.innerHTML += `<option value="${u.id}" ${String(u.id) === String(selectedUnitId) ? 'selected' : ''}>${u.symbol} (${u.name})</option>`;
+                });
+                updateUnitHeaders();
+            })
+            .catch(() => {
+                spinner.classList.add('hidden');
+                unitSel.classList.remove('hidden');
+                unitSel.innerHTML = '<option value="">-- No Unit --</option>';
+                updateUnitHeaders();
+            });
+    } else {
+        spinner.classList.add('hidden');
+        unitSel.classList.remove('hidden');
+        unitSel.innerHTML = '<option value="">-- No Unit --</option>';
+        updateUnitHeaders();
+    }
+}
+
+function scopeLabels() {
+    const id = firstScopeId();
+    return id && SCOPE_LABELS[id]
+        ? SCOPE_LABELS[id]
+        : {inst: 'Instrument Reading', uut: 'UUT Reading', err: 'Error'};
+}
+
+function currentUnitSymbol() {
+    const unitSel = document.getElementById('unitSelector');
+    if (!unitSel || !unitSel.options.length || !unitSel.value) return '';
+    const selected = unitSel.options[unitSel.selectedIndex];
+    return selected ? selected.text.split(' ')[0] : '';
+}
+
+function updateUnitHeaders() {
+    const symbol = currentUnitSymbol();
+    [['instHeader', 'Instrument Reading'], ['uutHeader', 'UUT Reading'],
+     ['instHeaderLeft', 'Instrument Reading'], ['uutHeaderLeft', 'UUT Reading']].forEach(([id, fallback]) => {
+        const header = document.getElementById(id);
+        if (!header) return;
+        const base = header.dataset.base || fallback;
+        header.textContent = symbol ? `${base} (${symbol})` : base;
+    });
+}
+
+function calcError(row) {
+    const inst = parseFloat(row.querySelector('.inst-reading').value) || 0;
+    const uut = parseFloat(row.querySelector('.uut-reading').value) || 0;
+    const errEl = row.querySelector('.error-val');
+    errEl.textContent = (inst - uut).toFixed(3);
+    if (row.classList.contains('left-row')) {
+        calcRemark(row);
+        updateRemarkSummary();
+    }
+}
+
+function effectiveMpe(row) {
+    const rowVal = (row.querySelector('.mpe-input') || {}).value;
+    if (rowVal === undefined || rowVal === '') return null;
+    return parseFloat(rowVal);
+}
+
+function calcRemark(row) {
+    const mpe = effectiveMpe(row);
+    const err = parseFloat(row.querySelector('.error-val').textContent);
+    const cell = row.querySelector('.remark-cell');
+    if (mpe === null || mpe === '' || isNaN(err)) {
+        cell.textContent = '';
+        cell.className = 'remark-cell px-3 py-2 text-sm';
+        return;
+    }
+    const accepted = Math.abs(err) <= mpe + 1e-9;
+    cell.textContent = accepted ? 'Accepted' : 'Rejected';
+    cell.className = 'remark-cell px-3 py-2 text-xs font-medium ' +
+        (accepted ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400');
+}
+
+function addFoundRow(data) {
+    data = data || {};
+    const tr = document.createElement('tr');
+    tr.className = 'hover:bg-gray-50 dark:hover:bg-gray-700 reading-row found-row';
+    tr.innerHTML = `
+        <td class="px-3 py-2 text-gray-500 dark:text-gray-400 row-num">0</td>
+        <td class="px-3 py-2">
+            <input type="number" step="any" class="inst-reading w-full px-2 py-1 border border-gray-300 dark:border-gray-600 rounded text-sm" placeholder="0.0000" value="${data.instrument_reading || ''}">
+        </td>
+        <td class="px-3 py-2">
+            <input type="number" step="any" class="uut-reading w-full px-2 py-1 border border-gray-300 dark:border-gray-600 rounded text-sm" placeholder="0.0000" value="${data.uut_reading || ''}">
+        </td>
+        <td class="px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 error-val">${data.error !== undefined && data.error !== null ? data.error : ''}</td>
+        <td class="px-3 py-2">
+            <button type="button" class="text-red-500 dark:text-red-400 hover:text-red-700 dark:hover:text-red-400 remove-row"><i class="fas fa-times"></i></button>
+        </td>
+    `;
+    document.getElementById('readingsFoundBody').appendChild(tr);
+    tr.querySelector('.inst-reading').addEventListener('input', () => calcError(tr));
+    tr.querySelector('.uut-reading').addEventListener('input', () => calcError(tr));
+    tr.querySelector('.remove-row').addEventListener('click', () => {
+        tr.remove();
+        renumberRows('.found-row');
+    });
+    renumberRows('.found-row');
+}
+
+function addLeftRow(data) {
+    data = data || {};
+    const tr = document.createElement('tr');
+    tr.className = 'hover:bg-gray-50 dark:hover:bg-gray-700 reading-row left-row';
+    tr.innerHTML = `
+        <td class="px-3 py-2 text-gray-500 dark:text-gray-400 row-num">0</td>
+        <td class="px-3 py-2">
+            <input type="number" step="any" class="inst-reading w-full px-2 py-1 border border-gray-300 dark:border-gray-600 rounded text-sm" placeholder="0.0000" value="${data.instrument_reading || ''}">
+        </td>
+        <td class="px-3 py-2">
+            <input type="number" step="any" class="uut-reading w-full px-2 py-1 border border-gray-300 dark:border-gray-600 rounded text-sm" placeholder="0.0000" value="${data.uut_reading || ''}">
+        </td>
+        <td class="px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 error-val">${data.error !== undefined && data.error !== null ? data.error : ''}</td>
+        <td class="px-3 py-2">
+            <input type="number" step="any" class="mpe-input w-full px-2 py-1 border border-gray-300 dark:border-gray-600 rounded text-sm" placeholder="1.0000" value="${data.maximum_permissible_error !== undefined && data.maximum_permissible_error !== null ? data.maximum_permissible_error : ''}">
+        </td>
+        <td class="remark-cell px-3 py-2 text-xs font-medium">${data.remark || ''}</td>
+        <td class="px-3 py-2">
+            <button type="button" class="text-red-500 dark:text-red-400 hover:text-red-700 dark:hover:text-red-400 remove-row"><i class="fas fa-times"></i></button>
+        </td>
+    `;
+    document.getElementById('readingsLeftBody').appendChild(tr);
+    tr.querySelector('.inst-reading').addEventListener('input', () => calcError(tr));
+    tr.querySelector('.uut-reading').addEventListener('input', () => calcError(tr));
+    tr.querySelector('.mpe-input').addEventListener('input', () => { calcRemark(tr); updateRemarkSummary(); });
+    tr.querySelector('.remove-row').addEventListener('click', () => {
+        tr.remove();
+        renumberRows('.left-row');
+        updateRemarkSummary();
+    });
+    calcRemark(tr);
+    renumberRows('.left-row');
+}
+
+function renumberRows(selector) {
+    document.querySelectorAll(selector).forEach((tr, i) => {
+        tr.querySelector('.row-num').textContent = i + 1;
+    });
+}
+
+function findRefValue(sourceRow, col) {
+    const inp = sourceRow ? sourceRow.querySelector('.' + col + '-reading') : null;
+    return inp ? inp.value : '';
+}
+
+function copyRows(srcSel, dstBodyId, col) {
+    const srcs = Array.from(document.querySelectorAll(srcSel));
+    const body = document.getElementById(dstBodyId);
+    const dsts = Array.from(body.querySelectorAll('.reading-row'));
+    srcs.forEach((src, i) => {
+        const dst = dsts[i];
+        if (!dst) return;
+        dst.querySelector('.' + col + '-reading').value = findRefValue(src, 'inst');
+    });
+    srcs.forEach((src) => calcError(src));
+    dsts.forEach((dst) => calcError(dst));
+}
+
+function updateRemarkSummary() {
+    const left = Array.from(document.querySelectorAll('.left-row'));
+    const judged = left.filter(r => effectiveMpe(r) !== null && effectiveMpe(r) !== '' && !isNaN(parseFloat(r.querySelector('.error-val').textContent)));
+    const accepted = judged.filter(r => r.querySelector('.remark-cell').textContent === 'Accepted').length;
+    const el = document.getElementById('remarkSummary');
+    const pfSel = document.getElementById('id_pass_fail');
+    if (!judged.length) {
+        el.textContent = '';
+        return;
+    }
+    const pct = Math.round((accepted / judged.length) * 100);
+    el.textContent = `${accepted} / ${judged.length} As-Left remarks Accepted (${pct}%) — `;
+    const majority = accepted * 2 > judged.length;
+    el.textContent += majority ? 'overall Pass' : 'overall Fail';
+    if (pfSel) {
+        const current = pfSel.value;
+        if (current === 'pass' || current === 'fail') {
+            pfSel.value = majority ? 'pass' : 'fail';
+        }
+    }
+}
+
+function addSpecRow(data) {
+    data = data || {};
+    const tr = document.createElement('tr');
+    tr.className = 'spec-row';
+    tr.innerHTML = `
+        <td class="px-3 py-2">
+            <input type="text" name="spec_name" maxlength="100" placeholder="e.g. Resolution"
+                   class="w-full px-2 py-1 border border-gray-300 dark:border-gray-600 rounded text-sm"
+                   value="${(data.spec_name || '').replace(/"/g, '&quot;')}">
+        </td>
+        <td class="px-3 py-2">
+            <input type="text" name="spec_value" maxlength="100" placeholder="e.g. 0.001 mV"
+                   class="w-full px-2 py-1 border border-gray-300 dark:border-gray-600 rounded text-sm"
+                   value="${(data.spec_value || '').replace(/"/g, '&quot;')}">
+        </td>
+        <td class="px-3 py-2">
+            <button type="button" class="text-red-500 dark:text-red-400 hover:text-red-700 remove-spec"><i class="fas fa-times"></i></button>
+        </td>
+    `;
+    tr.querySelector('.remove-spec').addEventListener('click', () => { specsTouched = true; tr.remove(); });
+    tr.querySelectorAll('input').forEach(inp => inp.addEventListener('input', () => { specsTouched = true; }));
+    document.getElementById('specsBody').appendChild(tr);
+}
+
+function loadProcedure(scopeId, autoApply) {
+    if (!PROCEDURE_URL) return;
+    const panel = document.getElementById('procedurePanel');
+    if (!scopeId) { panel.classList.add('hidden'); currentProcedure = null; return; }
+    fetch(PROCEDURE_URL.replace(/\/0\/$/, '/' + scopeId + '/'))
+        .then(r => r.ok ? r.json() : Promise.reject())
+        .then(proc => {
+            currentProcedure = proc && proc.id ? proc : null;
+            if (!currentProcedure) { panel.classList.add('hidden'); return; }
+            panel.classList.remove('hidden');
+            document.getElementById('procedureTitle').textContent = currentProcedure.title;
+            document.getElementById('procedureManualRef').textContent =
+                currentProcedure.manual_reference ? ('Reference: ' + currentProcedure.manual_reference) : '';
+            const steps = document.getElementById('procedureSteps');
+            steps.innerHTML = '';
+            (currentProcedure.instructions || '').split(/\r?\n/).filter(s => s.trim()).forEach(s => {
+                steps.innerHTML += `<li>${s}</li>`;
+            });
+            if (autoApply && (existingFound || []).length === 0) {
+                applyTestPoints(currentProcedure.test_points_percent);
+            }
+        })
+        .catch(() => { panel.classList.add('hidden'); currentProcedure = null; });
+}
+
+// Filter the standards select to the selected scopes and render the read-only
+// Ref ID chips (Ref ID = standard serial, Cert = its certificate number).
+function refreshStandards() {
+    const sel = document.getElementById('id_standards');
+    const chips = document.getElementById('refChips');
+    if (!sel || !chips) return;
+    const scopeIds = new Set(selectedScopeIds());
+    const anyScope = scopeIds.size === 0;
+    Array.from(sel.options).forEach(opt => {
+        const s = STANDARDS.find(x => String(x.id) === String(opt.value));
+        const ok = anyScope || !s || !s.scope_id || scopeIds.has(String(s.scope_id));
+        opt.style.display = ok ? '' : 'none';
+        opt.disabled = !ok;
+    });
+    if (!sel.value) sel.value = '';
+    chips.innerHTML = '';
+    Array.from(sel.selectedOptions).forEach(opt => {
+        const s = STANDARDS.find(x => String(x.id) === String(opt.value));
+        if (!s) return;
+        const ref = s.serial_no ? `Ref ID: ${s.serial_no}` : 'Ref ID: —';
+        const cert = s.certificate_no ? `Cert: ${s.certificate_no}` : 'Cert: —';
+        const unit = s.unit_symbol ? ` · ${s.unit_symbol}` : '';
+        const div = document.createElement('span');
+        div.className = 'inline-flex items-center px-2 py-1 rounded border border-blue-300 dark:border-blue-700 bg-blue-50 dark:bg-blue-900/30 text-xs text-gray-700 dark:text-gray-200';
+        div.textContent = `${s.name} — ${ref} / ${cert}${unit}`;
+        chips.appendChild(div);
+    });
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    const scopeChecks = Array.from(document.querySelectorAll('.scope-chk'));
+
+    // Load existing readings in edit mode (split across As Found / As Left)
+    if (existingFound && existingFound.length) {
+        existingFound.forEach(r => addFoundRow(r));
+    } else {
+        addFoundRow({});
+    }
+    if (existingLeft && existingLeft.length) {
+        existingLeft.forEach(r => addLeftRow(r));
+    } else {
+        addLeftRow({});
+    }
+    const firstUnitId = (existingFound && existingFound[0] && existingFound[0].unit_id) ||
+                        ((existingLeft || [])[0] && existingLeft[0].unit_id);
+    const scopeVals = selectedScopeIds();
+    if (scopeVals.length) {
+        loadUnitSelector(scopeVals, firstUnitId);
+    }
+    applyScopeLabels();
+    refreshStandards();
+    updateRemarkSummary();
+    const scope0 = firstScopeId();
+    if (scope0) loadProcedure(scope0, false);
+
+    // Scope change → reload unit selector + labels + procedure + standards filters
+    function onScopeChange() {
+        const scopeVals = selectedScopeIds();
+        loadUnitSelector(scopeVals.length ? scopeVals : null, null);
+        applyScopeLabels();
+        refreshStandards();
+        loadProcedure(firstScopeId() || '', true);
+    }
+    scopeChecks.forEach(chk => chk.addEventListener('change', onScopeChange));
+
+    // Apply test points button inside the procedure panel
+    const applyBtn = document.getElementById('applyTestPoints');
+    if (applyBtn) {
+        applyBtn.addEventListener('click', function() {
+            if (currentProcedure && !applyTestPoints(currentProcedure.test_points_percent)) {
+                alert('Could not generate test points — check that the Range contains numeric bounds.');
+            }
+        });
+    }
+
+    // Unit selector change → update header
+    document.getElementById('unitSelector').addEventListener('change', () => updateUnitHeaders());
+
+    // Standards selection → update chips
+    document.getElementById('id_standards').addEventListener('change', refreshStandards);
+
+    // Refresh units online
+    document.getElementById('refreshUnitsBtn').addEventListener('click', function() {
+        const scopeVals = selectedScopeIds();
+        if (!scopeVals.length) {
+            alert('Please select a scope first.');
+            return;
+        }
+        const unitSel = document.getElementById('unitSelector');
+        const spinner = document.getElementById('unitLoadingSpinner');
+        unitSel.classList.add('hidden');
+        spinner.classList.remove('hidden');
+        fetch(unitListUrl(scopeVals, true))
+            .then(r => r.json())
+            .then(units => {
+                spinner.classList.add('hidden');
+                unitSel.classList.remove('hidden');
+                unitSel.innerHTML = '<option value="">-- No Unit --</option>';
+                units.forEach(u => {
+                    unitSel.innerHTML += `<option value="${u.id}">${u.symbol} (${u.name})</option>`;
+                });
+                updateUnitHeaders();
+            })
+            .catch(() => {
+                spinner.classList.add('hidden');
+                unitSel.classList.remove('hidden');
+                alert('Could not refresh units. Using cached/bundled catalog.');
+            });
+    });
+
+    // Add row buttons
+    document.getElementById('addFoundRow').addEventListener('click', function() {
+        addFoundRow({});
+    });
+    document.getElementById('addLeftRow').addEventListener('click', function() {
+        addLeftRow({});
+    });
+    document.getElementById('addSpecRow').addEventListener('click', function() {
+        addSpecRow({});
+    });
+
+    // Copy reference (instrument) readings between the As Found / As Left tables
+    document.getElementById('copyFoundToLeft').addEventListener('click', function() {
+        copyRows('.found-row', 'readingsLeftBody', 'inst');
+        updateRemarkSummary();
+    });
+    document.getElementById('copyLeftToFound').addEventListener('click', function() {
+        copyRows('.left-row', 'readingsFoundBody', 'inst');
+    });
+
+    // Form submit — collect readings (as found + as left) + specs
+    document.getElementById('calibrationForm').addEventListener('submit', function() {
+        const unitId = document.getElementById('unitSelector').value;
+        function collectRows(selector, extra) {
+            const rows = [];
+            document.querySelectorAll(selector).forEach(tr => {
+                const inst = tr.querySelector('.inst-reading').value;
+                const uut = tr.querySelector('.uut-reading').value;
+                if (inst || uut) {
+                    const item = {
+                        instrument_reading: inst,
+                        uut_reading: uut,
+                        unit_id: unitId,
+                        error: tr.querySelector('.error-val').textContent || ''
+                    };
+                    if (extra) extra(tr, item);
+                    rows.push(item);
+                }
+            });
+            return rows;
+        }
+        const found = collectRows('.found-row');
+        const left = collectRows('.left-row', (tr, item) => {
+            item.maximum_permissible_error = tr.querySelector('.mpe-input').value || '';
+            item.remark = tr.querySelector('.remark-cell').textContent || '';
+        });
+        document.querySelector('[name="readings_found_json"]').value = JSON.stringify(found);
+        document.querySelector('[name="readings_left_json"]').value = JSON.stringify(left);
+
+        if (specsTouched) {
+            const specs = [];
+            document.querySelectorAll('.spec-row').forEach(tr => {
+                const name = tr.querySelector('[name="spec_name"]').value.trim();
+                const value = tr.querySelector('[name="spec_value"]').value.trim();
+                if (name) specs.push({ spec_name: name, spec_value: value });
+            });
+            document.querySelector('[name="specs_json"]').value = JSON.stringify(specs);
+        }
+    });
+
+    // Manual env toggle
+    const manualCheck = document.querySelector('#{{ form.use_manual_env.id_for_label }}');
+    const envSelect = document.getElementById('env-select');
+    const envManual = document.getElementById('env-manual');
+    function toggleEnvFields() {
+        if (manualCheck.checked) {
+            envSelect.style.display = 'none';
+            envManual.style.display = 'grid';
+        } else {
+            envSelect.style.display = 'block';
+            envManual.style.display = 'none';
+        }
+    }
+    if (manualCheck) {
+        manualCheck.addEventListener('change', toggleEnvFields);
+        toggleEnvFields();
+    }
+});
+</script>
+{% endblock %}

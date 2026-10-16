@@ -1,0 +1,53 @@
+{% extends 'core/base.html' %}
+{% block title %}Assign Calibration Procedure{% endblock %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto">
+    {% url 'procedure_list' as back_href %}
+    {% include 'core/partials/back_link.html' with back_label='Back to Procedures' %}
+
+    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-6">
+        <h1 class="text-xl font-bold text-gray-800 dark:text-gray-100 mb-5">
+            <i class="fas fa-user-plus text-blue-600 dark:text-blue-400 mr-2"></i>Assign Calibration Procedure
+        </h1>
+        <p class="text-sm text-gray-500 dark:text-gray-400 mb-4">
+            Pick a scope and a technician. The technician drafts the step-by-step instructions and test points,
+            then submits them for your approval.
+        </p>
+
+        <form method="post" class="space-y-4">
+            {% csrf_token %}
+            {% if form.non_field_errors %}
+            <div class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 px-4 py-3 rounded-lg text-sm">{{ form.non_field_errors }}</div>
+            {% endif %}
+            <div>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Title</label>
+                {{ form.title }}
+                {% if form.title.errors %}<p class="text-red-500 dark:text-red-400 text-xs mt-1">{{ form.title.errors.0 }}</p>{% endif %}
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Scope</label>
+                {{ form.scope }}
+                {% if form.scope.errors %}<p class="text-red-500 dark:text-red-400 text-xs mt-1">{{ form.scope.errors.0 }}</p>{% endif %}
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Assign To (Technician)</label>
+                {{ form.assigned_to }}
+                <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">They will be notified and can edit the draft.</p>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Manual / Document Reference</label>
+                {{ form.manual_reference }}
+            </div>
+            <div class="flex items-center justify-end gap-3 pt-2">
+                <a href="{% url 'procedure_list' %}"
+                   class="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors">Cancel</a>
+                <button type="submit"
+                        class="px-6 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors">
+                    <i class="fas fa-check mr-1"></i>Assign
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

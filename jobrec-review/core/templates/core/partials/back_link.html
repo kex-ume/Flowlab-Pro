@@ -1,0 +1,8 @@
+<div class="mb-3">
+    <a href="{{ back_href|default:'/' }}"
+       title="{{ back_label|default:'Go back' }}" aria-label="{{ back_label|default:'Go back' }}"
+       onclick="if (window.history.length > 1 && document.referrer && document.referrer.startsWith(window.location.origin)) { history.back(); return false; }"
+       class="ei-back-symbol" style="display:inline-flex;align-items:center;justify-content:center;width:38px;height:38px;border:1px solid #cbdde2;border-radius:9px;background:#fff;color:#006f79;text-decoration:none;">
+        <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+    </a>
+</div>

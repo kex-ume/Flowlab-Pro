@@ -1,0 +1,93 @@
+{% extends 'core/base.html' %}
+{% load permission_tags %}
+{% block title %}Notifications{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto space-y-4">
+
+{% url 'dashboard' as back_href %}
+{% include 'core/partials/back_link.html' with back_label='Back to Dashboard' %}    <div class="flex items-center justify-between">
+        <h1 class="text-2xl font-bold text-gray-800 dark:text-gray-100">
+            <i class="fas fa-bell text-blue-600 dark:text-blue-400 mr-2"></i>Notifications
+        </h1>
+        {% if notifications %}
+        <a href="{% url 'notification_mark_all_read' %}"
+           class="text-sm text-blue-600 dark:text-blue-400 hover:underline"
+           onclick="return confirm('Mark all notifications as read?');">
+            <i class="fas fa-check-double mr-1"></i>Mark All as Read
+        </a>
+        {% endif %}
+    </div>
+
+    <!-- Search -->
+    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-4">
+        <form method="get" class="flex gap-3 items-end">
+            <div class="flex-1">
+                <label class="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">Search notifications</label>
+                <input type="text" name="search" value="{{ filters.search }}"
+                       class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-gray-100"
+                       placeholder="Search by message...">
+            </div>
+            <div>
+                <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700">
+                    <i class="fas fa-search mr-1"></i>Search
+                </button>
+                <a href="{% url 'notification_list' %}" class="px-4 py-2 text-sm text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100 ml-1">Clear</a>
+            </div>
+        </form>
+    </div>
+
+    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm">
+        {% if notifications %}
+        <div class="divide-y divide-gray-100 dark:divide-gray-700">
+            {% for n in notifications %}
+            <a href="{% url 'notification_read' n.pk %}" class="block px-5 py-4 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors {% if not n.is_read %}bg-blue-50 dark:bg-blue-900/20{% endif %}">
+                <div class="flex items-start justify-between">
+                    <div class="flex-1 min-w-0">
+                        <p class="text-sm font-medium text-gray-800 dark:text-gray-100 {% if not n.is_read %}font-semibold{% endif %}">
+                            {{ n.message }}
+                        </p>
+                        <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">{{ n.created_at|date:"d M Y H:i" }} ({{ n.created_at|timesince }} ago)</p>
+                    </div>
+                    {% if not n.is_read %}
+                    <span class="ml-3 w-2 h-2 bg-blue-600 rounded-full shrink-0 mt-2"></span>
+                    {% endif %}
+                </div>
+            </a>
+            {% endfor %}
+        </div>
+
+        {% if notifications.has_other_pages %}
+        <div class="px-4 py-3 border-t dark:border-gray-700 bg-gray-50 dark:bg-gray-700">
+            <p class="text-xs text-gray-500 dark:text-gray-400 text-center mb-2">Showing {{ notifications.start_index }}-{{ notifications.end_index }} of {{ notifications.paginator.count }}</p>
+            <nav class="flex items-center justify-center space-x-2">
+                {% if notifications.has_previous %}
+                <a href="?page=1{% if request.GET|strip_page %}&{{ request.GET|strip_page }}{% endif %}" class="px-3 py-1 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700" title="First">
+                    <i class="fas fa-angle-double-left"></i>
+                </a>
+                <a href="?page={{ notifications.previous_page_number }}{% if request.GET|strip_page %}&{{ request.GET|strip_page }}{% endif %}" class="px-3 py-1 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700" title="Previous">
+                    <i class="fas fa-angle-left"></i>
+                </a>
+                {% endif %}
+                <span class="px-3 py-1 text-sm text-gray-700 dark:text-gray-300">Page {{ notifications.number }} of {{ notifications.paginator.num_pages }}</span>
+                {% if notifications.has_next %}
+                <a href="?page={{ notifications.next_page_number }}{% if request.GET|strip_page %}&{{ request.GET|strip_page }}{% endif %}" class="px-3 py-1 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700" title="Next">
+                    <i class="fas fa-angle-right"></i>
+                </a>
+                <a href="?page={{ notifications.paginator.num_pages }}{% if request.GET|strip_page %}&{{ request.GET|strip_page }}{% endif %}" class="px-3 py-1 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700" title="Last">
+                    <i class="fas fa-angle-double-right"></i>
+                </a>
+                {% endif %}
+            </nav>
+        </div>
+        {% endif %}
+
+        {% else %}
+        <div class="px-5 py-8 text-center text-gray-500 dark:text-gray-400">
+            <i class="fas fa-bell text-3xl mb-2"></i>
+            <p>No notifications yet.</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

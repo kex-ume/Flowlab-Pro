@@ -1,0 +1,288 @@
+{% extends 'core/base.html' %}
+{% load permission_tags %}
+{% block title %}Job Detail{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto space-y-4">
+
+{% url 'job_list' as back_href %}
+{% include 'core/partials/back_link.html' with back_label='Back to Job Records' %}
+    <section class="ei-record-card">
+        <div class="ei-record-card-head">
+            <div><p class="ei-records-eyebrow">JOB RECORD</p><h1>{{ job.client.name }}</h1><p>{{ job.purchase_order_number|default:'No PO recorded' }}</p></div>
+            <span class="ei-record-status ei-record-status--{{ job.record_status }}">{{ job.record_status|title }}</span>
+        </div>
+        <div class="ei-record-card-facts">
+            <div><small>Client</small><strong>{{ job.client.name }}</strong></div>
+            <div><small>PO</small><strong>{{ job.purchase_order_number|default:'—' }}</strong></div>
+            <div><small>Job type</small><strong>{{ job.get_job_type_display }}</strong></div>
+            <div><small>Request type</small><strong>{{ job.get_request_type_display }}</strong></div>
+            <div><small>Received / started</small><strong>{{ job.received_started_date|date:'d M Y'|default:'Not recorded' }}</strong></div>
+            <div><small>Scheduled end</small><strong>{{ job.scheduled_end_date|date:'d M Y'|default:'Not recorded' }}</strong></div>
+        </div>
+        <div class="ei-record-card-description"><small>Description</small><p>{{ job.job_description }}</p></div>
+        {% if job.is_overdue %}<div class="ei-record-overdue"><strong>Scheduled end date exceeded.</strong> The assigned personnel and lab supervisor must update this job and record the reason for the delay. {% if user|has_perm_tag:'edit_jobs' %}<a href="{% url 'job_update' job.pk %}">Update status and delay remark</a>{% endif %}</div>{% endif %}
+        {% if job.delay_remark %}<div class="ei-record-card-description"><small>Delay remark</small><p>{{ job.delay_remark }}</p></div>{% endif %}
+        <div class="ei-linked-records">
+            <h2>Linked records</h2>
+            <div class="ei-linked-record"><div><small>Waybill · incoming</small><strong>{% if job.incoming_waybill %}{{ job.incoming_waybill.waybill_no }}{% else %}Not linked{% endif %}</strong></div>{% if job.incoming_waybill %}<a class="ei-records-view" href="{% url 'waybill_detail' job.incoming_waybill.pk %}">View</a>{% endif %}</div>
+            {% for wb in outgoing_waybills %}<div class="ei-linked-record"><div><small>Waybill · outgoing</small><strong>{{ wb.waybill_no }}</strong></div><a class="ei-records-view" href="{% url 'outgoing_waybill_detail' wb.pk %}">View</a></div>{% endfor %}
+            <div class="ei-linked-record"><div><small>Assigned personnel</small><strong>{% for person in job.assigned_to.all %}{{ person.name }}{% if not forloop.last %}, {% endif %}{% empty %}Not assigned{% endfor %}</strong></div></div>
+            {% for entry in equipment_items %}
+                {% if entry.latest_pre %}<div class="ei-linked-record"><div><small>Pre-calibration · {{ entry.item.equipment_description }}</small><strong>{% firstof entry.latest_pre.inspected_by.get_full_name entry.latest_pre.inspected_by.username 'Personnel not recorded' %}</strong></div><a class="ei-records-view" href="{% url 'pre_calibration_detail' entry.latest_pre.pk %}">View</a></div>{% endif %}
+                {% if entry.latest_log and entry.latest_log.expanded_uncertainty != None %}<div class="ei-linked-record"><div><small>Uncertainty result · {{ entry.item.equipment_description }}</small><strong>{{ entry.latest_log.expanded_uncertainty }}%</strong></div><a class="ei-records-view" href="{% url 'calibration_log_detail' entry.latest_log.pk %}">View</a></div>{% endif %}
+            {% endfor %}
+        </div>
+    </section>
+    <div class="flex items-center justify-between">
+        <div class="flex items-center gap-3">
+            <a href="{% url 'job_list' %}" class="text-gray-400 dark:text-gray-500 hover:text-blue-600 dark:hover:text-blue-400">
+                <i class="fas fa-arrow-left"></i>
+            </a>
+            <h1 class="text-2xl font-bold text-gray-800 dark:text-gray-100">
+                <i class="fas fa-briefcase text-blue-600 dark:text-blue-400 mr-2"></i>{{ job.purchase_order_number|default:"No PO" }}
+            </h1>
+        </div>
+        <div class="flex items-center gap-2">
+            {% if user|has_perm_tag:'edit_jobs' %}
+            <a href="{% url 'job_update' job.pk %}"
+               class="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors">
+                <i class="fas fa-edit mr-1"></i>Edit
+            </a>
+            <a href="{% url 'job_delete' job.pk %}"
+               class="bg-red-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-red-700 transition-colors">
+                <i class="fas fa-trash mr-1"></i>Delete
+            </a>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="bg-white rounded-xl shadow-sm dark:bg-gray-800 p-6">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+                <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Client</h3>
+                <p class="text-base font-semibold text-gray-800 dark:text-gray-100 mt-1">{{ job.client.name }}</p>
+                {% if job.client.email or job.client.phone or job.client.address %}
+                <div class="text-sm text-gray-500 dark:text-gray-400 mt-1 space-y-0.5">
+                    {% if job.client.email %}<p><i class="fas fa-envelope mr-1 w-4"></i>{{ job.client.email }}</p>{% endif %}
+                    {% if job.client.phone %}<p><i class="fas fa-phone mr-1 w-4"></i>{{ job.client.phone }}</p>{% endif %}
+                    {% if job.client.address %}<p><i class="fas fa-map-marker-alt mr-1 w-4"></i>{{ job.client.address }}</p>{% endif %}
+                </div>
+                {% endif %}
+            </div>
+            <div>
+                <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Serial No</h3>
+                <p class="text-base font-semibold text-gray-800 dark:text-gray-100 mt-1">{{ job.serial_no }}</p>
+            </div>
+            <div>
+                <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Job Status</h3>
+                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium mt-1
+                    {% if job.job_status == 'completed' %}bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300
+                    {% elif job.job_status == 'dispatched' %}bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300
+                    {% elif job.job_status == 'not_received' %}bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300
+                    {% elif job.job_status == 'pre_calibration_pending' %}bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300
+                    {% elif job.job_status == 'calibration_pending' %}bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300
+                    {% elif job.job_status == 'review_pending' %}bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300
+                    {% elif job.job_status == 'approval_pending' %}bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-300
+                    {% elif job.job_status == 'repair_due' %}bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300
+                    {% else %}bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300{% endif %}">
+                    {{ job.get_job_status_display }}
+                </span>
+            </div>
+            <div>
+                <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Invoice Status</h3>
+                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium mt-1
+                    {% if job.invoice_status == 'paid' %}bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300
+                    {% else %}bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300{% endif %}">
+                    {{ job.get_invoice_status_display }}
+                </span>
+            </div>
+            <div>
+                <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Scope</h3>
+                <p class="text-base text-gray-800 dark:text-gray-100 mt-1">Set per equipment during pre-calibration</p>
+            </div>
+            <div>
+                <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Assigned Personnel</h3>
+                <div class="flex flex-wrap gap-1 mt-1">
+                    {% for p in job.assigned_to.all %}
+                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300">
+                        {{ p.name }}
+                        {% if user|has_perm_tag:'edit_jobs' %}
+                        <form method="post" action="{% url 'job_unassign' job.pk p.pk %}" class="ml-1 inline">
+                            {% csrf_token %}
+                            <button type="submit" class="hover:text-red-600 dark:hover:text-red-400" aria-label="Remove {{ p.name }}" title="Remove">
+                                <i class="fas fa-times"></i>
+                            </button>
+                        </form>
+                        {% endif %}
+                    </span>
+                    {% empty %}
+                    <p class="text-base text-gray-400 dark:text-gray-500">None assigned</p>
+                    {% endfor %}
+                </div>
+                {% if user|has_perm_tag:'edit_jobs' %}
+                <form method="post" action="{% url 'job_assign' job.pk %}" class="flex gap-2 mt-2">
+                    {% csrf_token %}
+                    <select name="personnel" class="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-gray-100">
+                        <option value="">Select personnel…</option>
+                        {% for p in assignable_personnel %}
+                        {% if p not in job.assigned_to.all %}
+                        <option value="{{ p.pk }}">{{ p.name }}{% if p.role %} — {{ p.role.name }}{% endif %}</option>
+                        {% endif %}
+                        {% endfor %}
+                    </select>
+                    <button type="submit" class="px-3 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700">
+                        <i class="fas fa-plus mr-1"></i>Assign
+                    </button>
+                </form>
+                {% endif %}
+            </div>
+            <div>
+                <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Created</h3>
+                <p class="text-base font-semibold text-gray-800 dark:text-gray-100 mt-1">{{ job.created_at|date:"d M Y H:i" }}</p>
+            </div>
+        </div>
+
+        <div class="mt-6">
+            <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Job Description</h3>
+            <p class="text-base text-gray-800 dark:text-gray-100 mt-1">{{ job.job_description }}</p>
+        </div>
+
+        {% if job.remarks %}
+        <div class="mt-4">
+            <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Remarks</h3>
+            <p class="text-base text-gray-800 dark:text-gray-100 mt-1">{{ job.remarks }}</p>
+        </div>
+        {% endif %}
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6 pt-6 border-t dark:border-gray-700">
+            <div>
+                <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Incoming Waybill</h3>
+                {% if job.incoming_waybill %}
+                <a href="{% url 'waybill_detail' job.incoming_waybill.pk %}"
+                   class="text-blue-600 dark:text-blue-400 hover:underline mt-1 inline-block">
+                    {{ job.incoming_waybill.waybill_no }}
+                </a>
+                {% else %}
+                <p class="text-base text-gray-400 dark:text-gray-500 mt-1">Not assigned</p>
+                {% endif %}
+            </div>
+            <div>
+                <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Outgoing Waybills</h3>
+                {% for wb in outgoing_waybills %}
+                <a href="{% url 'outgoing_waybill_detail' wb.pk %}"
+                   class="text-blue-600 dark:text-blue-400 hover:underline mt-1 inline-block mr-3">
+                    {{ wb.waybill_no }}
+                </a>
+                {% empty %}
+                <p class="text-base text-gray-400 dark:text-gray-500 mt-1">Not assigned</p>
+                {% endfor %}
+                <div class="mt-2">
+                    {% if user|has_perm_tag:'create_waybills' %}
+                    <a href="{% url 'outgoing_waybill_create' %}?job={{ job.pk }}"
+                       class="inline-flex items-center text-sm text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-400">
+                        <i class="fas fa-plus mr-1"></i>New Outgoing Waybill
+                    </a>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {% if equipment_items %}
+    <div class="bg-white rounded-xl shadow-sm dark:bg-gray-800 overflow-hidden">
+        <div class="px-5 py-4 border-b dark:border-gray-700">
+            <h2 class="text-lg font-semibold text-gray-800 dark:text-gray-100">
+                <i class="fas fa-microchip text-blue-600 dark:text-blue-400 mr-2"></i>Equipment & Calibration Logs
+            </h2>
+        </div>
+        <div class="overflow-x-auto">
+        <table class="w-full">
+            <thead>
+                <tr class="text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider bg-gray-50 dark:bg-gray-700">
+                    <th class="px-5 py-3">Equipment</th>
+                    <th class="px-5 py-3">Serial No</th>
+                    <th class="px-5 py-3">Scope</th>
+                    <th class="px-5 py-3">Status</th>
+                    <th class="px-5 py-3">Last Calibrated</th>
+                    <th class="px-5 py-3">Calibrated By</th>
+                    <th class="px-5 py-3">Result</th>
+                    <th class="px-5 py-3"></th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100 dark:divide-gray-700">
+                {% for entry in equipment_items %}
+                <tr class="hover:bg-gray-50 dark:hover:bg-gray-700">
+                    <td class="px-5 py-3 text-sm text-gray-900 dark:text-gray-100">{{ entry.item.equipment_description }}</td>
+                    <td class="px-5 py-3 text-sm text-gray-600 dark:text-gray-300">{{ entry.item.serial_no }}</td>
+                    <td class="px-5 py-3 text-sm text-gray-600 dark:text-gray-300">{{ entry.item.scope.name|default:"-" }}</td>
+                    <td class="px-5 py-3">
+                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
+                            {% if entry.item.status == 'completed' %}bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300
+                            {% elif entry.item.status == 'result_pending' %}bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300
+                            {% elif entry.item.status == 'cal_pending' %}bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300
+                            {% elif entry.item.status == 'repair_due' %}bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300
+                            {% elif entry.item.status == 'dispatched' %}bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300
+                            {% else %}bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300{% endif %}">
+                            {{ entry.item.get_status_display }}
+                        </span>
+                    </td>
+                    <td class="px-5 py-3 text-sm text-gray-500 dark:text-gray-400">
+                        {% if entry.latest_log %}{{ entry.latest_log.calibrated_at_date|date:"d M Y" }}{% else %}-{% endif %}
+                    </td>
+                    <td class="px-5 py-3 text-sm text-gray-600 dark:text-gray-300">
+                        {% if entry.latest_log %}{{ entry.latest_log.calibrated_by.name|default:"-" }}{% else %}-{% endif %}
+                    </td>
+                    <td class="px-5 py-3 text-sm">
+                        {% if entry.latest_log and entry.latest_log.status == 'approved' %}
+                            {% if entry.latest_log.certificate %}
+                            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300">
+                                <i class="fas fa-check-circle mr-1"></i>Uploaded
+                            </span>
+                            {% else %}
+                            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300">
+                                <i class="fas fa-clock mr-1"></i>Pending
+                            </span>
+                            {% endif %}
+                        {% else %}-{% endif %}
+                    </td>
+                    <td class="px-5 py-3">
+                        <div class="flex items-center space-x-2">
+                            {% if entry.has_logs %}
+                            <a href="{% url 'calibration_log_detail' entry.latest_log.pk %}"
+                               class="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-400 text-sm">
+                                <i class="fas fa-eye"></i> View Log
+                            </a>
+                            {% endif %}
+                            {% if entry.item.status == 'pre_cal_pending' and user|has_perm_tag:'perform_pre_calibration' %}
+                            <a href="{% url 'pre_calibration_create' entry.item.pk %}"
+                               class="text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-400 text-sm">
+                                <i class="fas fa-search"></i> Pre-Cal
+                            </a>
+                            {% elif entry.needs_review and user|has_perm_tag:'review_pre_calibration' %}
+                            <a href="{% url 'pre_cal_review' entry.latest_pre.pk %}"
+                               class="text-orange-600 dark:text-orange-400 hover:text-orange-800 dark:hover:text-orange-400 text-sm font-medium">
+                                <i class="fas fa-clipboard-check"></i> Review Pre-Cal
+                            </a>
+                            {% elif entry.item.status == 'cal_pending' and user|has_perm_tag:'edit_calibration' %}
+                            <a href="{% url 'calibration_log_create' entry.item.pk %}"
+                               class="text-green-600 dark:text-green-400 hover:text-green-800 dark:hover:text-green-400 text-sm">
+                                <i class="fas fa-plus"></i> Create Log
+                            </a>
+                            {% elif entry.item.status == 'repair_due' and user|has_perm_tag:'repair_equipment' %}
+                            <a href="{% url 'repair_complete' entry.item.pk %}"
+                               class="text-green-600 dark:text-green-400 hover:text-green-800 dark:hover:text-green-400 text-sm">
+                                <i class="fas fa-check"></i> Mark Repaired
+                            </a>
+                            {% endif %}
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

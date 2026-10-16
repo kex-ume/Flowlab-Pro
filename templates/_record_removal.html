@@ -1,0 +1,5 @@
+{% if session.get('user_id') and session.get('role_name') in ('Chief Meteorologist','Chief Metrologist','Chief','Administrator') and request.endpoint not in ('recycle_bin','record_maintenance','users') %}
+<link rel="stylesheet" href="{{url_for('static',filename='record-removal.css')}}">
+<div id="recordRemovalConfig" data-endpoint="/records/remove" data-token="{{admin_csrf_token()}}" data-module="flow" hidden></div>
+<script src="{{url_for('static',filename='record-removal.js')}}" defer></script>
+{% endif %}

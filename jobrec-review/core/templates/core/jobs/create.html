@@ -1,0 +1,192 @@
+{% extends 'core/base.html' %}
+{% block title %}{% if object %}Edit Job{% else %}New Job{% endif %}{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto">
+
+{% url 'job_list' as back_href %}
+{% include 'core/partials/back_link.html' with back_label='Back to Jobs' %}    <div class="bg-white rounded-xl shadow-sm dark:bg-gray-800 p-6">
+        <h1 class="text-xl font-bold text-gray-800 dark:text-gray-100 mb-6">
+            <i class="fas fa-briefcase text-blue-600 dark:text-blue-400 mr-2"></i>
+            {% if object %}Edit Job{% else %}Create New Job{% endif %}
+        </h1>
+
+        <form method="post" class="space-y-4">
+            {% csrf_token %}
+
+            {% if form.non_field_errors %}
+            <div class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 px-4 py-3 rounded-lg text-sm">
+                {{ form.non_field_errors }}
+            </div>
+            {% endif %}
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Purchase Order Number</label>
+                    {{ form.purchase_order_number }}
+                    {% if form.purchase_order_number.errors %}
+                    <p class="text-red-500 dark:text-red-400 text-xs mt-1">{{ form.purchase_order_number.errors.0 }}</p>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Client</label>
+                <div class="flex gap-2">
+                    {{ form.client }}
+                    <datalist id="client_names">
+                        {% for c in client_names %}
+                        <option value="{{ c }}"></option>
+                        {% endfor %}
+                    </datalist>
+                    {% if form.client.errors %}
+                    <p class="text-red-500 dark:text-red-400 text-xs mt-1">{{ form.client.errors.0 }}</p>
+                    {% endif %}
+                </div>
+                <div id="client-details" class="hidden mt-2 p-3 rounded-lg bg-gray-50 dark:bg-gray-700/50 border border-gray-200 dark:border-gray-600 text-sm text-gray-600 dark:text-gray-300"></div>
+            </div>
+
+            <div>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Job Description</label>
+                {{ form.job_description }}
+                {% if form.job_description.errors %}
+                <p class="text-red-500 dark:text-red-400 text-xs mt-1">{{ form.job_description.errors.0 }}</p>
+                {% endif %}
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <label for="{{ form.job_type.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-1">Job type</label>
+                    {{ form.job_type }}{% if form.job_type.errors %}<p class="text-red-600 text-xs mt-1">{{ form.job_type.errors.0 }}</p>{% endif %}
+                </div>
+                <div>
+                    <label for="{{ form.request_type.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-1">Equipment/UUT request type</label>
+                    {{ form.request_type }}{% if form.request_type.errors %}<p class="text-red-600 text-xs mt-1">{{ form.request_type.errors.0 }}</p>{% endif %}
+                </div>
+                <div>
+                    <label for="{{ form.received_started_date.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-1">Received / started date</label>
+                    {{ form.received_started_date }}{% if form.received_started_date.errors %}<p class="text-red-600 text-xs mt-1">{{ form.received_started_date.errors.0 }}</p>{% endif %}
+                </div>
+                <div>
+                    <label for="{{ form.scheduled_end_date.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-1">Scheduled end date</label>
+                    {{ form.scheduled_end_date }}{% if form.scheduled_end_date.errors %}<p class="text-red-600 text-xs mt-1">{{ form.scheduled_end_date.errors.0 }}</p>{% endif %}
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">
+                        Incoming Waybill
+                        <a href="{% url 'incoming_waybill_create' %}" id="create-waybill-link" class="text-xs text-blue-600 dark:text-blue-400 hover:underline ml-1">
+                            <i class="fas fa-plus"></i> Create
+                        </a>
+                    </label>
+                    {{ form.incoming_waybill }}
+                    {% if form.incoming_waybill.errors %}
+                    <p class="text-red-500 dark:text-red-400 text-xs mt-1">{{ form.incoming_waybill.errors.0 }}</p>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Job Status</label>
+                    {{ form.job_status }}
+                    {% if form.job_status.errors %}
+                    <p class="text-red-500 dark:text-red-400 text-xs mt-1">{{ form.job_status.errors.0 }}</p>
+                    {% endif %}
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Invoice Status</label>
+                    {{ form.invoice_status }}
+                    {% if form.invoice_status.errors %}
+                    <p class="text-red-500 dark:text-red-400 text-xs mt-1">{{ form.invoice_status.errors.0 }}</p>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Remarks</label>
+                {{ form.remarks }}
+                {% if form.remarks.errors %}
+                <p class="text-red-500 dark:text-red-400 text-xs mt-1">{{ form.remarks.errors.0 }}</p>
+                {% endif %}
+            </div>
+            {% if object.is_overdue or form.delay_remark.value %}
+            <div class="rounded-lg border border-amber-300 bg-amber-50 p-4">
+                <label for="{{ form.delay_remark.id_for_label }}" class="block text-sm font-semibold text-amber-900 mb-1">Delay remark{% if object.is_overdue %} · required to update this overdue job{% endif %}</label>
+                {{ form.delay_remark }}{% if form.delay_remark.errors %}<p class="text-red-600 text-xs mt-1">{{ form.delay_remark.errors.0 }}</p>{% endif %}
+            </div>
+            {% endif %}
+
+<script>
+const CLIENT_LOOKUP_URL = '{% url "client_lookup" %}';
+document.addEventListener('DOMContentLoaded', function() {
+    const input = document.querySelector('#id_client');
+    const panel = document.getElementById('client-details');
+    if (!input || !panel) return;
+    let timer = null;
+    input.setAttribute('list', 'client_names');
+    input.addEventListener('input', function() {
+        clearTimeout(timer);
+        timer = setTimeout(() => {
+            const name = input.value.trim();
+            if (!name) { panel.classList.add('hidden'); panel.innerHTML = ''; return; }
+            fetch(CLIENT_LOOKUP_URL + '?name=' + encodeURIComponent(name))
+                .then(r => r.json())
+                .then(data => {
+                    if (data.found) {
+                        panel.classList.remove('hidden');
+                        panel.innerHTML = '<strong>' + data.name + '</strong><br>' +
+                            (data.email ? data.email + '<br>' : '') +
+                            (data.phone ? data.phone + '<br>' : '') +
+                            (data.address ? data.address : '');
+                    } else {
+                        panel.classList.add('hidden');
+                        panel.innerHTML = '';
+                    }
+                });
+        }, 300);
+    });
+});
+
+document.addEventListener('DOMContentLoaded', function() {
+    const link = document.getElementById('create-waybill-link');
+    if (!link) return;
+    link.addEventListener('click', function(e) {
+        e.preventDefault();
+        const params = new URLSearchParams();
+        const fields = {
+            'purchase_order_number': 'id_purchase_order_number',
+            'client': 'id_client',
+            'job_description': 'id_job_description'
+        };
+        for (const [key, elId] of Object.entries(fields)) {
+            const el = document.getElementById(elId);
+            if (el && el.value) params.set(key, el.value);
+        }
+        // encodeURIComponent per pair (NOT URLSearchParams.toString(), which
+        // encodes spaces as '+' and corrupts prefill values after the redirect)
+        const qs = [...params.entries()]
+            .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
+            .join('&');
+        const next = window.location.pathname + (qs ? '?' + qs : '');
+        window.location.href = link.href.split('?')[0] + '?next=' + encodeURIComponent(next);
+    });
+});
+</script>
+
+            <div class="flex items-center justify-end space-x-3 pt-4">
+                <a href="{% url 'job_list' %}"
+                   class="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors">
+                    Cancel
+                </a>
+                <button type="submit"
+                        class="px-6 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors">
+                    {% if object %}Update Job{% else %}<i class="fas fa-plus mr-1"></i>Create Job{% endif %}
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

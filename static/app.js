@@ -10,8 +10,11 @@ document.querySelectorAll('[data-scroll-to]').forEach(button=>button.addEventLis
 document.querySelectorAll('[data-open-form]').forEach(button=>button.addEventListener('click',()=>{const target=document.getElementById(button.dataset.openForm);if(!target)return;target.hidden=false;target.scrollIntoView({behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});target.querySelector('input:not([type="hidden"]),select,textarea')?.focus({preventScroll:true})}));
 document.querySelectorAll('[data-close-form]').forEach(button=>button.addEventListener('click',()=>{const target=button.closest('[data-collapsible-form]');if(!target)return;target.hidden=true;document.querySelectorAll(`[data-scroll-to="${target.id}"]`).forEach(trigger=>trigger.setAttribute('aria-expanded','false'))}));
 const shortDate=parsed=>`${String(parsed.getDate()).padStart(2,'0')}/${String(parsed.getMonth()+1).padStart(2,'0')}/${String(parsed.getFullYear()).slice(-2)}`;
+const localTimestamp=value=>{if(!value)return'';const normalized=value.replace(' ','T');const zoned=/(?:Z|[+-]\d{2}:?\d{2})$/i.test(normalized)?normalized:`${normalized}Z`;const parsed=new Date(zoned);return Number.isNaN(parsed.valueOf())?'':`${shortDate(parsed)} ${String(parsed.getHours()).padStart(2,'0')}:${String(parsed.getMinutes()).padStart(2,'0')}`};
 document.querySelectorAll('[data-local-date]').forEach(element=>{const value=element.dataset.localDate;if(value){const parsed=new Date(`${value}T00:00:00`);if(!Number.isNaN(parsed.valueOf()))element.textContent=shortDate(parsed)}});
-document.querySelectorAll('[data-local-datetime]').forEach(element=>{const value=element.dataset.localDatetime;if(value){const parsed=new Date(`${value.replace(' ','T')}Z`);if(!Number.isNaN(parsed.valueOf()))element.textContent=`${shortDate(parsed)} ${String(parsed.getHours()).padStart(2,'0')}:${String(parsed.getMinutes()).padStart(2,'0')}`}});
+document.querySelectorAll('[data-local-datetime]').forEach(element=>{const formatted=localTimestamp(element.dataset.localDatetime);if(formatted)element.textContent=formatted});
+const timestampPattern=/\b\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?\b/g;
+const contentRoot=document.querySelector('main.content');if(contentRoot){const walker=document.createTreeWalker(contentRoot,NodeFilter.SHOW_TEXT,{acceptNode:node=>node.parentElement?.closest('script,style,input,textarea,select,option,[data-local-datetime]')?NodeFilter.FILTER_REJECT:NodeFilter.FILTER_ACCEPT});const nodes=[];while(walker.nextNode())nodes.push(walker.currentNode);nodes.forEach(node=>{node.nodeValue=node.nodeValue.replace(timestampPattern,value=>localTimestamp(value)||value)})}
 const orderedDatePairs=[['project_start_date','project_completion_date','Expected completion date'],['planned_start_date','required_date','Job due date'],['issued_date','target_close_date','Target close-out date'],['effective_date','review_date','Review or expiry date'],['effective_date','retention_until','Retention date'],['maintenance_date','next_maintenance_date','Next maintenance date'],['last_review_date','next_review_date','Next review date']];
 document.querySelectorAll('form').forEach(form=>orderedDatePairs.forEach(([startName,endName,label])=>{const start=form.elements.namedItem(startName),end=form.elements.namedItem(endName);if(!start||!end)return;const validate=()=>{end.min=start.value||'';end.setCustomValidity(start.value&&end.value&&end.value<start.value?`${label} cannot be earlier than the preceding date.`:'')};start.addEventListener('change',validate);end.addEventListener('change',validate);validate()}));
 const infoPopover=document.getElementById('infoPopover');document.querySelectorAll('.info-tip').forEach(button=>{button.textContent='i';if(!button.hasAttribute('aria-label'))button.setAttribute('aria-label','More information')});document.addEventListener('click',event=>{const button=event.target.closest('.info-tip');if(button&&infoPopover){event.preventDefault();const rect=button.getBoundingClientRect();infoPopover.textContent=button.dataset.info||'';infoPopover.style.left=`${Math.max(8,Math.min(rect.left,window.innerWidth-300))}px`;infoPopover.style.top=`${rect.bottom+6}px`;infoPopover.hidden=false;event.stopPropagation()}else if(infoPopover&&!event.target.closest('#infoPopover'))infoPopover.hidden=true});document.addEventListener('keydown',event=>{if(event.key==='Escape'&&infoPopover)infoPopover.hidden=true});
@@ -27,7 +30,7 @@ draftForms.forEach((form,index)=>{
     sessionStorage.removeItem(pending);
     if(!document.querySelector('.flash.error'))fetch(endpoint,{method:'DELETE'});
   }
-  const fields=[...form.elements].filter(field=>field.name&&field.type!=='file'&&field.type!=='submit'&&field.type!=='button');
+  const fields=[...form.elements].filter(field=>field.name&&field.type!=='hidden'&&field.type!=='file'&&field.type!=='submit'&&field.type!=='button');
   const collect=()=>Object.fromEntries(fields.map(field=>[field.name,field.type==='checkbox'?field.checked:field.value]));
   const restore=payload=>fields.forEach(field=>{if(!(field.name in payload))return;if(field.type==='checkbox')field.checked=!!payload[field.name];else field.value=payload[field.name]??'';field.dispatchEvent(new Event('change',{bubbles:true}))});
   fetch(endpoint).then(response=>response.json()).then(data=>{if(data.draft)restore(data.draft)}).catch(()=>{});
@@ -39,3 +42,6 @@ draftForms.forEach((form,index)=>{
 document.querySelectorAll('a[href*="/file"],a[href*="/report"],a[href$="/pdf"]').forEach(link=>{
   link.target='_blank';link.rel='noopener noreferrer';
 });
+
+const flowlabDesignSystem=document.getElementById('flowlabDesignSystem');
+if(flowlabDesignSystem)document.head.appendChild(flowlabDesignSystem);

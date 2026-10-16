@@ -15,12 +15,13 @@ from pathlib import Path
 import secrets
 import shutil
 import smtplib
+import sys
 import time
 from email.message import EmailMessage
 from email.utils import parseaddr
 from uuid import uuid4
 
-from flask import Flask, abort, flash, jsonify, redirect, render_template, request, send_file, session, url_for
+from flask import Flask, Response, abort, flash, jsonify, redirect, render_template, request, send_file, session, url_for, before_render_template
 
 from app.database.database import get_connection
 from app.database.init_db import initialize_database
@@ -36,6 +37,7 @@ from app.modules.uncertainty.web_service import (
 )
 from app.modules.auth.permissions import Permissions
 from app.modules.auth.service import AuthService
+from app.modules.integrated_accounts import admin_connection, sync_from_flow, sync_from_ei, guard_last_admin
 from app.modules.decision_rules import (
     RULE_CODE, RULE_FORMULA, RULE_NAME, approved_uncertainty_points, build_assessment,
     calculate_dr02_point, generate_excel_cover, generate_pdf_cover, load_cover_data,
@@ -45,8 +47,15 @@ from app.modules.decision_rules import (
 
 
 app = Flask(__name__)
-app.config["SECRET_KEY"] = "flowlab-local-mvp"
+app.config["SECRET_KEY"] = os.environ.get("FLOWLAB_SECRET_KEY", "flowlab-local-mvp")
 app.config["MAX_CONTENT_LENGTH"] = 32 * 1024 * 1024
+
+
+@before_render_template.connect_via(app)
+def add_breadcrumbs(sender, template, context, **extra):
+    from app.navigation import flow_breadcrumbs
+    context['breadcrumbs']=flow_breadcrumbs(request.path,request.args.to_dict(),context.get('page_title'),context.get('selected_project'),{key:value['title'] for key,value in WORKSPACES.items()})
+
 REPORT_MAX_BYTES = 10 * 1024 * 1024
 REPORT_EXTENSIONS = {".pdf", ".docx", ".xlsx", ".xlsm", ".xls", ".jpg", ".jpeg", ".png"}
 PERSONNEL_DOCUMENT_TYPES = (
@@ -108,6 +117,22 @@ def current_actor():
     return session.get("full_name") or session.get("username") or "Unauthenticated local session"
 
 
+def admin_csrf_token():
+    if '_admin_csrf' not in session:
+        session['_admin_csrf'] = secrets.token_urlsafe(32)
+    return session['_admin_csrf']
+
+
+@app.context_processor
+def administration_forms():
+    return {'admin_csrf_token':admin_csrf_token}
+
+
+def session_auth_signature(encoded):
+    import hmac
+    return hmac.new(app.secret_key.encode(),encoded.encode(),'sha256').hexdigest()
+
+
 def email_recovery_configured():
     return all(os.environ.get(name, "").strip() for name in
         ("FLOWLAB_PUBLIC_URL", "FLOWLAB_SMTP_HOST", "FLOWLAB_SMTP_FROM"))
@@ -155,14 +180,16 @@ def create_officer_reset_request(connection, user):
 
 
 def chief_auto_approval():
-    return session.get("role_name") == "Chief Meteorologist"
+    return session.get("role_name") in {"Chief Meteorologist", "Chief Metrologist"}
 
 
 def workflow_authority():
-    return session.get("role_name") in {"Chief Meteorologist", "Administrator"}
+    return session.get("role_name") in {"Chief Meteorologist", "Chief Metrologist", "Administrator"}
 
 
 def task_destination(connection, entity_type, entity_id, stored_link=None):
+    if entity_type=='personnel_registration':
+        return url_for('chief_personnel',registration_id=entity_id)
     if stored_link and stored_link.startswith("/") and not stored_link.startswith("//"):
         return stored_link
     if entity_type == "password_reset_request":
@@ -336,6 +363,42 @@ def audit_change(connection, entity_type, entity_id, action, before=None, after=
         json.dumps(after, default=str, sort_keys=True) if after is not None else None))
 
 
+def automate_job_status(connection, job_id, activity=False, evaluate_completion=False):
+    """Advance a Job lifecycle without changing its manually controlled Project."""
+    job = connection.execute("""SELECT status,assigned_user_id,conformity_required
+        FROM calibration_jobs WHERE id=? AND is_deleted=0""", (job_id,)).fetchone()
+    if not job or job[0] in {"Cancelled", "Completed"}:
+        return job[0] if job else None
+    previous = job[0]
+    target = previous
+    if evaluate_completion:
+        uncertainty_ready = bool(connection.execute("""SELECT 1 FROM uncertainty_calculations
+            WHERE job_id=? AND status='Approved' LIMIT 1""", (job_id,)).fetchone())
+        decision_ready = not bool(job[2]) or bool(connection.execute("""SELECT 1 FROM conformity_assessments
+            WHERE job_id=? AND status='Approved' AND is_deleted=0 LIMIT 1""", (job_id,)).fetchone())
+        cover_ready = bool(connection.execute("""SELECT 1 FROM generated_report_covers
+            WHERE job_id=? AND is_deleted=0 LIMIT 1""", (job_id,)).fetchone())
+        if cover_ready or (uncertainty_ready and decision_ready):
+            target = "Completed"
+    if target != "Completed":
+        if activity and previous in {"Draft", "Planned"}:
+            target = "In Progress"
+        elif job[1] and previous == "Draft":
+            target = "Planned"
+    if target != previous:
+        completion_values = ("completed_at=CURRENT_TIMESTAMP," if target == "Completed" else "")
+        connection.execute(f"""UPDATE calibration_jobs SET status=?,{completion_values}
+            updated_at=CURRENT_TIMESTAMP WHERE id=?""", (target, job_id))
+        if target == "Completed":
+            event = json.dumps({"action":"automatically completed","actor":current_actor(),
+                "date":date.today().isoformat()}) + "\n"
+            connection.execute("""UPDATE calibration_jobs SET
+                completion_history=COALESCE(completion_history,'') || ? WHERE id=?""", (event, job_id))
+        audit_change(connection, "calibration_job", job_id, "automatic_status",
+            before={"status": previous}, after={"status": target})
+    return target
+
+
 def recycle_record(connection, entity_type, entity_id, display_name, original_location=None):
     connection.execute("""INSERT INTO recycle_bin
         (entity_type,entity_id,display_name,original_location,deleted_by)
@@ -418,12 +481,24 @@ def prepare_service_request(upload):
 
 @app.before_request
 def ensure_database():
+    if request.endpoint in {"landing", "landing_first", "download_landing", "ei_lab", "lab_policies_access",
+            "public_policy_file", "static"}:
+        return
     initialize_database()
     if app.config.get("TESTING") or request.endpoint in {
-            "login", "setup", "forgot_password", "email_password_reset", "static"}:
+            "login", "setup", "forgot_password", "email_password_reset"}:
         return
     if not session.get("user_id"):
         return redirect(url_for("login", next=request.path))
+    current = query('SELECT u.is_active,r.name,u.full_name,u.must_change_password,u.password_hash FROM users u JOIN roles r ON r.id=u.role_id WHERE u.id=?',(session['user_id'],))
+    if not current or not current[0][0] or session.get('auth_hash') and session['auth_hash'] != session_auth_signature(current[0][4]):
+        session.clear()
+        return redirect(url_for('login'))
+    session.update(role_name=current[0][1],full_name=current[0][2],must_change_password=bool(current[0][3]),auth_hash=session_auth_signature(current[0][4]))
+    if request.method=='POST' and request.endpoint in {'users','change_password','record_maintenance'}:
+        import hmac
+        if not session.get('_admin_csrf') or not hmac.compare_digest(session['_admin_csrf'],request.form.get('_admin_csrf','')):
+            abort(400,description='The form expired. Reload the page and try again.')
     if session.get("must_change_password") and request.endpoint not in {"change_password", "logout"}:
         return redirect(url_for("change_password"))
 
@@ -434,9 +509,20 @@ def login():
         user = AuthService().authenticate(
             request.form.get("username", "").strip(), request.form.get("password", ""))
         if user:
+            if user.role_name=='Administrator':
+                connection = admin_connection()
+                try:
+                    sync_from_flow(connection,user.id,password=request.form.get('password',''))
+                    connection.commit()
+                except ValueError as error:
+                    connection.rollback()
+                    flash(str(error),'error')
+                finally:
+                    connection.close()
             session.clear()
             session.update(user_id=user.id, username=user.username, full_name=user.full_name,
                 role_name=user.role_name, must_change_password=user.must_change_password)
+            session['auth_hash'] = session_auth_signature(query('SELECT password_hash FROM users WHERE id=?',(user.id,))[0][0])
             if user.must_change_password:
                 return redirect(url_for("change_password"))
             return redirect(request.args.get("next") or url_for("dashboard"))
@@ -495,7 +581,7 @@ def forgot_password():
 @app.route("/reset-password/<token>", methods=["GET", "POST"])
 def email_password_reset(token):
     token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
-    connection = get_connection()
+    connection = admin_connection()
     reset = connection.execute("""SELECT t.id,t.user_id,t.expires_at_epoch,t.used_at,u.username
         FROM password_reset_tokens t JOIN users u ON u.id=t.user_id
         WHERE t.token_hash=? AND u.is_active=1""", (token_hash,)).fetchone()
@@ -510,6 +596,7 @@ def email_password_reset(token):
         else:
             connection.execute("UPDATE users SET password_hash=?,must_change_password=0 WHERE id=?",
                 (AuthService.hash_password(password),reset[1]))
+            sync_from_flow(connection, reset[1], password=password)
             connection.execute("UPDATE password_reset_tokens SET used_at=CURRENT_TIMESTAMP WHERE id=?",
                 (reset[0],))
             connection.execute("""UPDATE password_reset_requests SET status='Completed',
@@ -538,16 +625,19 @@ def change_password():
             flash("Create a password of at least 10 characters.", "error")
         elif password != confirmation:
             flash("Password confirmation does not match.", "error")
+        elif not session.get('must_change_password') and not app.config.get('TESTING') and not AuthService.verify_password(request.form.get('current_password',''),query('SELECT password_hash FROM users WHERE id=?',(session['user_id'],))[0][0]):
+            flash('Your current password is incorrect.','error')
         else:
-            connection = get_connection()
+            connection = admin_connection()
             existing = connection.execute("SELECT password_hash FROM users WHERE id=?",
                 (session["user_id"],)).fetchone()
             password_hash = AuthService.hash_password(password)
-            if existing and existing[0] == password_hash:
+            if existing and AuthService.verify_password(password,existing[0]):
                 connection.close(); flash("Create a password different from the temporary password.", "error")
             else:
                 connection.execute("""UPDATE users SET password_hash=?,email=?,must_change_password=0
                     WHERE id=?""", (password_hash,recovery_email,session["user_id"]))
+                sync_from_flow(connection,session['user_id'],password=password)
                 connection.execute("""UPDATE password_reset_requests SET status='Completed',
                     resolved_by=?,resolved_at=CURRENT_TIMESTAMP WHERE user_id=? AND status='Resolved'""",
                     (current_actor(),session["user_id"]))
@@ -596,6 +686,54 @@ def logout():
 
 
 @app.get("/")
+def landing():
+    return render_template("landing_first.html")
+
+
+@app.get("/landing-first")
+def landing_first():
+    return render_template("landing_first.html")
+
+
+@app.get("/download/landing-page.html")
+def download_landing():
+    """Export the public landing page as a portable, styled HTML document."""
+    html = render_template("landing_first.html")
+    static_root = Path(app.static_folder)
+    styles = "\n".join(
+        (static_root / filename).read_text(encoding="utf-8")
+        for filename in ("landing-first.css", "landing-strip.css")
+    )
+    first_link = f'<link rel="stylesheet" href="{url_for("static", filename="landing-first.css")}">'
+    strip_link = f'<link rel="stylesheet" href="{url_for("static", filename="landing-strip.css")}">'
+    html = html.replace(first_link, f"<style>\n{styles}\n</style>").replace(strip_link, "")
+    return Response(html, mimetype="text/html", headers={
+        "Content-Disposition": 'attachment; filename="EATL-Integrated-Lab-Management-Landing-Page.html"',
+        "Cache-Control": "no-store",
+    })
+
+
+@app.get("/lab-policies")
+def lab_policies_access():
+    initialize_database()
+    rows = query("""SELECT id,document_type,COALESCE(document_number,''),title,
+        COALESCE(revision,''),COALESCE(effective_date,''),original_filename
+        FROM controlled_documents WHERE is_deleted=0 AND status='Approved'
+        ORDER BY document_type,title,revision DESC""")
+    return render_template("public_policies.html", rows=rows)
+
+
+@app.get("/lab-policies/<int:document_id>/file")
+def public_policy_file(document_id):
+    initialize_database()
+    row = query("""SELECT file_path FROM controlled_documents
+        WHERE id=? AND is_deleted=0 AND status='Approved'""", (document_id,))
+    if not row or not row[0][0] or not Path(row[0][0]).is_file():
+        abort(404)
+    return send_file(Path(row[0][0]).resolve(), as_attachment=False)
+
+
+@app.get("/dashboard")
 def dashboard():
     due_soon_days = setting_integer("equipment_due_soon_days", 30)
     counts = {
@@ -985,12 +1123,12 @@ WORKSPACES = {
         )},
     "projects": {"title": "Projects", "description": "Master project records linking clients, work, evidence and closeout.",
         "modules": (("project-register", "Project Register & New Job", "Client, scope, schedule, personnel, equipment, jobs, documents and reports.", "project_jobs"),)},
-    "laboratory": {"title": "E&I Laboratory", "description": "Discipline workspaces for calibration activities and assigned equipment.",
-        "modules": (("mass", "Mass Lab", "Mass calibration activities and equipment."),("pressure", "Pressure Lab", "Pressure calibration activities and equipment."),("low-voltage", "Low Voltage Lab", "Electrical calibration and testing."),("dimension", "Dimension Lab", "Dimensional measurement and calibration."))},
+    "laboratory": {"title": "E&I Lab", "description": "Electrical and instrumentation calibration laboratory management.",
+        "modules": (("ei-lab", "E&I Laboratory Management", "Open the E&I Lab calibration workflow for instruments, jobs, certificates and laboratory records.", "ei_lab"),)},
     "standards": {"title": "Standards & Procedures", "description": "Controlled standards and procedure repository.",
         "modules": (("standards", "Standards", "External and internal controlled standards.", "documents"),("procedures", "Procedures", "Approved laboratory procedures.", "documents"),("sops", "SOPs", "Standard operating procedures.", "documents"),("work-instructions", "Work Instructions", "Task-level controlled instructions.", "documents"),("revision-approval", "Revision & Approval", "Review, approval, effective and archive lifecycle."))},
-    "database": {"title": "Database & User Management", "description": "Shared governance, approvals, audit history, files and master data.",
-        "modules": (("users", "User Management", "Users, roles, permissions and approval authority.", "users"),("approvals", "Approval Management", "Technical review, approval, revert and record locking."),("audit-trail", "Audit Trail", "Every controlled action with user and timestamp."),("files", "File Repository", "Files linked to their originating records."),("administration", "Data Administration", "Matrix uploads, master data and import/export."))},
+    "database": {"title": "Database & Records", "description": "Shared governance, approvals, audit history, files and master data.",
+        "modules": (("approvals", "Approval Management", "Technical review, approval, revert and record locking."),("audit-trail", "Audit Trail", "Every controlled action with user and timestamp."),("files", "File Repository", "Files linked to their originating records."),("administration", "Data Administration", "Matrix uploads, master data and import/export."))},
     "flowpro": {"title": "FlowPro_Wiz", "description": "Integration workspace reserved for ongoing development.", "modules": ()},
     "settings": {"title": "Settings", "description": "System configuration only.",
         "modules": (("laboratory", "Laboratory Configuration", "Laboratory identity and defaults."),("units", "Units", "Approved engineering units."),("notifications", "Notifications", "Attention and reminder rules."),("approval-rules", "Approval Rules", "Shared review and approval routing."),("numbering", "Numbering", "Controlled record numbering schemes."),("system", "System Configuration", "Application-level configuration."))},
@@ -1012,6 +1150,8 @@ def workspace(section):
         return redirect(url_for("dashboard"))
     if section == "settings":
         return redirect(url_for("settings"))
+    if section == "analytics":
+        return redirect(url_for('flow_analytics',category='calibration'))
     if section == "database":
         require_permission("user_management")
     workspace_data = WORKSPACES[section]
@@ -1028,11 +1168,104 @@ def workspace(section):
         active_nav=section, modules=modules, eyebrow="Functional workspace")
 
 
+@app.get("/ei-lab")
+def ei_lab():
+    """Launch the E&I Lab workspace from the FlowLab Pro shell."""
+    return redirect("/ei-lab/")
+
+
+def ei_user_models():
+    """Load E&I's Django models for unified administrator operations."""
+    ei_root = Path(__file__).resolve().parent / "jobrec-review"
+    for path in (ei_root / ".venv-jobrec" / "Lib" / "site-packages", ei_root):
+        value = str(path)
+        if value not in sys.path:
+            sys.path.insert(0, value)
+    os.environ.setdefault("DJANGO_SETTINGS_MODULE", "jobrec.settings")
+    os.environ.setdefault("DJANGO_URL_PREFIX", "/ei-lab")
+    import django
+    from django.apps import apps
+    if not apps.ready:
+        django.setup()
+    from django.contrib.auth import get_user_model
+    return get_user_model(), apps.get_model("core", "Personnel"), apps.get_model("core", "Role")
+
+
+@app.route('/settings/records',methods=['GET','POST'])
+def record_maintenance():
+    if session.get('role_name')!='Administrator':
+        abort(403)
+    ei_user_models()
+    from app.modules.integrated_accounts import shared_database
+    if not shared_database():
+        abort(409,description='This workspace requires the shared integrated database.')
+    from app.modules import record_maintenance as maintenance
+    kind = request.values.get('kind','flow_project')
+    if kind not in maintenance.LABELS:
+        abort(400)
+    connection = admin_connection()
+    try:
+        if request.method=='POST':
+            action = request.form.get('action')
+            if action not in ('archive','restore'):
+                raise ValueError('Choose Archive or Restore.')
+            pk = request.form.get('record_id',type=int)
+            if not pk:
+                raise ValueError('Choose a record.')
+            reason = request.form.get('reason','').strip()
+            maintenance.change(connection,kind,pk,action,reason,current_actor())
+            audit_change(connection,kind,pk,'administrative_'+action,after={'reason':reason,'preserved_files_and_history':True})
+            connection.commit()
+            flash('Record '+('archived' if action=='archive' else 'restored')+'. Files, relationships and audit history are retained.','success')
+            return redirect(url_for('record_maintenance',kind=kind))
+        rows = maintenance.listing(connection,kind)
+        return render_template('record_maintenance.html',rows=rows,kind=kind,categories=maintenance.LABELS,page_title='Record Maintenance',active_nav='settings')
+    except ValueError as error:
+        connection.rollback()
+        flash(str(error),'error')
+        return redirect(url_for('record_maintenance',kind=kind))
+    finally:
+        connection.close()
+
+
+@app.post('/records/remove')
+def remove_records():
+    if session.get('role_name') not in {'Chief Meteorologist','Chief Metrologist','Chief','Administrator'}:
+        abort(403)
+    token = request.headers.get('X-Record-CSRF','')
+    import hmac
+    if not session.get('_admin_csrf') or not hmac.compare_digest(session['_admin_csrf'],token):
+        abort(400)
+    from app.modules.integrated_accounts import shared_database
+    if not shared_database():
+        return jsonify(error='Integrated record recovery requires the shared laboratory database.'),409
+    from app.modules import record_maintenance as maintenance
+    from core.record_removal import validate
+    connection = admin_connection()
+    try:
+        payload = request.get_json(silent=True)
+        entries = validate(payload,set(maintenance.FLOW_TYPES))
+        for kind,pk in entries:
+            maintenance.change(connection,kind,pk,'archive',payload['reason'],current_actor())
+            audit_change(connection,kind,pk,'chief_record_removal',after={'reason':payload['reason'],'recoverable':True})
+        connection.commit()
+        return jsonify(removed=len(entries))
+    except (ValueError,TypeError,KeyError) as error:
+        connection.rollback()
+        return jsonify(error=str(error)),400
+    finally:
+        connection.close()
+
+
 @app.route("/users", methods=["GET", "POST"])
+@app.route("/settings/users", methods=["GET", "POST"])
 def users():
+    if session.get('role_name') != 'Administrator':
+        abort(403)
     require_permission("user_management")
-    allowed_roles = ("Chief Meteorologist", "Supervisor", "Engineer", "Technician", "Operator", "Guest")
-    connection = get_connection()
+    ei_user_models()
+    allowed_roles = ("Chief Metrologist", "Chief Meteorologist", "Supervisor", "Engineer", "Technician", "Operator", "Guest") + (("Administrator",) if session.get('role_name')=='Administrator' else ())
+    connection = admin_connection()
     try:
         roles = connection.execute(
             f"SELECT id,name FROM roles WHERE name IN ({','.join('?' for _ in allowed_roles)}) "
@@ -1057,6 +1290,7 @@ def users():
                     (username, AuthService.hash_password(password), full_name, email, role_id))
                 audit_change(connection, "user", cursor.lastrowid, "create", after={
                     "username": username, "full_name": full_name, "role": role[1], "is_active": 1})
+                sync_from_flow(connection,cursor.lastrowid,password=password,confirm_existing=request.form.get('confirm_identity')=='1')
                 flash(f"User {username} created.", "success")
             elif action == "approve_personnel":
                 registration_id = request.form.get("registration_id", type=int)
@@ -1076,6 +1310,7 @@ def users():
                 user_id = connection.execute("""INSERT INTO users
                     (username,password_hash,full_name,email,role_id,is_active,must_change_password)
                     VALUES (?,?,?,?,?,1,1)""", (username,AuthService.hash_password(password),full_name,email,role_id)).lastrowid
+                sync_from_flow(connection,user_id,password=password,confirm_existing=request.form.get('confirm_identity')=='1')
                 connection.execute("""UPDATE personnel_registrations SET status='Approved',completed_user_id=?,
                     review_comment=?,reviewed_at=CURRENT_TIMESTAMP WHERE id=?""",
                     (user_id,request.form.get("comment","").strip() or None,registration_id))
@@ -1095,10 +1330,13 @@ def users():
                     FROM users u JOIN roles r ON r.id=u.role_id WHERE u.id=?""", (user_id,)).fetchone()
                 if not existing or not full_name or not role:
                     raise ValueError("Select an existing user, full name, and approved role.")
-                if existing[3] == "Administrator":
-                    raise ValueError("The legacy Administrator role cannot be reassigned from this module.")
+                if existing[3]=='Administrator' and session.get('role_name')!='Administrator':
+                    raise ValueError('Only an Administrator may change another Administrator.')
+                if existing[3]=='Administrator' and role[1]!='Administrator':
+                    guard_last_admin(connection,user_id)
                 connection.execute("UPDATE users SET full_name=?,email=?,role_id=? WHERE id=?",
                     (full_name, email, role_id, user_id))
+                sync_from_flow(connection,user_id,confirm_existing=request.form.get('confirm_identity')=='1')
                 audit_change(connection, "user", user_id, "update",
                     before={"full_name": existing[1], "email": existing[2], "role": existing[3]},
                     after={"full_name": full_name, "email": email, "role": role[1]})
@@ -1106,11 +1344,14 @@ def users():
             elif action == "reset_password":
                 user_id = request.form.get("user_id", type=int)
                 password = request.form.get("password", "")
-                existing = connection.execute("SELECT username FROM users WHERE id=?", (user_id,)).fetchone()
+                existing = connection.execute("SELECT u.username,r.name FROM users u JOIN roles r ON r.id=u.role_id WHERE u.id=?", (user_id,)).fetchone()
                 if not existing or len(password) < 10:
                     raise ValueError("Select an existing user and enter a password of at least 10 characters.")
+                if existing[1]=='Administrator' and session.get('role_name')!='Administrator':
+                    raise ValueError('Only an Administrator may reset Administrator credentials.')
                 connection.execute("UPDATE users SET password_hash=?,must_change_password=1 WHERE id=?",
                     (AuthService.hash_password(password), user_id))
+                sync_from_flow(connection,user_id,password=password,confirm_existing=request.form.get('confirm_identity')=='1')
                 connection.execute("""UPDATE password_reset_requests SET status='Resolved',resolved_by=?,
                     resolved_at=CURRENT_TIMESTAMP WHERE user_id=? AND status='Pending'""",
                     (current_actor(),user_id))
@@ -1118,16 +1359,106 @@ def users():
                 flash(f"Temporary password set for {existing[0]}. The user must create a new password at sign-in.", "success")
             elif action == "toggle_active":
                 user_id = request.form.get("user_id", type=int)
-                existing = connection.execute("SELECT username,is_active FROM users WHERE id=?", (user_id,)).fetchone()
+                existing = connection.execute("SELECT u.username,u.is_active,r.name FROM users u JOIN roles r ON r.id=u.role_id WHERE u.id=?", (user_id,)).fetchone()
                 if not existing:
                     raise ValueError("User account was not found.")
+                if existing[2]=='Administrator' and session.get('role_name')!='Administrator':
+                    raise ValueError('Only an Administrator may change Administrator access.')
                 if user_id == session.get("user_id") and existing[1]:
                     raise ValueError("You cannot deactivate your own signed-in account.")
                 new_state = 0 if existing[1] else 1
+                if not new_state:
+                    guard_last_admin(connection,user_id)
                 connection.execute("UPDATE users SET is_active=? WHERE id=?", (new_state, user_id))
+                sync_from_flow(connection,user_id)
                 audit_change(connection, "user", user_id, "activate" if new_state else "deactivate",
                     before={"is_active": existing[1]}, after={"is_active": new_state})
                 flash(f"User {existing[0]} {'activated' if new_state else 'deactivated'}.", "success")
+            elif action.startswith("ei_"):
+                User, Personnel, EiRole = ei_user_models()
+                from django.db import transaction
+                ei_roles = {role.pk: role for role in EiRole.objects.all()}
+                with transaction.atomic():
+                    if action == "ei_create":
+                        username = request.form.get("username", "").strip()
+                        full_name = request.form.get("full_name", "").strip()
+                        email = request.form.get("email", "").strip()
+                        password = request.form.get("password", "")
+                        role = ei_roles.get(request.form.get("role_id", type=int))
+                        if not username or not full_name or len(password) < 10 or not role:
+                            raise ValueError("E&I username, name, role and a password of at least 10 characters are required.")
+                        if role.name=='Administrator' and session.get('role_name')!='Administrator':
+                            raise ValueError('Only an Administrator may grant Administrator access.')
+                        if User.objects.filter(username__iexact=username).exists():
+                            raise ValueError("That E&I username already exists.")
+                        first_name, _, last_name = full_name.partition(" ")
+                        ei_user = User.objects.create_user(username=username, email=email,
+                            password=password, first_name=first_name, last_name=last_name)
+                        Personnel.objects.create(user=ei_user, name=full_name, role=role,
+                            qualifications="", years_of_experience=0)
+                        sync_from_ei(connection,ei_user,confirm_existing=request.form.get('confirm_identity')=='1',temporary=True)
+                        audit_change(connection, "ei_user", ei_user.pk, "create", after={
+                            "username": username, "full_name": full_name, "role": role.name})
+                        flash(f"E&I user {username} created.", "success")
+                    else:
+                        user_id = request.form.get("user_id", type=int)
+                        ei_user = User.objects.filter(pk=user_id).first()
+                        if not ei_user:
+                            raise ValueError("E&I user account was not found.")
+                        target_person = Personnel.objects.filter(user=ei_user).select_related('role').first()
+                        if (ei_user.is_superuser or target_person and target_person.role and target_person.role.name=='Administrator') and session.get('role_name')!='Administrator':
+                            raise ValueError('Only an Administrator may change E&I Administrator accounts.')
+                        if action == "ei_update":
+                            full_name = request.form.get("full_name", "").strip()
+                            email = request.form.get("email", "").strip()
+                            role = ei_roles.get(request.form.get("role_id", type=int))
+                            if not full_name or not role:
+                                raise ValueError("E&I name and role are required.")
+                            if (ei_user.is_superuser or role.name=='Administrator') and session.get('role_name')!='Administrator':
+                                raise ValueError('Only an Administrator may change Administrator access.')
+                            if role.name!='Administrator' and ei_user.is_superuser:
+                                ei_user.is_superuser=False
+                                ei_user.save(update_fields=['is_superuser'])
+                            before = {"full_name": ei_user.get_full_name(), "email": ei_user.email}
+                            first_name, _, last_name = full_name.partition(" ")
+                            ei_user.first_name, ei_user.last_name, ei_user.email = first_name, last_name, email
+                            ei_user.save(update_fields=["first_name", "last_name", "email"])
+                            personnel, _ = Personnel.objects.get_or_create(user=ei_user, defaults={
+                                "name": full_name, "role": role,
+                                "qualifications": "Pending administrator completion", "years_of_experience": 0})
+                            personnel.name, personnel.role = full_name, role
+                            personnel.save(update_fields=["name", "role", "updated_at"])
+                            sync_from_ei(connection,ei_user,confirm_existing=request.form.get('confirm_identity')=='1')
+                            audit_change(connection, "ei_user", ei_user.pk, "update", before=before,
+                                after={"full_name": full_name, "email": email, "role": role.name})
+                            flash(f"E&I user {ei_user.username} updated.", "success")
+                        elif action == "ei_reset_password":
+                            password = request.form.get("password", "")
+                            if len(password) < 10:
+                                raise ValueError("Enter an E&I temporary password of at least 10 characters.")
+                            ei_user.set_password(password)
+                            ei_user.save(update_fields=["password"])
+                            sync_from_ei(connection,ei_user,confirm_existing=request.form.get('confirm_identity')=='1',temporary=True)
+                            audit_change(connection, "ei_user", ei_user.pk, "password_reset",
+                                after={"username": ei_user.username})
+                            flash(f"E&I password reset for {ei_user.username}.", "success")
+                        elif action == "ei_toggle_active":
+                            if ei_user.is_superuser and ei_user.is_active and not User.objects.filter(
+                                    is_superuser=True, is_active=True).exclude(pk=ei_user.pk).exists():
+                                raise ValueError("The last active E&I administrator cannot be deactivated.")
+                            old_state = ei_user.is_active
+                            link = getattr(ei_user,'integrated_admin_link',None)
+                            if old_state and link and link.enabled:
+                                guard_last_admin(connection,link.flowlab_user_id)
+                            ei_user.is_active = not old_state
+                            ei_user.save(update_fields=["is_active"])
+                            sync_from_ei(connection,ei_user,confirm_existing=request.form.get('confirm_identity')=='1')
+                            audit_change(connection, "ei_user", ei_user.pk,
+                                "activate" if ei_user.is_active else "deactivate",
+                                before={"is_active": old_state}, after={"is_active": ei_user.is_active})
+                            flash(f"E&I user {ei_user.username} {'activated' if ei_user.is_active else 'deactivated'}.", "success")
+                        else:
+                            raise ValueError("Select a valid E&I user-management action.")
             else:
                 raise ValueError("Select a valid user-management action.")
             connection.commit()
@@ -1148,10 +1479,27 @@ def users():
         if registration_id:
             selected_registration = connection.execute("""SELECT id,full_name,COALESCE(email,''),requested_role,initiated_by
                 FROM personnel_registrations WHERE id=? AND status='Pending'""", (registration_id,)).fetchone()
-        return render_template("users.html", users=rows, roles=roles, reset_requests=reset_requests,
+        User, Personnel, EiRole = ei_user_models()
+        ei_roles = list(EiRole.objects.all().exclude(name='Administrator').order_by('name')) if session.get('role_name')!='Administrator' else list(EiRole.objects.all().order_by('name'))
+        personnel_by_user = {item.user_id: item for item in Personnel.objects.select_related("role").all()}
+        ei_users = [{"id": item.pk, "username": item.username,
+            "full_name": (personnel_by_user[item.pk].name if item.pk in personnel_by_user else item.get_full_name()) or item.username,
+            "email": item.email, "role_id": personnel_by_user[item.pk].role_id if item.pk in personnel_by_user else None,
+            "role": personnel_by_user[item.pk].role.name if item.pk in personnel_by_user and personnel_by_user[item.pk].role else "Unassigned",
+            "is_active": item.is_active, "is_superuser": item.is_superuser, "last_login": item.last_login}
+            for item in User.objects.all().order_by("first_name", "last_name", "username")]
+        from app.modules.integrated_accounts import shared_database
+        if shared_database():
+            from core.models import AdministrativeArchive
+            removed_flow=set(AdministrativeArchive.objects.filter(target_type='flow_user',restored_at__isnull=True).values_list('object_id',flat=True))
+            removed_ei=set(AdministrativeArchive.objects.filter(target_type='ei_user',restored_at__isnull=True).values_list('object_id',flat=True))
+            rows=[row for row in rows if row[0] not in removed_flow]
+            ei_users=[row for row in ei_users if row['id'] not in removed_ei]
+        return render_template("users_settings.html", users=rows, roles=roles, reset_requests=reset_requests,
+            ei_users=ei_users, ei_roles=ei_roles,
             pending_personnel=pending_personnel,selected_registration=selected_registration,
             page_title="User Management", page_subtitle="Controlled accounts, roles and access",
-            active_nav="database")
+            active_nav="settings")
     except ValueError as error:
         connection.rollback(); flash(str(error), "error")
         return redirect(url_for("users"))
@@ -1159,8 +1507,40 @@ def users():
         connection.close()
 
 
+@app.post('/settings/users/remove')
+def remove_user_accounts():
+    if session.get('role_name')!='Administrator': abort(403)
+    import hmac
+    if not session.get('_admin_csrf') or not hmac.compare_digest(session['_admin_csrf'],request.headers.get('X-Record-CSRF','')): abort(400)
+    from app.modules.integrated_accounts import shared_database
+    if not shared_database(): return jsonify(error='Account recovery requires the shared laboratory database.'),409
+    from core.record_removal import validate
+    from app.modules.account_removal import archive
+    connection=admin_connection()
+    try:
+        payload=request.get_json(silent=True)
+        entries=validate(payload,{'flow_user','ei_user'})
+        archive(connection,entries,payload['reason'],current_actor(),session['user_id'])
+        for kind,pk in entries:
+            audit_change(connection,kind,pk,'account_removed',after={'reason':payload['reason'],'recoverable':True})
+        connection.commit()
+        return jsonify(removed=len(entries))
+    except (ValueError,KeyError,TypeError) as error:
+        connection.rollback()
+        return jsonify(error=str(error)),400
+    finally:
+        connection.close()
+
+
 @app.route("/workspace/<section>/<module>", methods=["GET", "POST"])
 def module_page(section, module):
+    if section == 'analytics':
+        if request.method != 'GET': abort(405)
+        return redirect(url_for('flow_analytics',category=module))
+    if section == 'iso17025' and module == 'facilities':
+        return redirect(url_for('flow_environment'))
+    if section == 'iso17025' and module == 'personnel' and session.get('role_name') in {'Chief Metrologist','Chief Meteorologist','Administrator','HOD'}:
+        return redirect(url_for('chief_personnel'))
     if section == "iso17025" and module == "clause-checklist":
         return redirect(url_for("iso_clause_checklist"))
     workspace_data = WORKSPACES.get(section)
@@ -1415,7 +1795,7 @@ def iso_clause_detail(clause_id):
             WHERE e.clause_id=? AND e.is_deleted=0 ORDER BY e.id DESC""", (clause_id,)).fetchall()
         users = connection.execute("""SELECT u.id,u.full_name,r.name FROM users u JOIN roles r ON r.id=u.role_id
             WHERE u.is_active=1 ORDER BY u.full_name""").fetchall()
-        reviewers = [row for row in users if row[2] in {"Chief Meteorologist","Administrator"}]
+        reviewers = [row for row in users if row[2] in {"Chief Meteorologist","Chief Metrologist","Administrator"}]
         capas = connection.execute("SELECT id,ncr_number,title,status FROM capa_records WHERE is_deleted=0 ORDER BY id DESC").fetchall()
         applicability = assessment[1] if assessment and assessment[18] else "Pending determination"
         missing_required = sum(1 for requirement in requirements if requirement[2] and not requirement[3])
@@ -1453,9 +1833,9 @@ def _save_personnel_document(upload, user_id):
 def personnel_clause(clause_id):
     connection = get_connection()
     try:
+        # Personnel files remain usable even before Chief releases clause 6.2 to the checklist.
         clause = connection.execute("""SELECT c.id,c.clause_code,c.title,c.guidance FROM iso_clauses c
-            JOIN iso_clause_assessments a ON a.clause_id=c.id WHERE c.id=? AND c.clause_code='6.2'
-            AND c.is_active=1 AND a.applicability='Applicable' AND a.applicability_set_by IS NOT NULL""", (clause_id,)).fetchone()
+            WHERE c.id=? AND c.clause_code='6.2' AND c.is_active=1""", (clause_id,)).fetchone()
         if not clause: abort(404)
         users = connection.execute("""SELECT u.id,u.full_name,u.username,COALESCE(u.email,''),r.name,u.is_active
             FROM users u JOIN roles r ON r.id=u.role_id ORDER BY u.is_active DESC,u.full_name""").fetchall()
@@ -1480,11 +1860,11 @@ def personnel_clause(clause_id):
         selected_user_id = request.args.get("user_id", type=int)
         selected = next((item for item in personnel if item["user"][0] == selected_user_id), None)
         role = session.get("role_name")
-        can_manage_all = role in {"Supervisor","Chief Meteorologist","Administrator"}
+        can_manage_all = role in {"Supervisor","Chief Meteorologist","Chief Metrologist","Administrator"}
         if selected and not (can_manage_all or selected_user_id == session.get("user_id")):
             selected = None
         reviewers = connection.execute("""SELECT u.id,u.full_name,r.name FROM users u JOIN roles r ON r.id=u.role_id
-            WHERE u.is_active=1 AND r.name IN ('Supervisor','Chief Meteorologist','Administrator')
+            WHERE u.is_active=1 AND r.name IN ('Supervisor','Chief Meteorologist','Chief Metrologist','Administrator')
             ORDER BY CASE r.name WHEN 'Supervisor' THEN 1 WHEN 'Chief Meteorologist' THEN 2 ELSE 3 END,u.full_name""").fetchall()
         return render_template("personnel_clause.html",clause=clause,personnel=personnel,
             document_types=PERSONNEL_DOCUMENT_TYPES,document_subclauses=PERSONNEL_DOCUMENT_SUBCLAUSES,
@@ -1507,23 +1887,23 @@ def personnel_register(clause_id):
         if not full_name or requested_role not in allowed: raise ValueError("Full name and a valid laboratory role are required.")
         if email and not valid_email(email): raise ValueError("Enter a valid email address.")
         chief = connection.execute("""SELECT u.id,u.full_name FROM users u JOIN roles r ON r.id=u.role_id
-            WHERE u.is_active=1 AND r.name='Chief Meteorologist' ORDER BY u.id LIMIT 1""").fetchone()
+            WHERE u.is_active=1 AND r.name IN ('Chief Metrologist','Chief Meteorologist','Administrator') ORDER BY u.id LIMIT 1""").fetchone()
         if not chief: raise ValueError("An active Chief Meteorologist is required to review personnel registration.")
         registration_id = connection.execute("""INSERT INTO personnel_registrations
             (full_name,email,requested_role,status,initiated_by_user_id,initiated_by,assigned_reviewer_id)
             VALUES (?,?,?,'Pending',?,?,?)""",(full_name,email,requested_role,session.get("user_id"),current_actor(),chief[0])).lastrowid
-        initiated_by_chief = session.get("role_name") == "Chief Meteorologist"
+        initiated_by_chief = session.get('role_name') in {'Chief Metrologist','Chief Meteorologist','Administrator','HOD'}
         if not initiated_by_chief:
             connection.execute("""INSERT INTO workflow_tasks(entity_type,entity_id,task_type,status,submitted_by,
                 assigned_to,submitted_user_id,assigned_user_id,priority) VALUES (?,?,'Personnel registration','Pending',?,?,?,?,?)""",
                 ("personnel_registration",registration_id,current_actor(),chief[1],session.get("user_id"),chief[0],"Normal"))
             add_notification(connection,chief[0],"Personnel registration awaiting completion",full_name,
-                url_for("users",registration_id=registration_id),"personnel_registration",registration_id)
+                url_for("chief_personnel",registration_id=registration_id),"personnel_registration",registration_id)
         audit_change(connection,"personnel_registration",registration_id,"submit",after={"name":full_name,"role":requested_role})
         connection.commit()
         flash("Complete the personnel account details." if initiated_by_chief else
             "Personnel registration sent to the Chief Meteorologist for completion.","success")
-        destination = url_for("users",registration_id=registration_id) if initiated_by_chief else url_for("personnel_clause",clause_id=clause_id)
+        destination = url_for("chief_personnel",registration_id=registration_id) if initiated_by_chief else url_for("personnel_clause",clause_id=clause_id)
     except ValueError as error:
         connection.rollback(); flash(str(error),"error")
     finally:
@@ -1538,7 +1918,7 @@ def personnel_document_upload(user_id):
         target = connection.execute("SELECT id,full_name FROM users WHERE id=? AND is_active=1",(user_id,)).fetchone()
         if not target: raise ValueError("Active personnel record was not found.")
         role = session.get("role_name")
-        if user_id != session.get("user_id") and role not in {"Supervisor","Chief Meteorologist","Administrator"}:
+        if user_id != session.get("user_id") and role not in {"Supervisor","Chief Meteorologist","Chief Metrologist","Administrator"}:
             abort(403)
         document_type = request.form.get("document_type","")
         document_number = request.form.get("document_number","").strip()
@@ -1549,9 +1929,9 @@ def personnel_document_upload(user_id):
             raise ValueError("Document type, number, revision, issued date and file are required.")
         ensure_unique_document_number(connection,document_number)
         reviewer_id = request.form.get("reviewer_user_id",type=int)
-        auto_approved = role in {"Chief Meteorologist","Administrator"}
+        auto_approved = role in {"Chief Meteorologist","Chief Metrologist","Administrator"}
         if not auto_approved:
-            permitted_roles = ("Chief Meteorologist","Administrator") if role == "Supervisor" else ("Supervisor","Chief Meteorologist","Administrator")
+            permitted_roles = ("Chief Meteorologist","Chief Metrologist","Administrator") if role == "Supervisor" else ("Supervisor","Chief Meteorologist","Chief Metrologist","Administrator")
             reviewer = connection.execute(f"""SELECT u.id,u.full_name,r.name FROM users u JOIN roles r ON r.id=u.role_id
                 WHERE u.id=? AND u.is_active=1 AND r.name IN ({','.join('?' for _ in permitted_roles)})""",
                 (reviewer_id,*permitted_roles)).fetchone()
@@ -1592,7 +1972,7 @@ def personnel_document_upload(user_id):
 
 
 def _personnel_document_reviewer(connection, reviewer_id, uploader_role):
-    permitted = ("Chief Meteorologist","Administrator") if uploader_role == "Supervisor" else (
+    permitted = ("Chief Meteorologist","Chief Metrologist","Administrator") if uploader_role == "Supervisor" else (
         "Supervisor","Chief Meteorologist","Administrator")
     reviewer = connection.execute(f"""SELECT u.id,u.full_name,r.name FROM users u JOIN roles r ON r.id=u.role_id
         WHERE u.id=? AND u.is_active=1 AND r.name IN ({','.join('?' for _ in permitted)})""",
@@ -1611,7 +1991,7 @@ def personnel_document_edit(document_id):
             WHERE d.id=? AND d.is_deleted=0""",(document_id,)).fetchone()
         if not row: abort(404)
         role = session.get("role_name")
-        if session.get("user_id") not in {row[1],row[9]} and role not in {"Supervisor","Chief Meteorologist","Administrator"}:
+        if session.get("user_id") not in {row[1],row[9]} and role not in {"Supervisor","Chief Meteorologist","Chief Metrologist","Administrator"}:
             abort(403)
         document_number=request.form.get("document_number","").strip()
         revision=request.form.get("revision","").strip()
@@ -1621,7 +2001,7 @@ def personnel_document_edit(document_id):
         upload=request.files.get("document_file")
         file_name,file_path=(row[6],row[7])
         if upload and upload.filename: file_name,file_path=_save_personnel_document(upload,row[1])
-        auto_approved=role in {"Chief Meteorologist","Administrator"}
+        auto_approved=role in {"Chief Meteorologist","Chief Metrologist","Administrator"}
         reviewer=None
         if not auto_approved:
             reviewer=_personnel_document_reviewer(connection,request.form.get("reviewer_user_id",type=int),role)
@@ -1663,7 +2043,7 @@ def personnel_document_edit(document_id):
 
 @app.post("/iso17025/personnel-documents/<int:document_id>/delete")
 def personnel_document_delete(document_id):
-    if session.get("role_name") not in {"Chief Meteorologist","Administrator"}: abort(403)
+    if session.get("role_name") not in {"Chief Meteorologist","Chief Metrologist","Administrator"}: abort(403)
     connection=get_connection()
     try:
         row=connection.execute("SELECT user_id,document_type,is_current,supersedes_id FROM personnel_documents WHERE id=? AND is_deleted=0",(document_id,)).fetchone()
@@ -1701,10 +2081,10 @@ def personnel_document_workflow(document_id):
             WHERE d.id=? AND d.is_deleted=0""",(document_id,)).fetchone()
         if not row or row[3] != "Submitted for Review": raise ValueError("Only submitted personnel documents can be reviewed.")
         role = session.get("role_name")
-        if role not in {"Supervisor","Chief Meteorologist","Administrator"}: abort(403)
-        if row[7] == "Supervisor" and role not in {"Chief Meteorologist","Administrator"}:
+        if role not in {"Supervisor","Chief Meteorologist","Chief Metrologist","Administrator"}: abort(403)
+        if row[7] == "Supervisor" and role not in {"Chief Meteorologist","Chief Metrologist","Administrator"}:
             raise ValueError("A document changed by a Supervisor must be approved by the Chief Meteorologist.")
-        if session.get("user_id") != row[5] and role not in {"Chief Meteorologist","Administrator"}:
+        if session.get("user_id") != row[5] and role not in {"Chief Meteorologist","Chief Metrologist","Administrator"}:
             raise ValueError("This review is assigned to another authorized reviewer.")
         action = request.form.get("action")
         comment = request.form.get("comment","").strip()
@@ -1738,7 +2118,7 @@ def personnel_document_file(document_id):
     try:
         row = connection.execute("SELECT user_id,file_path,file_name FROM personnel_documents WHERE id=? AND is_deleted=0",(document_id,)).fetchone()
         if not row: abort(404)
-        if row[0] != session.get("user_id") and session.get("role_name") not in {"Supervisor","Chief Meteorologist","Administrator"}:
+        if row[0] != session.get("user_id") and session.get("role_name") not in {"Supervisor","Chief Meteorologist","Chief Metrologist","Administrator"}:
             abort(403)
         path = Path(row[1])
         if not path.is_file(): abort(404)
@@ -1811,7 +2191,7 @@ def iso_clause_evidence_workflow(evidence_id):
             status="Submitted for Review"
         else:
             require_permission("record_approve")
-            if session.get("role_name") not in {"Chief Meteorologist","Administrator"}: raise ValueError("Only the Chief Meteorologist or Administrator can approve clause records.")
+            if session.get("role_name") not in {"Chief Meteorologist","Chief Metrologist","Administrator"}: raise ValueError("Only the Chief Meteorologist or Administrator can approve clause records.")
             if row[1]!="Submitted for Review": raise ValueError("Only submitted evidence can be reviewed.")
             if action=="revert" and not comment: raise ValueError("A revert comment is required.")
             if action not in {"approve","revert"}: raise ValueError("Select Approve or Revert.")
@@ -1964,40 +2344,89 @@ def settings():
         page_title="Settings", page_subtitle="", active_nav="settings")
 
 
+@app.route("/settings/policies", methods=["GET", "POST"])
+def settings_policies():
+    if not app.config.get("TESTING") and session.get("role_name") != "Administrator":
+        abort(403)
+    if request.method == "POST":
+        policy = request.files.get("document")
+        title = request.form.get("title", "").strip()
+        document_number = request.form.get("document_number", "").strip()
+        revision = request.form.get("revision", "").strip()
+        effective_date = request.form.get("effective_date", "").strip()
+        if not policy or not policy.filename or not title or not document_number or not revision:
+            flash("Policy title, document number, revision and file are required.", "error")
+        else:
+            try:
+                validate_report(policy, required=True)
+                connection = get_connection()
+                ensure_unique_document_number(connection, document_number)
+                destination = Path("data/shared_files/policies")
+                destination.mkdir(parents=True, exist_ok=True)
+                target = destination / f"{uuid4().hex}_{Path(policy.filename).name}"
+                policy.save(target)
+                cursor = connection.execute("""INSERT INTO controlled_documents
+                    (document_type,document_number,title,revision,original_filename,file_path,
+                     status,effective_date,notes,uploaded_by,submitted_by,reviewed_by,reviewed_at,
+                     approved_by,approved_at)
+                    VALUES ('Policy',?,?,?,?,?,'Approved',?,?,?,?,?,CURRENT_TIMESTAMP,?,CURRENT_TIMESTAMP)""",
+                    (document_number,title,revision,policy.filename,str(target),effective_date or None,
+                     request.form.get("notes", "").strip() or None,current_actor(),current_actor(),
+                     current_actor(),current_actor()))
+                audit_change(connection, "controlled_document", cursor.lastrowid, "publish_policy",
+                    after={"title":title,"document_number":document_number,"revision":revision,
+                        "status":"Approved","public":True})
+                connection.commit(); connection.close()
+                flash("Policy uploaded, approved and published to the public policy library.", "success")
+                return redirect(url_for("settings_policies"))
+            except ValueError as error:
+                flash(str(error), "error")
+    rows = query("""SELECT id,document_number,title,revision,COALESCE(effective_date,''),
+        original_filename,status FROM controlled_documents
+        WHERE is_deleted=0 AND document_type='Policy' ORDER BY created_at DESC""")
+    return render_template("settings_policies.html", rows=rows, page_title="Upload Policies",
+        page_subtitle="", active_nav="settings")
+
+
 @app.route("/projects/jobs", methods=["GET", "POST"])
 def project_jobs():
     if request.method == "POST":
         action = request.form.get("action", "add_job")
+        if (action == "add_job" and request.form.get("project_name")
+                and request.form.get("project_client_name")
+                and not request.form.get("project_id") and not request.form.get("job_title")):
+            action = "add_project"
         if action == "add_project":
             require_permission("project_create")
             connection = get_connection()
             try:
-                project_client = request.form.get("project_client_name", "").strip()
+                project_client = request.form.get("project_client_name", "").strip().upper()
                 if not project_client:
                     raise ValueError("Project: select or enter a client.")
                 customer = connection.execute("SELECT id FROM customers WHERE customer_name=? COLLATE NOCASE", (project_client,)).fetchone()
                 if customer:
                     customer_id = customer[0]
+                    connection.execute("UPDATE customers SET customer_name=? WHERE id=?", (project_client, customer_id))
                 else:
                     require_permission("client_create")
                     customer_id = connection.execute("INSERT INTO customers(customer_name,status) VALUES (?,'Active')", (project_client,)).lastrowid
                     audit_change(connection, "customer", customer_id, "quick_create", after={"customer_name":project_client})
-                project_name = request.form.get("project_name", "").strip()
+                project_name = request.form.get("project_name", "").strip().upper()
                 if not project_name:
                     raise ValueError("Project: enter the project name.")
                 validate_date_sequence(request.form.get("project_start_date"),request.form.get("project_completion_date"),"Expected completion date")
-                project_number = request.form.get("project_number", "").strip() or next_reference(
+                project_number = request.form.get("project_number", "").strip().upper() or next_reference(
                     connection, "projects", "project_number", "PRJ")
                 cursor = connection.execute("""INSERT INTO projects
                     (project_number,customer_id,project_name,description,status,target_start_date,
                      target_completion_date,project_manager,notes,created_by,purchase_order)
                     VALUES (?,?,?,?,?,?,?,?,?,?,?)""", (project_number, customer_id, project_name,
-                    request.form.get("project_description", "").strip() or None,
+                    request.form.get("project_description", "").strip().upper() or None,
                     request.form.get("project_status", "Draft"), request.form.get("project_start_date") or None,
                     request.form.get("project_completion_date") or None,
-                    request.form.get("project_manager", "").strip() or None,
-                    request.form.get("project_notes", "").strip() or None, current_actor(),
-                    request.form.get("project_purchase_order", "").strip() or None))
+                    request.form.get("project_manager", "").strip().upper() or None,
+                    request.form.get("project_notes", "").strip().upper() or None, current_actor(),
+                    request.form.get("project_purchase_order", "").strip().upper() or None))
                 audit_change(connection, "project", cursor.lastrowid, "create", after={
                     "project_number": project_number, "project_name": project_name,
                     "status": request.form.get("project_status", "Draft")})
@@ -2012,7 +2441,7 @@ def project_jobs():
             service_request_choice = request.form.get("service_request_required", "").strip().lower()
             if app.config.get("TESTING") and not service_request_choice:
                 service_request_choice = "no"
-            required = ("job_title", "project_id", "mut_description", "meter_type",
+            required = ("job_number", "job_title", "project_id", "mut_description", "meter_type",
                         "method_id", "required_date", "flow_min",
                         "flow_max", "flow_unit", "flow_point_count", "job_type",
                         "fluid_medium", "calibration_quantity")
@@ -2057,8 +2486,10 @@ def project_jobs():
                         destination = Path("data/documents/service-requests"); destination.mkdir(parents=True, exist_ok=True)
                         target = destination / f"{uuid4().hex}_{service_request_data['original_filename']}"
                         service_request_upload.stream.seek(0); service_request_upload.save(target); service_request_path = str(target)
-                    job_number = request.form.get("job_number", "").strip() or next_reference(
-                        connection, "calibration_jobs", "job_number", "JOB")
+                    job_number = request.form["job_number"].strip()
+                    if connection.execute("SELECT 1 FROM calibration_jobs WHERE LOWER(job_number)=LOWER(?)",
+                            (job_number,)).fetchone():
+                        raise ValueError(f"Job ID {job_number} has already been used. Enter a different Job ID.")
                     may_assign = app.config.get("TESTING") or Permissions.can(session.get("role_name", ""), "job_assign")
                     assigned_user_id = request.form.get("assigned_user_id", type=int) if may_assign else None
                     assigned_user = connection.execute("SELECT full_name FROM users WHERE id=? AND is_active=1",
@@ -2067,6 +2498,7 @@ def project_jobs():
                         raise ValueError("Chief Meteorologist or Supervisor must select an active assignee.")
                     assigned_name = assigned_user[0] if assigned_user else (
                         request.form.get("engineer_operator","").strip() if app.config.get("TESTING") else "Unassigned")
+                    job_status = "Planned" if assigned_user else request.form.get("status", "Draft")
                     assignment_event = (json.dumps({"assigned_to":assigned_name,"assigned_by":current_actor(),
                         "date":date.today().isoformat()}) + "\n") if assigned_user else None
                     cursor = connection.execute("""INSERT INTO calibration_jobs
@@ -2079,7 +2511,7 @@ def project_jobs():
                          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (
                         job_number, request.form["job_title"].strip(), request.form["job_type"].strip(), customer_id,
                         int(request.form["equipment_id"]) if request.form.get("equipment_id") else None,
-                        int(request.form["method_id"]), request.form.get("status", "Draft"),
+                        int(request.form["method_id"]), job_status,
                         f'{request.form["flow_min"]}–{request.form["flow_max"]} {request.form["flow_unit"]}',
                         request.form["meter_type"].strip(), request.form["mut_description"].strip(),
                         request.form.get("mut_asset_id", "").strip() or None,
@@ -2155,7 +2587,7 @@ def project_jobs():
                     add_note(connection, "calibration_job", cursor.lastrowid, request.form.get("notes"))
                     audit_change(connection, "calibration_job", cursor.lastrowid, "create", after={
                         "job_number": job_number, "project_id": project_id or None,
-                        "status": request.form.get("status", "Draft")})
+                        "status": job_status})
                     connection.commit(); flash(f"Job {job_number} created.", "success")
                     return redirect(url_for("job_detail", job_id=cursor.lastrowid))
                 except Exception as error:
@@ -2218,7 +2650,7 @@ def job_detail(job_id):
         abort(404)
     calculations = query("""SELECT id,calculation_uid,method_name,status,revision,calculated_at,
         expanded_uncertainty,approved_by,approved_at FROM uncertainty_calculations
-        WHERE job_id=? AND (status NOT IN ('Draft','Reverted') OR calculated_by=?)
+        WHERE job_id=? AND status<>'Deleted' AND (status NOT IN ('Draft','Reverted') OR calculated_by=?)
         ORDER BY revision DESC,id DESC""", (job_id,current_actor()))
     approved_uncertainty_rows = query("""SELECT id,calculation_uid,method_name,status,revision,
         calculated_at,expanded_uncertainty,approved_by,approved_at
@@ -2227,7 +2659,7 @@ def job_detail(job_id):
     approved_uncertainty = approved_uncertainty_rows[0] if approved_uncertainty_rows else None
     service_requests = query("""SELECT id,COALESCE(request_number,''),COALESCE(revision,''),
         original_filename,status,uploaded_by,created_at,conformity_required,COALESCE(decision_rule_code,''),
-        COALESCE(acceptance_limits,'') FROM lab_service_requests WHERE job_id=? ORDER BY id DESC""",(job_id,))
+        COALESCE(acceptance_limits,'') FROM lab_service_requests WHERE job_id=? AND status<>'Deleted' ORDER BY id DESC""",(job_id,))
     conformity_assessments = query("""SELECT id,assessment_uid,revision,status,overall_decision,
         rule_code,created_by,created_at,approved_by,approved_at FROM conformity_assessments
         WHERE job_id=? AND is_deleted=0 ORDER BY id DESC""",(job_id,))
@@ -2264,23 +2696,25 @@ def project_edit(project_id):
             WHERE p.id=? AND p.is_deleted=0""",(project_id,)).fetchone()
         if not project: abort(404)
         if request.method == "POST":
-            project_name=request.form.get("project_name","").strip()
-            client_name=request.form.get("project_client_name","").strip()
+            project_name=request.form.get("project_name","").strip().upper()
+            client_name=request.form.get("project_client_name","").strip().upper()
             if not project_name or not client_name: raise ValueError("Project name and client are required.")
             validate_date_sequence(request.form.get("project_start_date"),request.form.get("project_completion_date"),"Expected completion date")
             customer=connection.execute("SELECT id FROM customers WHERE customer_name=? COLLATE NOCASE",(client_name,)).fetchone()
             if not customer:
                 customer_id=connection.execute("INSERT INTO customers(customer_name,status) VALUES (?,'Active')",(client_name,)).lastrowid
-            else: customer_id=customer[0]
+            else:
+                customer_id=customer[0]
+                connection.execute("UPDATE customers SET customer_name=? WHERE id=?",(client_name,customer_id))
             before={"name":project[2],"client":project[4],"po":project[5],"status":project[9]}
             connection.execute("""UPDATE projects SET project_name=?,customer_id=?,purchase_order=?,
                 project_manager=?,target_start_date=?,target_completion_date=?,status=?,description=?,notes=?,
                 updated_at=CURRENT_TIMESTAMP WHERE id=?""",(project_name,customer_id,
-                request.form.get("project_purchase_order","").strip() or None,
-                request.form.get("project_manager","").strip() or None,
+                request.form.get("project_purchase_order","").strip().upper() or None,
+                request.form.get("project_manager","").strip().upper() or None,
                 request.form.get("project_start_date") or None,request.form.get("project_completion_date") or None,
-                request.form.get("project_status","Draft"),request.form.get("project_description","").strip() or None,
-                request.form.get("project_notes","").strip() or None,project_id))
+                request.form.get("project_status","Draft"),request.form.get("project_description","").strip().upper() or None,
+                request.form.get("project_notes","").strip().upper() or None,project_id))
             audit_change(connection,"project",project_id,"edit",before=before,after={"name":project_name,"client":client_name,"po":request.form.get("project_purchase_order"),"status":request.form.get("project_status")})
             connection.commit();flash(f"Project {project[1]} updated.","success")
             return redirect(url_for("project_jobs",project=project_id))
@@ -2332,6 +2766,7 @@ def job_edit(job_id):
                 mut_description=?,mut_asset_id=?,mut_serial_number=?,manufacturer=?,model_number=?,meter_type=?,meter_size=?,
                 flow_min=?,flow_max=?,flow_unit=?,flow_range=?,flow_point_count=?,fluid_medium=?,calibration_quantity=?,
                 planned_start_date=?,required_date=?,purchase_order_override=?,notes=?,updated_at=CURRENT_TIMESTAMP WHERE id=?""",values)
+            automate_job_status(connection, job_id, activity=True)
             audit_change(connection,"calibration_job",job_id,"edit",before=before,after={"title":values[0],"status":values[2],"method_id":values[3],"range":[flow_min,flow_max,values[14]],"flow_points":flow_points})
             connection.commit();flash(f"Job {job[1]} updated.","success");return redirect(url_for("job_detail",job_id=job_id))
         return render_template("job_edit.html",job=job,
@@ -2373,6 +2808,7 @@ def job_assign(job_id):
         "date":date.today().isoformat(),"reason":reason or None}) + "\n"
     connection.execute("""UPDATE calibration_jobs SET assigned_user_id=?,engineer_operator=?,assigned_by=?,
         assigned_at=CURRENT_TIMESTAMP,assignment_history=COALESCE(assignment_history,'') || ?,
+        status=CASE WHEN status='Draft' THEN 'Planned' ELSE status END,
         updated_at=CURRENT_TIMESTAMP WHERE id=?""",(user_id,user[0],current_actor(),event,job_id))
     audit_change(connection,"calibration_job",job_id,"reassign" if job[1] else "assign",
         before={"assigned_to":job[0]},after={"assigned_to":user[0],"assigned_by":current_actor(),"reason":reason or None})
@@ -2497,11 +2933,53 @@ def recycle_bin():
         if not archive_batches or archive_batches[-1][0] != row[9]:
             archive_batches.append((row[9], []))
         archive_batches[-1][1].append(row)
+    retained_batches = {}
+    from app.modules.integrated_accounts import shared_database
+    if is_admin and shared_database():
+        from core.models import AdministrativeArchive
+        for item in AdministrativeArchive.objects.filter(restored_at__isnull=True).order_by('-archived_at','-pk'):
+            retained_batches.setdefault(item.archived_at.strftime('%Y-%m'),[]).append(item)
     return render_template("recycle_bin.html", rows=rows, archive_batches=archive_batches,
+        retained_batches=retained_batches,
         is_admin=is_admin,
         can_manage=session.get("role_name") in {"Chief Meteorologist", "Administrator"} or app.config.get("TESTING"),
         page_title="Recycle Bin", page_subtitle="Recoverable deleted Projects, Jobs, files and folders",
         active_nav="recycle")
+
+
+@app.post('/recycle-bin/retained/<int:item_id>/restore')
+def retained_record_restore(item_id):
+    if session.get('role_name')!='Administrator':
+        abort(403)
+    import hmac
+    if not session.get('_admin_csrf') or not hmac.compare_digest(session['_admin_csrf'],request.form.get('_admin_csrf','')):
+        abort(400)
+    from app.modules.integrated_accounts import shared_database
+    if not shared_database():
+        abort(409)
+    from core.models import AdministrativeArchive
+    from app.modules.record_maintenance import change
+    item = AdministrativeArchive.objects.filter(pk=item_id,restored_at__isnull=True).first()
+    if not item:
+        abort(404)
+    connection = admin_connection()
+    try:
+        reason = request.form.get('reason','').strip()
+        if len(reason)<5: raise ValueError('Enter a restoration reason of at least five characters.')
+        if item.target_type in {'flow_user','ei_user'}:
+            from app.modules.account_removal import restore
+            restore(connection,item,reason,current_actor())
+        else:
+            change(connection,item.target_type,item.object_id,'restore',reason,current_actor())
+        audit_change(connection,item.target_type,item.object_id,'master_recycle_restore',after={'reason':reason})
+        connection.commit()
+        flash('Record restored with its original identity, files and history.','success')
+    except ValueError as error:
+        connection.rollback()
+        flash(str(error),'error')
+    finally:
+        connection.close()
+    return redirect(url_for('recycle_bin'))
 
 
 @app.post("/recycle-bin/<int:item_id>/restore")
@@ -3451,7 +3929,7 @@ def programme():
         COALESCE((SELECT c.certificate_number FROM calibration_history c WHERE c.equipment_id=e.id
             AND c.status='Approved' AND c.is_deleted=0 ORDER BY c.calibration_date DESC,c.id DESC LIMIT 1),''),
         COALESCE((SELECT c.status FROM calibration_history c WHERE c.equipment_id=e.id
-            AND c.status='Approved' AND c.is_deleted=0 ORDER BY c.calibration_date DESC,c.id DESC LIMIT 1),'Not Calibrated')
+            AND c.status='Approved' AND c.is_deleted=0 ORDER BY c.calibration_date DESC,c.id DESC LIMIT 1),'Not Calibrated'),e.id
         FROM laboratory_equipment e WHERE e.include_in_calibration_programme=1 AND e.is_active=1
         ORDER BY e.next_calibration_date,e.equipment_name""", (f"+{due_soon_days} days",))
     return render_template("programme.html", rows=rows,
@@ -3603,6 +4081,8 @@ def uncertainty_api_save():
         result = calculate_payload(connection, payload)
         saved = save_cmc(connection, payload, result, current_actor()) if result["isCmc"] else \
             save_calculation(connection, payload, result, current_actor())
+        if not result["isCmc"]:
+            automate_job_status(connection, payload.get("jobId"), activity=True)
         entity = "cmc_revision" if result["isCmc"] else "uncertainty_calculation"
         audit_change(connection, entity, saved["id"], "save_draft",
             after={"revision": saved["revision"], "status": saved["status"]})
@@ -3624,6 +4104,8 @@ def uncertainty_api_autosave():
         if payload.get("standalone"):
             raise ValueError("Standalone Tool calculations are not retained.")
         saved = save_partial_draft(connection,payload,current_actor())
+        if not payload.get("isCmc") and payload.get("jobId"):
+            automate_job_status(connection, payload.get("jobId"), activity=True)
         connection.commit()
         return jsonify(ok=True, record=saved)
     except ValueError as error:
@@ -3778,6 +4260,11 @@ def uncertainty_api_workflow(record_type, record_id):
                 connection.execute("""UPDATE calibration_jobs SET flow_point_count=?,updated_at=CURRENT_TIMESTAMP
                     WHERE id=? AND COALESCE(flow_point_count,0)<?""",
                     (job_and_count[1],job_and_count[0],job_and_count[1]))
+        if not is_cmc:
+            job_row = connection.execute("SELECT job_id FROM uncertainty_calculations WHERE id=?", (record_id,)).fetchone()
+            if job_row and job_row[0]:
+                automate_job_status(connection, job_row[0], activity=True,
+                    evaluate_completion=status == "Approved")
         creator_id = user_id_for_actor(connection,record_row[1])
         link = url_for("uncertainty",record=record_id)
         if action == "submit" and not auto_approve:
@@ -3969,8 +4456,14 @@ def uncertainty():
             FROM calibration_jobs j LEFT JOIN customers c ON c.id=j.customer_id
             LEFT JOIN laboratory_equipment e ON e.id=j.equipment_id
             LEFT JOIN calibration_methods m ON m.id=j.method_id
-            LEFT JOIN project_jobs pj ON pj.job_id=j.id LEFT JOIN projects p ON p.id=pj.project_id
-            WHERE j.is_deleted=0 ORDER BY j.id DESC""").fetchall()
+            JOIN project_jobs pj ON pj.job_id=j.id JOIN projects p ON p.id=pj.project_id
+            WHERE j.is_deleted=0 AND p.is_deleted=0 ORDER BY j.id DESC""").fetchall()
+        job_search_refs = {}
+        if not standalone and jobs:
+            for row in connection.execute("""SELECT job_id,calculation_uid FROM uncertainty_calculations
+                WHERE status<>'Deleted' AND (status NOT IN ('Draft','Reverted') OR calculated_by=?) ORDER BY id DESC""",
+                (current_actor(),)).fetchall():
+                job_search_refs.setdefault(row[0], []).append(row[1])
         equipment_data = [equipment_dict(row) for row in equipment_rows(connection)]
         for equipment in equipment_data:
             calibration_id=equipment.get("calibration_record_id")
@@ -3996,16 +4489,17 @@ def uncertainty():
             FROM uncertainty_calculations u JOIN calibration_jobs j ON j.id=u.job_id
             LEFT JOIN customers c ON c.id=j.customer_id LEFT JOIN laboratory_equipment e ON e.id=j.equipment_id
             LEFT JOIN project_jobs pj ON pj.job_id=j.id LEFT JOIN projects p ON p.id=pj.project_id
-            WHERE u.status NOT IN ('Draft','Reverted') OR u.calculated_by=?
+            WHERE u.status<>'Deleted' AND (u.status NOT IN ('Draft','Reverted') OR u.calculated_by=?)
             ORDER BY u.id DESC""", (current_actor(),)).fetchall()
         cmc_records = connection.execute("""SELECT id,method_name,revision,status,proposed_cmc,
             coverage_factor,effective_at,created_by,created_at,snapshot_json
-            FROM cmc_revisions WHERE status NOT IN ('Draft','Reverted') OR created_by=?
+            FROM cmc_revisions WHERE status<>'Deleted' AND (status NOT IN ('Draft','Reverted') OR created_by=?)
             ORDER BY id DESC""", (current_actor(),)).fetchall()
         audit_records = connection.execute("""SELECT entity_type,entity_id,action,actor,notes,occurred_at
             FROM approval_history WHERE entity_type IN ('uncertainty_calculation','cmc_revision')
             ORDER BY id DESC LIMIT 100""").fetchall()
-        return render_template("uncertainty.html", jobs=jobs, equipment=equipment_data,
+        return render_template("uncertainty.html", jobs=jobs, job_search_refs=job_search_refs,
+            equipment=equipment_data,
             records=records, cmc_records=cmc_records, audit_records=audit_records,
             uncertainty_reviewers=uncertainty_reviewers, uncertainty_approvers=uncertainty_approvers,
             source_templates=SOURCE_TEMPLATES, preselected_job_id=None if requested_record else requested_job,
@@ -4071,6 +4565,7 @@ def decision_rule_calculator():
                 request.form.get("rule_revision","").strip() or "TBC",current_actor())
             audit_change(connection,"conformity_assessment",assessment_id,"create",
                 after={"job_id":selected_job,"rule":RULE_CODE,"status":"Draft"})
+            automate_job_status(connection, selected_job, activity=True)
             connection.commit()
             flash("Decision-rule assessment saved as Draft.","success")
             return redirect(url_for("decision_rule_calculator",job=selected_job,assessment=assessment_id))
@@ -4181,6 +4676,7 @@ def decision_rule_workflow(assessment_id):
                 "conformity_assessment",assessment_id)
         else: raise ValueError("Select Submit, Approve or Revert.")
         audit_change(connection,"conformity_assessment",assessment_id,action,after={"status":status,"comment":comment or None})
+        automate_job_status(connection, row[2], activity=True, evaluate_completion=status == "Approved")
         connection.commit();flash(f"Assessment status: {status}.","success")
         return redirect(url_for("decision_rule_calculator",job=row[2],assessment=assessment_id))
     except ValueError as error:
@@ -4217,6 +4713,7 @@ def generate_cover_page():
             cover_id=register_generated_cover(connection,data,output,current_actor())
             audit_change(connection,"generated_report_cover",cover_id,"generate",
                 after={"job_id":selected_job,"assessment_id":assessment_id,"format":output_format})
+            automate_job_status(connection, selected_job, activity=True, evaluate_completion=True)
             connection.commit()
             return redirect(url_for("generated_cover_file",cover_id=cover_id))
         jobs=connection.execute("""SELECT j.id,j.job_number,
@@ -4466,6 +4963,9 @@ def flow_converter():
         page_subtitle="Controlled measurement uncertainty and CMC engine",
         active_nav="iso17025")
 
+
+from app.modules.flow_workspaces import register as register_flow_workspaces
+register_flow_workspaces(app)
 
 if __name__ == "__main__":
     app.run(host="127.0.0.1", port=5000, debug=True)

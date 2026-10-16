@@ -1,0 +1,260 @@
+{% extends 'core/base.html' %}
+{% load permission_tags %}
+{% block title %}Environment{% endblock %}
+
+{% block content %}
+{% url 'dashboard' as back_href %}
+{% include 'core/partials/back_link.html' with back_label='Back to Dashboard' %}
+<div class="space-y-4 ei-env-log">
+    <div class="flex items-center justify-between">
+        {% include 'core/partials/register_title.html' with title='Environmental Logs' %}
+        <a href="{% url 'environment_create' %}{% if filters.location %}?location={{ filters.location }}{% endif %}"
+           class="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors">
+            <i class="fas fa-plus mr-1"></i>Record Environment
+        </a>
+    </div>
+
+    <!-- Reminders -->
+    {% if reminders %}
+    <div class="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl p-4 ei-env-reminders">
+        <h3 class="text-amber-800 dark:text-amber-300 font-semibold mb-2">
+            <i class="fas fa-bell mr-2"></i>Today's Reminders
+        </h3>
+        <div class="space-y-2">
+            {% for reminder in reminders %}
+            <div class="flex items-center justify-between px-3 py-2 bg-white dark:bg-gray-800 rounded-lg">
+                <div class="flex items-center">
+                    <span class="text-amber-700 dark:text-amber-400 font-medium">{{ reminder.get_time_display }}</span>
+                    {% if reminder.location %}
+                    <span class="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-300">{{ reminder.location.name }}</span>
+                    {% endif %}
+                    {% if reminder.is_recorded %}
+                    <span class="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300">
+                        <i class="fas fa-check mr-1"></i>Recorded
+                    </span>
+                    {% else %}
+                    <span class="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300">
+                        <i class="fas fa-clock mr-1"></i>Pending
+                    </span>
+                    {% endif %}
+                </div>
+                {% if not reminder.is_recorded %}
+                <a href="{% url 'environment_create' %}{% if reminder.location_id %}?location={{ reminder.location_id }}{% endif %}" class="text-sm text-blue-600 dark:text-blue-400 hover:underline">
+                    Record Now
+                </a>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Graph -->
+    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-6 ei-env-trends">
+        <div class="flex items-center justify-between mb-4">
+            <h2 class="text-lg font-semibold text-gray-800 dark:text-gray-100">
+                <i class="fas fa-chart-line text-blue-600 dark:text-blue-400 mr-2"></i>Temperature & Humidity Trends
+            </h2>
+            <div class="flex space-x-2">
+                <button type="button" data-days="7" aria-pressed="false" onclick="updateGraph(7)" class="graph-btn">7 Days</button>
+                <button type="button" data-days="30" aria-pressed="true" onclick="updateGraph(30)" class="graph-btn">30 Days</button>
+                <button type="button" data-days="90" aria-pressed="false" onclick="updateGraph(90)" class="graph-btn">90 Days</button>
+            </div>
+        </div>
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div>
+                <h3 class="text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">Temperature (&deg;C)</h3>
+                <canvas id="tempChart" height="140"></canvas>
+            </div>
+            <div>
+                <h3 class="text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">Relative Humidity (%)</h3>
+                <canvas id="humidityChart" height="140"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <!-- Records Table -->
+    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm ei-env-records">
+        <div class="ei-env-controls">
+            <h2 class="text-lg font-semibold text-gray-800 dark:text-gray-100">
+                Environmental Records
+            </h2>
+            <div class="ei-env-control-grid">
+                <form method="get" class="ei-env-filter-form">
+                    <strong>Filter Records</strong>
+                    <select name="location" class="px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded-lg dark:bg-gray-700 dark:text-gray-100" title="Lab / Location">
+                        <option value="">All Labs</option>
+                        {% for loc in locations %}
+                        <option value="{{ loc.pk }}" {% if filters.location == loc.pk|stringformat:"s" %}selected{% endif %}>{{ loc.name }}</option>
+                        {% endfor %}
+                    </select>
+                    <input type="date" name="from_date" value="{{ filters.from_date }}" class="px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded-lg w-32 sm:w-auto dark:bg-gray-700 dark:text-gray-100">
+                    <span class="text-xs text-gray-500 dark:text-gray-400">to</span>
+                    <input type="date" name="to_date" value="{{ filters.to_date }}" class="px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded-lg w-32 sm:w-auto dark:bg-gray-700 dark:text-gray-100">
+                    <button type="submit" class="px-3 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700">
+                        <i class="fas fa-filter mr-1"></i>Filter
+                    </button>
+                    <a href="{% url 'environment_list' %}" class="px-2 py-1 text-xs text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100">Clear</a>
+                </form>
+                <form method="get" action="{% url 'environment_export' %}" class="ei-env-export-form">
+                    <strong>Export Records</strong>
+                    <input type="hidden" name="location" value="{{ filters.location }}">
+                    <input type="date" name="from_date" class="px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded-lg w-32 sm:w-auto dark:bg-gray-700 dark:text-gray-100" required>
+                    <span class="text-xs text-gray-500 dark:text-gray-400">to</span>
+                    <input type="date" name="to_date" class="px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded-lg w-32 sm:w-auto dark:bg-gray-700 dark:text-gray-100" required>
+                    <input type="text" name="filename" placeholder="Filename (optional)" class="px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded-lg w-36 dark:bg-gray-700 dark:text-gray-100" title="Leave blank to use the default name">
+                    <button type="submit"
+                            class="px-3 py-1.5 bg-green-600 text-white text-xs font-medium rounded-lg hover:bg-green-700 transition-colors">
+                        <i class="fas fa-file-excel mr-1"></i>Export
+                    </button>
+                </form>
+            </div>
+        </div>
+        <div class="overflow-x-auto">
+        <table class="w-full">
+            <thead>
+                <tr class="text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider bg-gray-50 dark:bg-gray-700">
+                    <th class="px-5 py-3">Doc No</th>
+                    <th class="px-5 py-3">Date</th>
+                    <th class="px-5 py-3">Time</th>
+                    <th class="px-5 py-3">Lab / Location</th>
+                    <th class="px-5 py-3">Temperature (&deg;C)</th>
+                    <th class="px-5 py-3">Humidity (%)</th>
+                    <th class="px-5 py-3">Recorded By</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100 dark:divide-gray-700">
+                {% for record in records %}
+                <tr class="hover:bg-gray-50 dark:hover:bg-gray-700" data-record-kind="ei_environment" data-record-id="{{record.pk}}">
+                    <td class="px-5 py-3 text-sm font-mono text-gray-600 dark:text-gray-300">{% firstof record.doc_no "-" %}</td>
+                    <td class="px-5 py-3 text-sm text-gray-900 dark:text-gray-100">{{ record.date|date:"d M Y" }}</td>
+                    <td class="px-5 py-3 text-sm text-gray-600 dark:text-gray-300">{{ record.get_time_display }}</td>
+                    <td class="px-5 py-3 text-sm text-gray-600 dark:text-gray-300">
+                        {% if record.location %}<span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-300">{{ record.location.name }}</span>{% else %}-{% endif %}
+                    </td>
+                    <td class="px-5 py-3 text-sm text-gray-600 dark:text-gray-300">{{ record.temperature }}</td>
+                    <td class="px-5 py-3 text-sm text-gray-600 dark:text-gray-300">{{ record.relative_humidity }}</td>
+                    <td class="px-5 py-3 text-sm text-gray-500 dark:text-gray-400">{{ record.recorded_by.username|default:"-" }}</td>
+                </tr>
+                {% empty %}
+                <tr>
+                    <td colspan="7" class="px-5 py-8 text-center text-gray-500 dark:text-gray-400">
+                        <i class="fas fa-temperature-low text-3xl mb-2"></i>
+                        <p>No environment records yet.</p>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        </div>
+        
+        {% if is_paginated %}
+        <div class="px-4 py-3 border-t dark:border-gray-700 bg-gray-50 dark:bg-gray-700">
+            <p class="text-xs text-gray-500 dark:text-gray-400 text-center mb-2">Showing {{ page_obj.start_index }}-{{ page_obj.end_index }} of {{ page_obj.paginator.count }}</p>
+            <nav class="flex items-center justify-center space-x-2">
+                {% if page_obj.has_previous %}
+                <a href="?page=1{% if request.GET|strip_page %}&{{ request.GET|strip_page }}{% endif %}" class="px-3 py-1 text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700" title="First">
+                    <i class="fas fa-angle-double-left"></i>
+                </a>
+                <a href="?page={{ page_obj.previous_page_number }}{% if request.GET|strip_page %}&{{ request.GET|strip_page }}{% endif %}" class="px-3 py-1 text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700" title="Previous">
+                    <i class="fas fa-angle-left"></i>
+                </a>
+                {% endif %}
+                <span class="px-3 py-1 text-sm text-gray-700 dark:text-gray-200">Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
+                {% if page_obj.has_next %}
+                <a href="?page={{ page_obj.next_page_number }}{% if request.GET|strip_page %}&{{ request.GET|strip_page }}{% endif %}" class="px-3 py-1 text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700" title="Next">
+                    <i class="fas fa-angle-right"></i>
+                </a>
+                <a href="?page={{ page_obj.paginator.num_pages }}{% if request.GET|strip_page %}&{{ request.GET|strip_page }}{% endif %}" class="px-3 py-1 text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700" title="Last">
+                    <i class="fas fa-angle-double-right"></i>
+                </a>
+                {% endif %}
+            </nav>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<script>
+function getChartTextColor() {
+    return '#cde1e6';
+}
+function getChartGridColor() {
+    return 'rgba(183, 218, 226, 0.16)';
+}
+function getLineColors() {
+    return ['#51d4dc', '#fbbf24', '#fb8790'];
+}
+
+let tempChart, humidityChart;
+const CURRENT_LOCATION = '{{ filters.location|default:"" }}';
+
+function initCharts() {
+    const ctx1 = document.getElementById('tempChart').getContext('2d');
+    const ctx2 = document.getElementById('humidityChart').getContext('2d');
+
+    tempChart = new Chart(ctx1, {
+        type: 'line',
+        data: { datasets: [] },
+        options: {
+            responsive: true, maintainAspectRatio: true,
+            color: getChartTextColor(),
+            scales: {
+                x: { ticks: { font: { size: 9 }, maxTicksLimit: 10, color: getChartTextColor() }, grid: { display: false, color: getChartGridColor() } },
+                y: { ticks: { font: { size: 9 }, color: getChartTextColor() }, grid: { color: getChartGridColor() }, title: { display: true, text: '\u00b0C', font: { size: 9 }, color: getChartTextColor() } }
+            },
+            plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, padding: 6, font: { size: 10 }, color: getChartTextColor() } } }
+        }
+    });
+
+    humidityChart = new Chart(ctx2, {
+        type: 'line',
+        data: { datasets: [] },
+        options: {
+            responsive: true, maintainAspectRatio: true,
+            color: getChartTextColor(),
+            scales: {
+                x: { ticks: { font: { size: 9 }, maxTicksLimit: 10, color: getChartTextColor() }, grid: { display: false, color: getChartGridColor() } },
+                y: { ticks: { font: { size: 9 }, color: getChartTextColor() }, grid: { color: getChartGridColor() }, title: { display: true, text: '%', font: { size: 9 }, color: getChartTextColor() } }
+            },
+            plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, padding: 6, font: { size: 10 }, color: getChartTextColor() } } }
+        }
+    });
+
+    updateGraph(30);
+}
+
+function updateGraph(days) {
+    document.querySelectorAll('.ei-env-trends .graph-btn').forEach(btn => {
+        btn.setAttribute('aria-pressed', String(Number(btn.dataset.days) === days));
+    });
+
+    fetch(`{% url 'environment_data' %}?days=${days}${CURRENT_LOCATION ? '&location=' + CURRENT_LOCATION : ''}`)
+        .then(r => r.json())
+        .then(data => {
+            const colors = getLineColors();
+            tempChart.data = {
+                labels: data.labels,
+                datasets: [
+                    { label: '08:00', data: data.temp_08, borderColor: colors[0], backgroundColor: 'transparent', tension: 0.3, pointRadius: 2, borderWidth: 1.5 },
+                    { label: '12:00', data: data.temp_12, borderColor: colors[1], backgroundColor: 'transparent', tension: 0.3, pointRadius: 2, borderWidth: 1.5 },
+                    { label: '17:00', data: data.temp_17, borderColor: colors[2], backgroundColor: 'transparent', tension: 0.3, pointRadius: 2, borderWidth: 1.5 },
+                ]
+            };
+            tempChart.update();
+
+            humidityChart.data = {
+                labels: data.labels,
+                datasets: [
+                    { label: '08:00', data: data.hum_08, borderColor: colors[0], backgroundColor: 'transparent', tension: 0.3, pointRadius: 2, borderWidth: 1.5 },
+                    { label: '12:00', data: data.hum_12, borderColor: colors[1], backgroundColor: 'transparent', tension: 0.3, pointRadius: 2, borderWidth: 1.5 },
+                    { label: '17:00', data: data.hum_17, borderColor: colors[2], backgroundColor: 'transparent', tension: 0.3, pointRadius: 2, borderWidth: 1.5 },
+                ]
+            };
+            humidityChart.update();
+        });
+}
+
+document.addEventListener('DOMContentLoaded', initCharts);
+</script>
+{% endblock %}

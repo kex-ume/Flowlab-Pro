@@ -1,0 +1,40 @@
+{% load static permission_tags %}
+<section id="new-job-form" class="ei-records-panel ei-new-job-panel ei-wizard" hidden>
+    <div class="ei-new-job-heading"><h2>{% if may_edit %}Edit Job Draft{% else %}Add New Job{% endif %}</h2><button type="button" id="close-new-job" aria-label="Close form">×</button></div>
+    <div class="ei-wizard-steps" role="tablist" aria-label="Job entry stages">
+        <button type="button" data-step="0">1 · General Information</button><button type="button" data-step="1">2 · Equipment / UUT</button>
+        <button type="button" data-step="2">3 · Schedule &amp; Personnel</button><button type="button" data-step="3">4 · Review &amp; Submission</button>
+    </div>
+    <form id="ei-job-wizard" novalidate>
+        {% csrf_token %}
+        <div class="ei-wizard-page ei-new-job-grid" data-page="0">
+            <div><label for="wizard-client">Client</label><select id="wizard-client" name="client"><option value="">Select registered client</option></select>{% if user|has_perm_tag:'create_clients' %}<a class="ei-form-assist" href="{% url 'client_create' %}">Register a client</a>{% endif %}</div>
+            <div><label for="wizard-po">PO number</label><input id="wizard-po" name="po" maxlength="50"></div>
+            <div><label for="wizard-type">Job type</label><select id="wizard-type" name="job_type"><option value="lab">Lab</option><option value="field">Field</option></select></div>
+            <div><label for="wizard-received">Received date</label><input id="wizard-received" name="received_date" type="date"></div>
+            <div class="ei-new-job-wide"><label for="wizard-description">Description / scope of work</label><textarea id="wizard-description" name="description" rows="3"></textarea></div>
+            <div class="ei-new-job-wide"><label>Created by</label><span id="wizard-creator"></span></div>
+        </div>
+        <div class="ei-wizard-page" data-page="1" hidden><div class="ei-workspace-heading"><h3>Registered equipment / UUTs</h3><button type="button" class="ei-records-view" id="ei-add-uut">Add UUT</button></div><div id="ei-uuts-entry"></div></div>
+        <div class="ei-wizard-page ei-new-job-grid" data-page="2" hidden>
+            <div><label for="wizard-start">Planned start date</label><input id="wizard-start" name="start_date" type="date"></div>
+            <div><label for="wizard-end">Scheduled end date</label><input id="wizard-end" name="end_date" type="date"></div>
+            <div><label for="wizard-assignees">Suggested personnel</label><select id="wizard-assignees" name="assignees" multiple size="5"></select></div>
+            <div><label for="wizard-primary">Primary responsible assignee</label><select id="wizard-primary" name="primary_assignee"><option value="">Select registered personnel</option></select></div>
+            <div><label for="wizard-supervisor">Lab supervisor</label><select id="wizard-supervisor" name="supervisor"><option value="">Resolve from authorized supervisor group</option></select></div>
+            <div><label for="wizard-remarks">Remarks</label><textarea id="wizard-remarks" name="remarks" rows="2"></textarea></div>
+        </div>
+        <div class="ei-wizard-page" data-page="3" hidden>
+            <div id="ei-wizard-review" class="ei-review-summary"></div>
+            <div id="ei-lab-document-fields" class="ei-new-job-grid">
+                <div><label for="wizard-lsr">Lab Service Request · required to submit Lab job</label><input id="wizard-lsr" type="file" accept=".pdf,.png,.jpg,.jpeg,.xlsx,.docx" data-kind="service_request"></div>
+                <div><label for="wizard-waybill">Waybill document · required to submit Lab job</label><input id="wizard-waybill" type="file" accept=".pdf,.png,.jpg,.jpeg,.xlsx,.docx" data-kind="waybill"></div>
+            </div>
+            <div id="ei-wizard-documents"></div>
+        </div>
+        <p id="ei-wizard-message" role="status" aria-live="polite"></p>
+        <div class="ei-wizard-actions"><button type="button" class="ei-records-view" id="ei-wizard-back">Back</button><span id="ei-job-save-status"></span><button type="button" class="ei-records-view" id="ei-save-draft">Save Draft</button><button type="button" class="ei-records-primary" id="ei-wizard-next">Next</button><button type="button" class="ei-records-primary" id="ei-submit-job" hidden></button></div>
+    </form>
+</section>
+{{ job_bootstrap|json_script:'ei-job-bootstrap' }}
+<script src="{% static 'core/ei-workflow.js' %}?v=20261016review1" defer></script>

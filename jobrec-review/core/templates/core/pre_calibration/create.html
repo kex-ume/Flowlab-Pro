@@ -1,0 +1,259 @@
+{% extends 'core/base.html' %}
+{% block title %}Pre-Calibration Inspection{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto">
+
+{% url 'pre_calibration_list' as back_href %}
+{% include 'core/partials/back_link.html' with back_label='Back to Pre-Calibration' %}    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-6">
+        <h1 class="text-xl font-bold text-gray-800 dark:text-gray-100 mb-6">
+            <i class="fas fa-search text-blue-600 dark:text-blue-400 mr-2"></i>Pre-Calibration Inspection
+        </h1>
+
+        <div class="bg-gray-50 dark:bg-gray-700 rounded-lg p-4 mb-6">
+            <h3 class="text-sm font-medium text-gray-600 dark:text-gray-300">Equipment</h3>
+            <p class="text-lg font-semibold text-gray-800 dark:text-gray-100">{{ waybill_item.equipment_description }}</p>
+            <p class="text-sm text-gray-500 dark:text-gray-400">Serial: {{ waybill_item.serial_no }} | Model: {{ waybill_item.model_no|default:"-" }} | Manufacturer: {{ waybill_item.manufacturer|default:"-" }}</p>
+        </div>
+
+        <form method="post" class="space-y-4">
+            {% csrf_token %}
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Scope(s) of Calibration <span class="text-red-500">*</span></label>
+                    <div class="space-y-1 max-h-48 overflow-y-auto border border-gray-200 dark:border-gray-600 rounded-lg p-3 bg-gray-50 dark:bg-gray-700">
+                        {% for scope in form.fields.scopes.queryset %}
+                        <label class="flex items-center space-x-2 text-sm text-gray-700 dark:text-gray-200">
+                            <input type="checkbox" name="scopes" value="{{ scope.pk }}"
+                                   class="scope-chk h-4 w-4 text-blue-600 rounded dark:bg-gray-600"
+                                   {% if scope.pk|stringformat:'s' in selected_scopes %}checked{% endif %}>
+                            <span>{{ scope.name }}</span>
+                        </label>
+                        {% endfor %}
+                    </div>
+                    <p class="text-xs text-gray-400 dark:text-gray-500 mt-1">One pre-calibration can cover several scopes. A single calibration log can then span them.</p>
+                    {% if form.scopes.errors %}
+                    <p class="text-red-500 dark:text-red-400 text-xs mt-1">{{ form.scopes.errors.0 }}</p>
+                    {% endif %}
+                    <span id="scope-error" class="text-red-500 dark:text-red-400 text-xs mt-1 hidden">Select at least one scope.</span>
+                </div>
+                <div>
+                    <div class="flex items-center justify-between mb-1">
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-200">
+                            Unit(s) of Measurement <span class="text-red-500">*</span>
+                            <span class="text-xs text-gray-400 dark:text-gray-500">(equipment units, must have a reference standard)</span>
+                        </label>
+                        <button type="button" id="unit-refresh"
+                                class="text-xs text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300">
+                            <i class="fas fa-rotate"></i> Refresh
+                        </button>
+                    </div>
+                    <div id="units-container" class="space-y-1 max-h-48 overflow-y-auto border border-gray-200 dark:border-gray-600 rounded-lg p-3 bg-gray-50 dark:bg-gray-700">
+                        <p id="units-empty" class="text-xs text-gray-400 dark:text-gray-500">
+                            Select at least one scope, or click Refresh, to show its units.
+                        </p>
+                        <div id="unit-loading" class="hidden">
+                            <i class="fas fa-spinner fa-spin text-blue-500"></i>
+                            <span class="text-xs text-gray-400 dark:text-gray-500">Loading units…</span>
+                        </div>
+                    </div>
+                    <p class="text-xs text-gray-400 dark:text-gray-500 mt-1">Determined during inspection; units without an active reference standard are shown disabled.</p>
+                    {% if form.units.errors %}
+                    <p class="text-red-500 dark:text-red-400 text-xs mt-1">{{ form.units.errors.0 }}</p>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Measurement Range of Equipment</label>
+                    {{ form.range_value }}
+                    <p class="text-xs text-gray-400 dark:text-gray-500 mt-1">Used to match reference standards whose range fully contains the equipment range.</p>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Physical Condition</label>
+                    {{ form.physical_condition }}
+                </div>
+            </div>
+
+            <div>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Visual Inspection Notes</label>
+                {{ form.visual_inspection_notes }}
+            </div>
+
+            <div>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Issues Found</label>
+                {{ form.issues_found }}
+            </div>
+
+            <div class="flex items-center">
+                {{ form.ready_for_calibration }}
+                <label for="id_ready_for_calibration" class="ml-2 text-sm text-gray-700 dark:text-gray-200">
+                    Ready for Calibration
+                </label>
+            </div>
+
+            <div class="border-t dark:border-gray-700 pt-4">
+                <div class="flex items-center mb-4">
+                    {{ form.use_manual_env }}
+                    <label for="id_use_manual_env" class="ml-2 text-sm text-gray-700 dark:text-gray-200">
+                        Enter environmental data manually
+                    </label>
+                </div>
+
+                <div id="env-dropdown" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Environmental Condition</label>
+                        {{ form.environmental_condition }}
+                    </div>
+                </div>
+
+                <div id="env-manual" class="grid grid-cols-1 md:grid-cols-2 gap-4" style="display: none;">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Temperature (°C)</label>
+                        {{ form.manual_temperature }}
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Humidity (%)</label>
+                        {{ form.manual_humidity }}
+                    </div>
+                </div>
+            </div>
+
+            <div>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Remarks (will be added to Job)</label>
+                {{ form.remarks }}
+            </div>
+
+            <div class="flex items-center justify-end space-x-3 pt-4">
+                <a href="{% url 'job_list' %}"
+                   class="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors">
+                    Cancel
+                </a>
+                <button type="submit"
+                        class="px-6 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors">
+                    <i class="fas fa-save mr-1"></i>Complete Inspection
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const checkbox = document.getElementById('{{ form.use_manual_env.id_for_label }}');
+    const envDropdown = document.getElementById('env-dropdown');
+    const envManual = document.getElementById('env-manual');
+
+    function toggleEnv() {
+        if (checkbox.checked) {
+            envDropdown.style.display = 'none';
+            envManual.style.display = 'grid';
+        } else {
+            envDropdown.style.display = 'grid';
+            envManual.style.display = 'none';
+        }
+    }
+
+    checkbox.addEventListener('change', toggleEnv);
+    toggleEnv();
+
+    // Unit(s) of Measurement: fetched from units_by_scope — the single source
+    // of truth. It lazy-seeds the Unit catalog and returns `available`
+    // (active reference standard exists) and `range_ok` (standard covers the
+    // equipment range). Unavailable units are shown disabled with a badge,
+    // never hidden, so technicians know why they can't pick them.
+    const UNITS_BY_SCOPE_URL = '{% url "units_by_scope" 0 %}';
+    const selectedUnits = new Set({{ selected_units_json|safe }});
+
+    const scopeChecks = document.querySelectorAll('.scope-chk');
+    const unitsContainer = document.getElementById('units-container');
+    const unitsEmpty = document.getElementById('units-empty');
+    const unitLoading = document.getElementById('unit-loading');
+    const scopeError = document.getElementById('scope-error');
+    const rangeInput = document.getElementById('id_range_value');
+    const refreshBtn = document.getElementById('unit-refresh');
+
+    function visibleScopes() {
+        return Array.from(scopeChecks).filter(c => c.checked).map(c => c.value);
+    }
+
+    function unitListUrl(scopeIds, refresh) {
+        let url = UNITS_BY_SCOPE_URL.replace(/\/0\/$/, '/0/');
+        const qs = [];
+        if (scopeIds && scopeIds.length) qs.push('scopes=' + encodeURIComponent(scopeIds.join(',')));
+        if (refresh) qs.push('refresh=1');
+        const rangeVal = rangeInput ? (rangeInput.value || '').trim() : '';
+        if (rangeVal) qs.push('range=' + encodeURIComponent(rangeVal));
+        if (qs.length) url += '?' + qs.join('&');
+        return url;
+    }
+
+    function renderUnits(units, scopeIds) {
+        unitsContainer.innerHTML = '';
+        if (!units || !units.length) {
+            unitsEmpty.textContent = scopeIds.length
+                ? 'No units configured for the selected scope(s).'
+                : 'Select at least one scope, or click Refresh, to show its units.';
+            unitsEmpty.classList.remove('hidden');
+            return;
+        }
+        unitsEmpty.classList.add('hidden');
+        units.forEach(u => {
+            const usable = u.available && u.range_ok;
+            let badges = '';
+            if (!u.available) {
+                badges += '<span class="unit-warn text-xs text-amber-500"><i class="fas fa-triangle-exclamation"></i> no reference standard</span>';
+            } else if (!u.range_ok) {
+                badges += '<span class="unit-warn text-xs text-amber-500"><i class="fas fa-triangle-exclamation"></i> range mismatch</span>';
+            }
+            const checked = usable && selectedUnits.has(String(u.id)) ? 'checked' : '';
+            const label = document.createElement('label');
+            label.className = 'unit-chk flex items-center space-x-2 text-sm text-gray-700 dark:text-gray-200'
+                + (usable ? '' : ' opacity-60');
+            label.dataset.scope = u.scope_id;
+            label.innerHTML =
+                '<input type="checkbox" name="units" value="' + u.id + '"' +
+                ' class="unit-chk-input h-4 w-4 text-blue-600 rounded dark:bg-gray-600"' +
+                (usable ? '' : ' disabled') + ' ' + checked + '>' +
+                '<span class="unit-symbol">' + u.symbol + '</span>' +
+                '<span class="text-xs text-gray-400">' + (u.name || '') + '</span>' +
+                badges;
+            unitsContainer.appendChild(label);
+        });
+    }
+
+    function loadUnits(refresh) {
+        const scopeIds = visibleScopes();
+        if (unitLoading) unitLoading.classList.remove('hidden');
+        fetch(unitListUrl(scopeIds, refresh))
+            .then(r => {
+                if (!r.ok) throw new Error('bad status');
+                return r.json();
+            })
+            .then(units => renderUnits(units, scopeIds))
+            .catch(() => renderUnits([], scopeIds))
+            .finally(() => {
+                if (unitLoading) unitLoading.classList.add('hidden');
+            });
+    }
+
+    scopeChecks.forEach(chk => chk.addEventListener('change', () => {
+        loadUnits(false);
+        const any = visibleScopes().length > 0;
+        if (scopeError) scopeError.style.display = any ? 'none' : 'inline';
+    }));
+
+    if (refreshBtn) refreshBtn.addEventListener('click', () => loadUnits(true));
+
+    let rangeTimer = null;
+    if (rangeInput) rangeInput.addEventListener('input', () => {
+        clearTimeout(rangeTimer);
+        rangeTimer = setTimeout(() => loadUnits(false), 400);
+    });
+
+    loadUnits(false);
+});
+</script>
+{% endblock %}

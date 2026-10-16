@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>{{ proc.doc_no }} — Calibration Procedure</title>
+    <style>
+        body { font-family: Arial, Helvetica, sans-serif; margin: 24px; color: #111; }
+        h1 { font-size: 16px; border-bottom: 2px solid #111; padding-bottom: 8px; }
+        h2 { font-size: 13px; margin-top: 20px; }
+        table { border-collapse: collapse; width: 100%; font-size: 12px; margin-top: 8px; }
+        th, td { border: 1px solid #333; padding: 6px 8px; text-align: left; }
+        th { background: #eee; }
+        ol { font-size: 12px; }
+        code { background: #f4f4f4; padding: 1px 4px; }
+        .muted { color: #555; font-size: 11px; }
+    </style>
+</head>
+<body>
+    <h1>CALIBRATION PROCEDURE</h1>
+    <p class="muted">Document No: {{ proc.doc_no }}</p>
+    <table>
+        <tr><th>Title</th><td>{{ proc.title }}</td></tr>
+        <tr><th>Scope</th><td>{% firstof proc.scope.name "-" %} ({{ scope_abbr }})</td></tr>
+        <tr><th>Manual Reference</th><td>{% firstof proc.manual_reference "-" %}</td></tr>
+        <tr><th>Version</th><td>{{ proc.version }}</td></tr>
+        <tr><th>Status</th><td>{{ proc.get_status_display }}</td></tr>
+        <tr><th>Assigned To</th><td>{% firstof proc.assigned_to.name "-" %}</td></tr>
+        <tr><th>Tolerance</th><td>{% if proc.tolerance_pct is not None %}{{ proc.tolerance_pct }} %{% else %}-{% endif %}</td></tr>
+    </table>
+    <h2>Instructions</h2>
+    <ol>
+        {% for line in proc.instructions.splitlines %}
+        <li>{{ line }}</li>
+        {% empty %}
+        <li>No instructions recorded.</li>
+        {% endfor %}
+    </ol>
+    {% if proc.test_points_percent %}
+    <h2>Test Points (% of range)</h2>
+    <p>{{ proc.test_points_percent|join:", " }}</p>
+    {% endif %}
+</body>
+</html>
