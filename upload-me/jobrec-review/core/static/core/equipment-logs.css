@@ -1,0 +1,25 @@
+/* Equipment Logs — faithful replica of the laboratory Excel certificate sheet */
+.cert-sheet-wrap { background: #fff; color: #111; border: 1px solid #c9dce5; border-radius: 10px; padding: 14px 16px; overflow-x: auto; }
+.cert-logo { margin-bottom: 6px; }
+.cert-logo img { height: 44px; width: auto; display: block; }
+table.cert-sheet { border-collapse: collapse; width: 100%; font: 12px/1.5 Calibri, Arial, sans-serif; }
+.cert-sheet th, .cert-sheet td { border: 1.5px solid #0b4a5a; padding: 4px 10px; vertical-align: middle; color: #111; background: #fff; }
+.cert-sheet .sv-title { font-weight: 700; letter-spacing: .03em; text-align: center; padding: 6px 10px; }
+.cert-sheet .sv-head { font-weight: 700; text-align: left; }
+.cert-sheet .sv-label { font-weight: 700; text-align: left; white-space: nowrap; }
+.cert-sheet .sv-plain { text-align: left; }
+.cert-sheet .sv-bold { font-weight: 700; }
+.cert-sheet .sv-input { padding: 2px 6px; }
+.cert-sheet .sv-input input.qinput, .cert-sheet input.qinput {
+    width: 100%; border: 0; background: transparent; padding: 4px 4px; font: inherit; color: inherit;
+    box-sizing: border-box;
+}
+.cert-sheet input.qinput:focus { outline: 2px solid #087a80; outline-offset: -2px; background: #eef6f7; }
+.cert-sheet .sv-td { padding: 1px 4px; }
+.cert-sheet input.cell { width: 100%; }
+.el-conclusion-strip { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
+.el-conclusion-strip label { font-size: 11px; font-weight: 700; letter-spacing: .04em; color: #0b4a5a; text-transform: uppercase; }
+.el-conclusion-strip select { padding: 6px 10px; border: 1px solid #c9dce5; border-radius: 8px; font: inherit; background: #fff; }
+.el-conclusion-strip input, .el-conclusion-strip select { box-sizing: border-box; }
+.el-record-note { font-size: 12px; color: var(--mu, #5d7080); margin-top: 8px; }
+@media print { .el-steps, .el-actions, .el-unlock, form.el-unlock { display: none !important; } }

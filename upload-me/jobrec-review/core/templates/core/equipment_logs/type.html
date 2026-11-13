@@ -1,0 +1,81 @@
+{% extends 'core/base.html' %}{% load static %}{% block title %}{{ template.name }} · {{ year }}{% endblock %}{% block content %}
+<header class="ei-register-heading"><div><p class="ei-register-eyebrow"><a href="{% url 'equipment_logs_home' %}" style="color:inherit">Equipment Logs</a> · <a href="{% url 'equipment_log_year' year %}" style="color:inherit">{{ year }}</a> · {{ template.name }}</p><h1>{{ template.name }} · {{ year }}</h1></div>
+<a class="ei-records-primary" href="{% url 'equipment_log_type_download' year template.pk %}">Download Excel</a></header>
+{% if selected %}
+<link rel="stylesheet" href="{% static 'core/equipment-logs.css' %}">
+<style>
+    .el-split { display: flex; gap: 14px; align-items: flex-start; margin-top: 18px; }
+    .el-side { width: 230px; flex: none; background: var(--card, #fff); border: 1px solid var(--ei-border, #dce4ea); border-radius: 12px; padding: 14px; }
+    .el-side b { font-size: 13px; }
+    .el-side a { display: block; text-decoration: none; padding: 7px 9px; border-radius: 8px; color: inherit; }
+    .el-side a:hover { background: var(--bg, #f1f5f8); }
+    .el-side .on { background: #087a80 !important; color: #fff !important; }
+    .el-side small { margin-left: 6px; font-size: 10px; opacity: .8; }
+    .el-pane { flex: 1; min-width: 0; background: var(--card, #fff); border: 1px solid var(--ei-border, #dce4ea); border-radius: 12px; padding: 18px; }
+    .el-history { margin-top: 14px; font-size: 12px; color: var(--mu, #5d7080); }
+    .el-history li { margin: 4px 0; }
+    .el-actions { display: flex; gap: 10px; flex-wrap: wrap; margin: 14px 0 0; align-items: center; }
+    .el-mini { padding: 6px 12px; border-radius: 8px; border: 1px solid #c9dce5; background: var(--card, #fff); cursor: pointer; font: inherit; font-size: 13px; color: inherit; text-decoration: none; }
+    .el-unlock { background: #fff2d6; border: 1px solid #f0c04a; border-radius: 10px; padding: 12px; margin: 10px 0; }
+    .el-unlock textarea { width: 100%; box-sizing: border-box; border: 1px solid #e3c878; border-radius: 8px; padding: 8px 10px; background: #fffdf4; font: inherit; }
+    .el-chip { display: inline-block; background: var(--bg, #f1f5f8); border-radius: 8px; padding: 4px 12px; font-size: 12px; font-weight: 600; margin-bottom: 10px; }
+    .el-chip.pass { background: #e3f4ea; color: #1a7f4b; } .el-chip.fail { background: #fbe6e4; color: #b3261e; }
+    .el-editnote { background: #fff2d6; color: #9a6a00; border-radius: 8px; padding: 8px 12px; font-size: 12px; margin: 8px 0; }
+    @media (max-width: 900px) { .el-split { flex-direction: column; } .el-side { width: 100%; } }
+</style>
+<div class="el-split">
+    <aside class="el-side" aria-label="Serial numbers">
+        <b>Serial numbers</b>
+        <div style="margin-top:8px">
+        {% for record in records %}<a class="{% if selected.pk == record.pk %}on{% endif %}" href="?serial={{ record.serial_no }}">{{ record.serial_no }}<small>{{ record.get_conclusion_display|default:'—' }}</small></a>
+        {% empty %}<small>No serial numbers for {{ year }} yet.</small>{% endfor %}
+        </div>
+    </aside>
+    <section class="el-pane">
+        <h2 style="margin:0">{{ selected.serial_no }}</h2>
+        <div style="color:var(--mu,#5d7080);margin-bottom:8px">{{ template.name }} · {{ year }} calibration</div>
+        <div class="el-chip {% if selected.conclusion %}{{ selected.conclusion }}{% endif %}">{{ selected.get_conclusion_display|default:'Conclusion not set' }}</div>
+        {% if unlock %}<div class="el-editnote">Editing unlocked. Every change is recorded in the change history below.</div>{% endif %}
+        <form method="post" action="{% url 'equipment_log_record_update' selected.pk %}" id="el-edit-form">
+            {% csrf_token %}
+            <input type="hidden" name="rows_json" value="[]">
+            <div id="el-grid">{{ sheet_html }}</div>
+            <div class="el-conclusion-strip">
+                {% if unlock %}
+                <label for="f-res">Conclusion</label>
+                <select id="f-res" name="conclusion">
+                    <option value="" {% if not selected.conclusion %}selected{% endif %}>—</option>
+                    <option value="pass" {% if selected.conclusion == 'pass' %}selected{% endif %}>Pass</option>
+                    <option value="fail" {% if selected.conclusion == 'fail' %}selected{% endif %}>Fail</option>
+                </select>
+                <button type="button" class="el-mini" onclick="EquipmentLogs.addRow('el-grid')">+ Row</button>
+                <button type="submit" class="ei-records-primary">Done editing</button>
+                {% else %}
+                <input type="hidden" name="conclusion" value="{{ selected.conclusion }}">
+                <a class="el-mini" href="{% url 'equipment_log_record_download' selected.pk %}">Download this sheet</a>
+                {% endif %}
+            </div>
+        </form>
+        {% if not unlock %}
+        <form method="post" action="{% url 'equipment_log_unlock' selected.pk %}" class="el-unlock">
+            {% csrf_token %}
+            <b>Edit record</b>
+            <p style="margin:4px 0 8px;color:var(--mu,#5d7080);font-size:12px">Saved records are controlled. State why you need to edit this one.</p>
+            <textarea name="reason" rows="2" required placeholder="e.g. Serial number typed wrongly"></textarea>
+            <div style="margin-top:8px"><button type="submit" class="ei-records-primary">Unlock for editing</button></div>
+        </form>
+        {% endif %}
+        <div class="el-history">
+            <b>Change history</b>
+            <ul>
+                {% for entry in selected.change_history reversed %}<li>{{ entry.when|slice:':19' }} · {{ entry.who }} · {{ entry.reason }}</li>
+                {% empty %}<li>No changes since this record was saved.</li>{% endfor %}
+            </ul>
+        </div>
+    </section>
+</div>
+<script src="{% static 'core/js/equipment_logs.js' %}"></script>
+<script>EquipmentLogs.bindSerializer('el-grid', 'el-edit-form');</script>
+{% else %}
+<p class="lead">No serial numbers for {{ year }} yet. Records are added by uploading certificates.</p>
+{% endif %}{% endblock %}

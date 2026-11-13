@@ -1,0 +1,28 @@
+{% extends 'core/base.html' %}{% block title %}Equipment Logs{% endblock %}{% block content %}{% url 'dashboard' as back_href %}{% include 'core/partials/back_link.html' %}
+<header class="ei-register-heading"><div><p class="ei-register-eyebrow">E&amp;I Laboratory · Certificate Records</p><h1>Equipment Logs</h1></div>
+<div class="el-actions"><a class="ei-records-primary" href="{% url 'equipment_log_upload' %}">Upload certificate</a><a class="ei-records-primary el-ghost" href="{% url 'equipment_log_template_upload' %}">Upload template</a></div></header>
+<style>
+    .el-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+    .el-ghost { background: var(--card, #fff) !important; color: #087a80 !important; border: 1px solid #c9dce5 !important; }
+    .el-folders { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 14px; margin-top: 22px; }
+    .el-folder { display: block; text-decoration: none; border: 1px solid var(--ei-border, #dce4ea); background: var(--card, #fff); border-radius: 12px; padding: 18px; transition: border-color .15s, transform .15s; color: inherit; }
+    .el-folder:hover { border-color: #087a80; transform: translateY(-2px); }
+    .el-folder .el-year { font-size: 22px; font-weight: 700; color: var(--tx, #10222e); }
+    .el-folder small { color: var(--mu, #5d7080); display: block; margin-top: 6px; font-size: 12px; }
+    .el-folder-icon { color: #087a80; display: block; margin-bottom: 10px; }
+    .el-template-folder { border-style: dashed; background: transparent; }
+</style>
+<section class="el-folders" aria-label="Equipment log folders">
+    {% for card in year_cards %}
+    <a class="el-folder" href="{% url 'equipment_log_year' card.year %}">
+        <span class="el-folder-icon"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></span>
+        <span class="el-year">{{ card.year }}</span>
+        <small>{{ card.types }} equipment type{{ card.types|pluralize }} · {{ card.serials }} serial number{{ card.serials|pluralize }}</small>
+    </a>
+    {% endfor %}
+    <a class="el-folder el-template-folder" href="{% url 'equipment_log_templates' %}">
+        <span class="el-folder-icon"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 13h6M9 17h6"/></svg></span>
+        <span class="el-year">Templates</span>
+        <small>{{ template_count }} active template{{ template_count|pluralize }} — one Excel sheet per equipment group</small>
+    </a>
+</section>{% endblock %}

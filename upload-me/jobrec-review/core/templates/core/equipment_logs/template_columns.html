@@ -1,0 +1,33 @@
+{% extends 'core/base.html' %}{% block title %}Template Columns{% endblock %}{% block content %}{% url 'equipment_log_templates' as back_href %}{% include 'core/partials/back_link.html' %}
+<header class="ei-register-heading"><div><p class="ei-register-eyebrow">Equipment Logs · Templates</p><h1>Template columns</h1></div></header>
+<style>
+    .el-card { background: var(--card, #fff); border: 1px solid var(--ei-border, #dce4ea); border-radius: 12px; padding: 20px; margin-top: 18px; overflow-x: auto; }
+    .el-card label { font-size: 11px; font-weight: 600; color: var(--mu, #5d7080); letter-spacing: .04em; text-transform: uppercase; display: block; margin: 14px 0 6px; }
+    .el-card select, .el-card input[type=text] { padding: 9px 11px; border: 1px solid #c9dce5; border-radius: 8px; background: var(--card, #fff); font: inherit; }
+    table { border-collapse: collapse; width: 100%; font-size: 12px; }
+    th { background: #0b4a5a; color: #fff; text-align: left; padding: 6px 10px; text-transform: uppercase; font-size: 10px; letter-spacing: .05em; }
+    td { padding: 5px 10px; border-bottom: 1px solid var(--ei-border, #dce4ea); white-space: nowrap; }
+    tr.header-row td { background: #e3f4ea; font-weight: 700; }
+    .el-rows td { cursor: pointer; }
+    .el-rows tr:hover td { background: var(--bg, #f1f5f8); }
+    .el-note { font-size: 12px; color: var(--mu, #5d7080); margin: 8px 0; }
+</style>
+<p class="el-note">Sheet: <b>{{ sheet }}</b> · Click the row that holds the column names, then confirm.</p>
+<form class="el-card" method="post" action="{% url 'equipment_log_template_columns' %}">
+    {% csrf_token %}
+    <label for="el-name">Equipment type name</label>
+    <input id="el-name" name="name" type="text" style="width:100%;box-sizing:border-box" value="{{ default_name }}" required>
+    <label for="el-sheet">Worksheet</label>
+    <select id="el-sheet" onchange="location.href='?sheet='+encodeURIComponent(this.value)">
+        {% for item in sheets %}<option value="{{ item }}" {% if item == sheet %}selected{% endif %}>{{ item }}</option>{% endfor %}
+    </select>
+    <input type="hidden" name="sheet" value="{{ sheet }}">
+    <input type="hidden" name="header_row" id="el-header-row" value="0">
+    <table class="el-rows" aria-label="Sheet preview — click a row to use as columns">
+        <thead><tr>{% for _ in preview_rows.0 %}<th>{{ forloop.counter }}</th>{% endfor %}</tr></thead>
+        <tbody>
+        {% for row in preview_rows %}<tr onclick="document.getElementById('el-header-row').value='{{ forloop.counter0 }}';this.parentNode.querySelectorAll('tr').forEach(r=>r.classList.remove('header-row'));this.classList.add('header-row')">{% for cell in row %}<td>{{ cell }}</td>{% endfor %}</tr>{% endfor %}
+        </tbody>
+    </table>
+    <div style="margin-top:18px"><button class="ei-records-primary" type="submit">Save template →</button></div>
+</form>{% endblock %}

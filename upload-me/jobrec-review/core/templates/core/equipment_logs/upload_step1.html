@@ -1,0 +1,26 @@
+{% extends 'core/base.html' %}{% block title %}Upload Certificate{% endblock %}{% block content %}{% url 'equipment_logs_home' as back_href %}{% include 'core/partials/back_link.html' %}
+<header class="ei-register-heading"><div><p class="ei-register-eyebrow">Equipment Logs · Certificate Upload</p><h1>Upload certificate</h1></div></header>
+<style>
+    .el-steps { display: flex; gap: 8px; flex-wrap: wrap; margin: 18px 0; }
+    .el-step { padding: 6px 14px; border-radius: 99px; background: var(--card, #fff); color: var(--mu, #5d7080); border: 1px solid var(--ei-border, #dce4ea); font-size: 12px; font-weight: 600; }
+    .el-step.on { background: #087a80; color: #fff; border-color: #087a80; }
+    .el-card { background: var(--card, #fff); border: 1px solid var(--ei-border, #dce4ea); border-radius: 12px; padding: 22px; max-width: 720px; }
+    .el-card label { display: block; font-size: 11px; font-weight: 600; color: var(--mu, #5d7080); letter-spacing: .04em; text-transform: uppercase; margin: 16px 0 6px; }
+    .el-card input[type=file] { width: 100%; padding: 9px 11px; border: 1px solid #c9dce5; border-radius: 8px; background: var(--card, #fff); font: inherit; box-sizing: border-box; }
+    .el-note { margin: 14px 0 0; font-size: 12px; color: var(--mu, #5d7080); }
+    .el-warn { background: #fff2d6; border: 1px solid #f0c04a; color: #9a6a00; border-radius: 10px; padding: 12px 14px; margin-top: 16px; font-size: 13px; }
+    .el-warn a { color: #087a80; font-weight: 600; }
+</style>
+<div class="el-steps" aria-hidden="true"><span class="el-step on">1 · Upload</span><span class="el-step">2 · Review &amp; fix</span><span class="el-step">3 · Preview</span><span class="el-step">4 · Save to log</span></div>
+<form class="el-card" method="post" enctype="multipart/form-data" action="{% url 'equipment_log_upload' %}">
+    {% csrf_token %}
+    {% if templates %}
+    <p class="el-note">The system will match this document against your stored templates automatically and fill the matching one.</p>
+    {% else %}
+    <div class="el-warn"><strong>No templates uploaded yet.</strong> Upload an existing certificate template first —<br><a href="{% url 'equipment_log_template_upload' %}">go to Upload template →</a></div>
+    {% endif %}
+    <label for="el-file">Certificate file (PDF, Word or Excel)</label>
+    <input id="el-file" name="certificate" type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.csv" required {% if not templates %}disabled{% endif %}>
+    <p class="el-note">The system reads the certificate text and fills the template automatically. The file is <strong>never stored</strong>; it is deleted as soon as you save the record.</p>
+    <div style="margin-top:18px"><button class="ei-records-primary" type="submit" {% if not templates %}disabled{% endif %}>Read the certificate →</button></div>
+</form>{% endblock %}

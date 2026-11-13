@@ -1,0 +1,17 @@
+{% extends 'core/base.html' %}{% block title %}Upload Template{% endblock %}{% block content %}{% url 'equipment_log_templates' as back_href %}{% include 'core/partials/back_link.html' %}
+<header class="ei-register-heading"><div><p class="ei-register-eyebrow">Equipment Logs · Templates</p><h1>Upload template</h1></div></header>
+<style>
+    .el-card { background: var(--card, #fff); border: 1px solid var(--ei-border, #dce4ea); border-radius: 12px; padding: 22px; max-width: 680px; margin-top: 18px; }
+    .el-card label { display: block; font-size: 11px; font-weight: 600; color: var(--mu, #5d7080); letter-spacing: .04em; text-transform: uppercase; margin: 16px 0 6px; }
+    .el-card input[type=text], .el-card input[type=file] { width: 100%; padding: 9px 11px; border: 1px solid #c9dce5; border-radius: 8px; background: var(--card, #fff); font: inherit; box-sizing: border-box; }
+    .el-note { margin: 14px 0 0; font-size: 12px; color: var(--mu, #5d7080); }
+</style>
+<form class="el-card" method="post" enctype="multipart/form-data" action="{% url 'equipment_log_template_upload' %}">
+    {% csrf_token %}
+    <label for="el-name">Equipment type</label>
+    <input id="el-name" name="name" type="text" placeholder="e.g. Grinding Machine, Chart Recorder" value="">
+    <label for="el-file">Template Excel file (.xlsx)</label>
+    <input id="el-file" name="template" type="file" accept=".xlsx" required>
+    <p class="el-note">One sheet per equipment group, holding the details you want logged for it. On the next screen you pick the sheet and click the row whose cells are the column names (e.g. Test point, Nominal (mm), Measured (mm), Error (µm), Result) — whatever the equipment calls them.</p>
+    <div style="margin-top:18px"><button class="ei-records-primary" type="submit">Continue →</button></div>
+</form>{% endblock %}

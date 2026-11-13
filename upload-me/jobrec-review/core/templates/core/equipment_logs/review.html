@@ -1,0 +1,102 @@
+{% extends 'core/base.html' %}{% load static %}{% block title %}{{ page_title }}{% endblock %}{% block content %}
+<header class="ei-register-heading"><div><p class="ei-register-eyebrow">Equipment Logs · Certificate Upload</p><h1>{{ page_title }}</h1></div><a class="ei-records-primary el-ghost" href="{% url 'equipment_log_cancel' %}">Cancel upload</a></header>
+<link rel="stylesheet" href="{% static 'core/equipment-logs.css' %}">
+<style>
+    .el-steps { display: flex; gap: 8px; flex-wrap: wrap; margin: 14px 0; }
+    .el-step { padding: 6px 14px; border-radius: 99px; background: var(--card, #fff); color: var(--mu, #5d7080); border: 1px solid var(--ei-border, #dce4ea); font-size: 12px; font-weight: 600; }
+    .el-step.on { background: #087a80; color: #fff; border-color: #087a80; }
+    .el-ghost { background: var(--card, #fff) !important; color: #087a80 !important; border: 1px solid #c9dce5 !important; }
+    .el-split { display: flex; gap: 14px; align-items: flex-start; }
+    .el-viewer { flex: 1.05; min-width: 0; background: #fff; border: 1px solid var(--ei-border, #dce4ea); border-radius: 12px; overflow: hidden; height: 82vh; position: sticky; top: 12px; }
+    .el-viewer iframe { width: 100%; height: 100%; border: 0; background: #fff; }
+    .el-form-col { flex: 1.15; min-width: 0; }
+    .el-card { background: var(--card, #fff); border: 1px solid var(--ei-border, #dce4ea); border-radius: 12px; padding: 14px; }
+    .el-card h2 { margin: 0 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: #0b4a5a; }
+    .el-hint { color: var(--mu, #5d7080); font-size: 12px; margin: 0 0 10px; }
+    .el-chips { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0 12px; }
+    .el-chip { background: var(--bg, #f1f5f8); border-radius: 8px; padding: 5px 10px; font-size: 12px; color: var(--mu, #5d7080); }
+    .el-chip.el-missing { background: #fff2d6; color: #9a6a00; outline: 1px solid #f0c04a; }
+    .el-table-wrap { overflow-x: auto; margin-top: 8px; }
+    .el-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 16px; align-items: center; }
+    .el-mini { padding: 6px 12px; border-radius: 8px; border: 1px solid #c9dce5; background: var(--card, #fff); cursor: pointer; font: inherit; font-size: 12px; text-decoration: none; color: inherit; }
+    .el-modal-backdrop { position: fixed; inset: 0; background: rgba(7, 28, 42, .55); z-index: 60; display: flex; align-items: center; justify-content: center; padding: 20px; }
+    .el-modal { background: var(--card, #fff); border-radius: 14px; max-width: 460px; padding: 22px 24px; box-shadow: 0 20px 60px rgba(0,0,0,.3); }
+    .el-cert-object { border: 0; }
+    .el-viewer-text { margin: 0; height: 100%; overflow: auto; font: 11px/1.5 Consolas, monospace; white-space: pre-wrap; padding: 12px; color: #111; background: #fff; }
+    .el-open-cert { padding: 8px 12px; }
+    .el-modal h2 { margin: 0 0 8px; font-size: 17px; }
+    .el-modal p { margin: 0 0 18px; color: var(--mu, #5d7080); font-size: 13px; }
+    .el-modal-actions { display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap; }
+    @media (max-width: 980px) { .el-split { flex-direction: column; } .el-viewer { height: 50vh; width: 100%; position: static; } }
+</style>
+<div class="el-steps" aria-hidden="true"><span class="el-step on">1 · Upload</span><span class="el-step on">2 · Review &amp; fix</span><span class="el-step {% if mode == 'preview' %}on{% endif %}">3 · Preview</span><span class="el-step">4 · Save to log</span></div>
+<div class="el-split">
+    <div class="el-viewer">
+        <object data="{{ viewer_url }}" type="application/pdf" width="100%" height="100%" class="el-cert-object" aria-label="Uploaded certificate">
+            <pre class="el-viewer-text">{{ preview_text }}</pre>
+            <p class="el-open-cert"><a href="{{ viewer_url }}" target="_blank" rel="noopener">Open certificate in a new tab ↗</a></p>
+        </object>
+    </div>
+    <div class="el-form-col">
+        <div class="el-card">
+            <h2>{{ filename }} — {{ template.name }}</h2>
+            <p class="el-hint">Matched automatically to <strong>{{ template.name }}</strong>{% if match_score != None %} ({{ match_score }}% field match){% endif %} · extracted with the {{ provider|default:'text' }} reader. The sheet below <strong>is the certificate form</strong> — verify every cell, then confirm.</p>
+            {% if missing %}
+            <div class="el-chips" aria-label="Fields not found">
+                <span class="el-chip el-missing">Not found — fill in:</span>
+                {% for field in missing %}<span class="el-chip el-missing">{{ field }}</span>{% endfor %}
+            </div>
+            {% endif %}
+            <form id="el-review-form" method="post" action="{% if mode == 'preview' %}{% url 'equipment_log_save' %}{% else %}{% url 'equipment_log_review' %}{% endif %}">
+                {% csrf_token %}
+                <input type="hidden" name="mode" value="preview">
+                <input type="hidden" name="rows_json" value="[]">
+                <div id="el-grid">{{ sheet_html }}</div>
+                <div class="el-conclusion-strip">
+                    <label for="f-res">Conclusion</label>
+                    <select id="f-res" name="conclusion" {% if mode == 'preview' %}disabled{% endif %}>
+                        <option value="" {% if not data.conclusion %}selected{% endif %}>—</option>
+                        <option value="pass" {% if data.conclusion == 'pass' %}selected{% endif %}>Pass</option>
+                        <option value="fail" {% if data.conclusion == 'fail' %}selected{% endif %}>Fail</option>
+                    </select>
+                    {% if mode == 'preview' %}<input type="hidden" name="conclusion" value="{{ data.conclusion }}">{% endif %}
+                    <button type="button" class="el-mini" onclick="EquipmentLogs.addRow('el-grid')">+ Row</button>
+                </div>
+                {% if mode != 'preview' %}
+                <div class="el-actions">
+                    <button type="submit" class="ei-records-primary">Preview →</button>
+                    <a class="el-mini" href="{% url 'equipment_log_cancel' %}">Cancel</a>
+                </div>
+                {% else %}
+                <div class="el-actions">
+                    <a class="el-mini" href="{% url 'equipment_log_review' %}">← Back to review &amp; fix</a>
+                    <button type="button" id="el-done-btn" class="ei-records-primary">Done ✓</button>
+                </div>
+                {% endif %}
+            </form>
+        </div>
+    </div>
+</div>
+{% if mode == 'preview' %}
+<div class="el-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="el-confirm-title" id="el-modal" style="display:none">
+    <div class="el-modal">
+        <h2 id="el-confirm-title">Are you sure?</h2>
+        <p>The certificate file will not be kept after saving. Only the values in the sheet above are stored in the Equipment Certificate Log.</p>
+        <div class="el-modal-actions">
+            <a class="el-mini" href="{% url 'equipment_log_cancel' %}">Cancel</a>
+            <button type="button" class="el-mini" id="el-preview-btn">Preview</button>
+            <button type="submit" form="el-review-form" class="ei-records-primary">Yes, Done</button>
+        </div>
+    </div>
+</div>
+<script>
+    document.getElementById('el-done-btn').addEventListener('click', function () {
+        document.getElementById('el-modal').style.display = 'flex';
+    });
+    document.getElementById('el-preview-btn').addEventListener('click', function () {
+        document.getElementById('el-modal').style.display = 'none';
+    });
+</script>
+{% endif %}
+<script src="{% static 'core/js/equipment_logs.js' %}"></script>
+<script>EquipmentLogs.bindSerializer('el-grid', 'el-review-form');</script>{% endblock %}

@@ -1,0 +1,23 @@
+{% extends 'core/base.html' %}{% block title %}Certificates Log {{ year }}{% endblock %}{% block content %}{% url 'equipment_logs_home' as back_href %}{% include 'core/partials/back_link.html' %}
+<header class="ei-register-heading"><div><p class="ei-register-eyebrow"><a href="{% url 'equipment_logs_home' %}" style="color:inherit">Equipment Logs</a> · {{ year }}</p><h1>Certificates Log {{ year }}</h1></div>
+<a class="ei-records-primary" href="{% url 'equipment_log_year_download' year %}">Download {{ year }} log (Excel)</a></header>
+<style>
+    .el-list { display: grid; gap: 10px; margin-top: 20px; }
+    .el-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; background: var(--card, #fff); border: 1px solid var(--ei-border, #dce4ea); border-radius: 12px; padding: 16px 18px; text-decoration: none; color: inherit; }
+    .el-row small { color: var(--mu, #5d7080); display: block; }
+    .el-row-actions { display: flex; gap: 8px; }
+    .el-mini { padding: 6px 12px; border-radius: 8px; border: 1px solid #c9dce5; background: var(--card, #fff); color: #087a80; font-weight: 600; font-size: 13px; text-decoration: none; }
+</style>
+<section class="el-list">
+    {% for type in types %}
+    <div class="el-row">
+        <span><b>{{ type.template_name }}</b><small>{{ type.serials }} serial number{{ type.serials|pluralize }}</small></span>
+        <span class="el-row-actions">
+            <a class="el-mini" href="{% url 'equipment_log_type_download' year type.template %}">Download Excel</a>
+            <a class="ei-records-primary" href="{% url 'equipment_log_type' year type.template %}">Open →</a>
+        </span>
+    </div>
+    {% empty %}
+    <p class="lead">Nothing logged for {{ year }} yet. Upload a certificate to create the first entry.</p>
+    {% endfor %}
+</section>{% endblock %}

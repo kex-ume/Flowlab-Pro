@@ -1,0 +1,66 @@
+{% extends 'core/base.html' %}{% load static %}{% block title %}Review detected layout{% endblock %}{% block content %}{% url 'equipment_logs_home' as back_href %}{% include 'core/partials/back_link.html' %}
+<header class="ei-register-heading"><div><p class="ei-register-eyebrow">Equipment Logs · Templates</p><h1>Review what was detected</h1></div></header>
+<link rel="stylesheet" href="{% static 'core/equipment-logs.css' %}">
+<style>
+    .el-note { margin: 12px 0; font-size: 13px; color: var(--mu, #5d7080); }
+    .el-cols { display: flex; gap: 16px; align-items: flex-start; }
+    .el-preview { flex: 1.25; min-width: 0; }
+    .el-candidates { flex: 1; min-width: 320px; display: grid; gap: 12px; }
+    .el-candidate { background: var(--card, #fff); border: 1px solid var(--ei-border, #dce4ea); border-radius: 12px; padding: 14px; }
+    .el-candidate.selected { border-color: #087a80; box-shadow: 0 0 0 2px #087a80; }
+    .el-candidate h3 { margin: 0 0 4px; font-size: 14px; }
+    .el-candidate small { color: var(--mu, #5d7080); font-size: 12px; }
+    .el-candidate ul { margin: 10px 0 6px; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: 6px; }
+    .el-candidate li { background: var(--bg, #f1f5f8); border-radius: 6px; padding: 3px 8px; font-size: 11px; }
+    .el-candidate label.el-toggle { display: flex; gap: 8px; align-items: center; font-size: 13px; font-weight: 700; color: #087a80; cursor: pointer; }
+    .el-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 6px; align-items: center; }
+    @media (max-width: 1000px) { .el-cols { flex-direction: column; } }
+</style>
+<p class="el-note">Sheet: <b>{{ sheet }}</b> · The system read the sheet itself. Include the blocks you want logged — nothing is stored without your say-so.</p>
+{% if sheets|length > 1 %}
+<form method="get" action="{% url 'equipment_log_template_confirm' %}" style="margin-bottom:12px">
+    <label for="el-sheet" style="font-size:11px;font-weight:600;color:var(--mu,#5d7080)">WORKSHEET</label><br>
+    <select id="el-sheet" name="sheet" onchange="this.form.submit()" style="padding:8px 10px;border:1px solid #c9dce5;border-radius:8px;font:inherit">
+        {% for item in sheets %}<option value="{{ item }}" {% if item == sheet %}selected{% endif %}>{{ item }}</option>{% endfor %}
+    </select>
+</form>
+{% endif %}
+<div class="el-cols">
+    <div class="el-preview" aria-label="Read-only sheet preview">{{ sheet_html }}</div>
+    <form class="el-candidates" method="post" action="{% url 'equipment_log_template_confirm' %}">
+        {% csrf_token %}
+        <input type="hidden" name="sheet" value="{{ sheet }}">
+        <div>
+            <label for="el-name" style="font-size:11px;font-weight:600;color:var(--mu,#5d7080)">EQUIPMENT TYPE NAME</label><br>
+            <input id="el-name" name="name" type="text" style="width:100%;box-sizing:border-box;padding:9px 11px;border:1px solid #c9dce5;border-radius:8px;font:inherit" value="{{ default_name }}" required>
+        </div>
+        {% for candidate in candidates %}
+        <div class="el-candidate {% if candidate.default %}selected{% endif %}">
+            <label class="el-toggle">
+                <input type="checkbox" name="include" value="{{ forloop.counter0 }}" {% if candidate.default %}checked{% endif %} onchange="this.closest('.el-candidate').classList.toggle('selected', this.checked)">
+                {% if candidate.type == 'fields' %}Activities log detected{% else %}Test-data table detected{% endif %}
+            </label>
+            <small>
+                {% if candidate.type == 'fields' %}
+                    {{ candidate.labels|length }} field{{ candidate.labels|length|pluralize }}{% if candidate.section %} · {{ candidate.section }}{% endif %}
+                {% else %}
+                    {{ candidate.columns|length }} column{{ candidate.columns|length|pluralize }}{% if candidate.section %} · {{ candidate.section }}{% endif %}
+                {% endif %}
+            </small>
+            <ul>
+                {% if candidate.type == 'fields' %}
+                    {% for label in candidate.labels %}<li>{{ label }}</li>{% endfor %}
+                {% else %}
+                    {% for column in candidate.columns %}<li>{{ column }}</li>{% endfor %}
+                {% endif %}
+            </ul>
+            <div class="el-block-sample">
+                {% if candidate.type == 'fields' %}e.g. {{ candidate.labels.0 }} = {{ candidate.samples.0|default:'(empty)' }}{% else %}e.g. row: {% for cell in candidate.samples %}{% if cell %}{{ cell }}{% if not forloop.last %} | {% endif %}{% endif %}{% endfor %}{% endif %}
+            </div>
+        </div>
+        {% empty %}
+        <div class="el-candidate"><b>Nothing detected.</b><p class="el-note">The parser couldn't find an activities block or a test-data table in this sheet. Check the sheet contains a labelled table, or fix its layout and upload it again.</p></div>
+        {% endfor %}
+        <button class="ei-records-primary" type="submit" {% if not candidates %}disabled{% endif %}>Save template →</button>
+    </form>
+</div>{% endblock %}

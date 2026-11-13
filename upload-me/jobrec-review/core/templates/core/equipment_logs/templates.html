@@ -1,0 +1,33 @@
+{% extends 'core/base.html' %}{% block title %}Equipment Logs — Templates{% endblock %}{% block content %}{% url 'equipment_logs_home' as back_href %}{% include 'core/partials/back_link.html' %}
+<header class="ei-register-heading"><div><p class="ei-register-eyebrow"><a href="{% url 'equipment_logs_home' %}" style="color:inherit">Equipment Logs</a> · Templates</p><h1>Equipment Templates</h1></div><a class="ei-records-primary" href="{% url 'equipment_log_template_upload' %}">Upload template</a></header>
+<style>
+    .el-panel { background: var(--card, #fff); border: 1px solid var(--ei-border, #dce4ea); border-radius: 12px; overflow-x: auto; margin-top: 18px; }
+    table { border-collapse: collapse; width: 100%; font-size: 13px; }
+    th { background: #0b4a5a; color: #fff; text-align: left; padding: 8px 12px; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; white-space: nowrap; }
+    td { padding: 10px 12px; border-bottom: 1px solid var(--ei-border, #dce4ea); vertical-align: top; }
+    .el-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+    .el-mini { padding: 6px 12px; border-radius: 8px; border: 1px solid #c9dce5; background: var(--card, #fff); color: #087a80; font-weight: 600; font-size: 12px; text-decoration: none; cursor: pointer; font: inherit; }
+    .el-mini.danger { color: #b3261e; border-color: #f0c0bd; background: #fbe6e4; }
+</style>
+<div class="el-panel">
+    <table>
+        <thead><tr><th>Equipment type</th><th>Structure</th><th>Created</th><th>Log records</th><th>Actions</th></tr></thead>
+        <tbody>
+        {% for template in templates %}
+        <tr>
+            <td><b>{{ template.name }}</b></td>
+            <td><small>{% if template.activities %}{{ template.activities|length }} activity field{{ template.activities|length|pluralize }} · {% endif %}{% if template.columns %}{{ template.columns|join:' · ' }}{% else %}No table columns{% endif %}</small></td>
+            <td><small>{{ template.created_at|date:'d M Y' }} · {{ template.actor_name }}</small></td>
+            <td>{{ template.records_count }}</td>
+            <td>
+                <div class="el-actions">
+                    <form method="post" action="{% url 'equipment_log_template_delete' template.pk %}" onsubmit="return confirm('Delete “{{ template.name }}” and any {{ template.records_count }} log record{{ template.records_count|pluralize }} permanently?\n\nThis cannot be undone.')">{% csrf_token %}<button type="submit" class="el-mini danger">Delete template</button></form>
+                </div>
+            </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="5">No templates yet. <a href="{% url 'equipment_log_template_upload' %}">Upload one</a> — it stores the Excel sheet that defines what that equipment group’s log looks like.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>{% endblock %}
